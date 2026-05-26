@@ -51,6 +51,12 @@ https://whatsapp-bot-ix7t.onrender.com/api/health
 
 ## Transaction Flow
 
+For the full recommended WhatsApp group/private-DM escrow architecture, see:
+
+```text
+docs/whatsapp-escrow-mvp-flow.md
+```
+
 ### 1. User Sends A WhatsApp Message
 
 A customer sends a message to the Sivan WhatsApp bot, for example:
@@ -342,6 +348,9 @@ https://whatsapp-bot-ix7t.onrender.com/webhooks/twilio
 
 ## What Is Not Fully Production-Ready Yet
 
+- First-class buyer/seller onboarding and payout account setup are the next major architecture step.
+- Group-to-private-DM escrow initiation is documented but not fully implemented yet.
+- Manual payout approval should be implemented before automated seller payouts.
 - Full SAP on-chain escrow settlement needs real SAP wallet credentials and live integration tests.
 - x402 USDC payment flow needs live facilitator verification and settlement testing.
 - Dispute AI is intentionally not implemented yet.
@@ -364,4 +373,3 @@ Sivan currently works as a WhatsApp-first escrow workflow backend that can:
 The key product promise is simple:
 
 > A buyer funds the task first by transfer, Sivan verifies payment, then the AI/service workflow starts.
-
