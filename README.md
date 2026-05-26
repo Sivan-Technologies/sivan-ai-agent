@@ -1,84 +1,308 @@
-![Sivan Escrow Agent](https://img.shields.io/badge/project-Sivan%20Escrow%20Agent-blue)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
-
 # Sivan Escrow Agent
 
-An autonomous agent for the SAP + Ace Data Cloud bounty built for local Nigerian Naira escrow through Paystack and on-chain USDC settlement via x402.
+Sivan Escrow Agent is a WhatsApp-first escrow and AI task orchestration system for trust-based freelance and service payments.
 
-Sivan Escrow Agent is designed to support local trust-first freelance payments, where Paystack holds funds until both buyer and seller agree.
+The project is designed for people who already negotiate work through WhatsApp, Telegram, Discord, and informal communities, but need a safer way to collect money before work starts and confirm payment before releasing execution.
 
-## What this project does today
+Today, the strongest working flow is Nigerian Naira collection through Paystack using **bank transfer only**. Paystack confirms payment through a signed webhook before the backend runs the AI/SAP work. USDC/x402 and SAP paths are wired into the architecture, but still need live production credentials and deeper end-to-end verification before they should be treated as production-ready.
 
-- Uses `src/services/sapAgent.ts` to register and interact with SAP using JSON-RPC 2.0, discover available tools, and manage escrow lifecycle.
-- Uses `src/services/aceData.ts` to execute AI tasks through Ace Data Cloud APIs for text generation, document summarization, and data extraction.
-- Routes payments in `src/services/paymentRouter.ts` between Paystack fiat flow and x402 USDC payment facilitator flow.
-- Uses `src/services/paystackClient.ts` to initialize Naira payments, store Paystack transaction references, verify webhook signatures, and confirm transaction outcomes before running Naira task execution.
-- Uses `src/services/x402Client.ts` to create payment facilities, settle USDC payments, and poll payment status with retry logic.
-- Uses `src/services/agentOrchestrator.ts` to coordinate task execution, tool discovery, payment routing, and settlement.
-- Runs `src/server.ts` as an Express API and webhook service for authenticated task creation, protected admin endpoints, and Paystack payment confirmation.
+## What Sivan Can Do Today
 
-## What is included
+- Receive task requests from the standalone WhatsApp bot.
+- Protect task creation with a shared `CORE_API_SECRET`.
+- Parse user intent into task type, amount, instructions, and payment preference.
+- Create Naira payment requests through Paystack.
+- Restrict Paystack checkout to bank transfer via `PAYSTACK_CHANNELS=bank_transfer`.
+- Store the real Paystack transaction reference for webhook matching.
+- Wait for Paystack payment confirmation before running Naira tasks.
+- Verify Paystack webhook signatures.
+- Verify the Paystack transaction status after a `charge.success` webhook.
+- Prevent duplicate Paystack webhooks from double-running task execution.
+- Execute AI task work through the Ace Data Cloud integration path.
+- Send task/payment updates back to the WhatsApp bot.
+- Provide protected admin endpoints for tasks, webhook events, fee settings, and audit history.
+- Run a React admin dashboard for internal monitoring.
 
-- `docs/` with updated architecture, overview, agent specification, environment variables, and development plan.
-- `.env.example` describing required runtime configuration.
-- `src/` TypeScript implementation covering:
-  - SAP discovery, registration, and escrow workflow
-  - Ace Data Cloud AI execution
-  - Paystack Naira payment initialization and webhook verification
-  - x402 USDC payment facility creation and settlement
-  - autonomous orchestration of execution and settlement
+## Current Public Services
 
-## Getting started
+Backend API:
 
-### Backend (Render)
+```text
+https://sivan-escrow-agent.onrender.com
+```
 
-1. Copy `.env.example` to `.env` and update the values.
-2. Install dependencies:
+WhatsApp bot:
+
+```text
+https://whatsapp-bot-ix7t.onrender.com
+```
+
+Backend health:
+
+```text
+https://sivan-escrow-agent.onrender.com/api/health
+```
+
+WhatsApp bot health:
+
+```text
+https://whatsapp-bot-ix7t.onrender.com/api/health
+```
+
+## Transaction Flow
+
+### 1. User Sends A WhatsApp Message
+
+A customer sends a message to the Sivan WhatsApp bot, for example:
+
+```text
+Create a logo concept for my bakery. Budget 5000 naira.
+```
+
+The WhatsApp bot validates Twilio's webhook signature, parses the message, and sends an authenticated request to the backend:
+
+```text
+POST /api/tasks
+```
+
+The request includes:
+
+- task type
+- payment preference
+- amount
+- WhatsApp sender identity
+- task instructions
+
+### 2. Backend Creates The Task
+
+The backend validates the request body with Zod, creates a workflow record, and routes the payment based on the user's preference.
+
+For Naira, it calls Paystack and creates a transfer-only checkout/payment request.
+
+### 3. Paystack Generates A Transfer Payment Link
+
+Sivan initializes a Paystack transaction with:
+
+```json
+{
+  "currency": "NGN",
+  "channels": ["bank_transfer"]
+}
+```
+
+Paystack returns:
+
+- `authorization_url`
+- `reference`
+- `access_code`
+
+Sivan stores the real Paystack `reference`, because this is what Paystack sends back in webhooks.
+
+### 4. Bot Sends Payment Link To User
+
+The WhatsApp bot replies with the task ID and Paystack payment link.
+
+The user opens the Paystack link and pays by bank transfer.
+
+Sivan is not directly collecting card details and should not handle card data. Paystack handles the payment page and transfer instructions.
+
+### 5. Paystack Sends Webhook
+
+After Paystack detects successful payment, Paystack sends a webhook to:
+
+```text
+https://sivan-escrow-agent.onrender.com/webhooks/paystack
+```
+
+The backend:
+
+- checks the Paystack signature
+- validates the webhook body
+- extracts the transaction reference
+- finds the matching workflow task
+- calls Paystack transaction verification
+- confirms the transaction status is `success`
+
+### 6. Sivan Executes The Task
+
+Only after verified payment confirmation does Sivan execute the task.
+
+This is the key escrow behavior: work does not run for Naira tasks until payment is confirmed.
+
+### 7. WhatsApp Notification Is Sent
+
+After the task progresses, the backend calls the WhatsApp bot notification endpoint:
+
+```text
+POST /api/notify
+```
+
+The bot sends a WhatsApp update to the user.
+
+## API Endpoints
+
+### Public Health
+
+```text
+GET /api/health
+GET /health/readiness
+```
+
+### Task Creation
+
+```text
+POST /api/tasks
+```
+
+Requires:
+
+```text
+x-core-api-key: CORE_API_SECRET
+```
+
+### Paystack Webhook
+
+```text
+POST /webhooks/paystack
+```
+
+Paystack must send:
+
+```text
+x-paystack-signature
+```
+
+### Admin Endpoints
+
+All admin endpoints require:
+
+```text
+x-admin-key: ADMIN_API_KEY
+```
+
+Endpoints:
+
+```text
+GET /admin/tasks
+GET /admin/tasks/:taskId
+GET /admin/webhooks
+GET /admin/settings
+POST /admin/settings
+GET /admin/audit-history
+```
+
+## Environment Variables
+
+Copy `.env.example` to `.env` locally and configure provider credentials.
+
+Important backend variables:
+
+```env
+NODE_ENV=production
+PORT=4000
+DATABASE_URL=/tmp/sivan-escrow-agent.db
+
+ADMIN_API_KEY=change-me
+CORE_API_SECRET=change-me
+
+ACE_DATA_API_KEY=your-ace-data-key
+ACE_DATA_BASE_URL=https://api.acedata.cloud
+
+PAYSTACK_SECRET_KEY=sk_test_or_live_key
+PAYSTACK_PUBLIC_KEY=pk_test_or_live_key
+PAYSTACK_BASE_URL=https://api.paystack.co
+PAYSTACK_CHANNELS=bank_transfer
+PAYSTACK_CALLBACK_URL=https://sivan-escrow-agent.onrender.com/api/health
+WEBHOOK_URL=https://sivan-escrow-agent.onrender.com/webhooks/paystack
+
+NOTIFICATION_URL=https://whatsapp-bot-ix7t.onrender.com
+NOTIFICATION_SECRET=same-value-as-whatsapp-notify-secret
+
+SYNAPSE_API_KEY=your-synapse-key
+SYNAPSE_RPC_URL=your-synapse-rpc-url
+SYNAPSE_X402_FACILITATOR_URL=your-x402-facilitator-url
+SYNAPSE_X402_NETWORK=solana-devnet
+```
+
+SAP wallet variables are still required for full SAP/on-chain production use:
+
+```env
+SAP_AGENT_PRIVATE_KEY=your-real-sap-wallet-private-key
+SAP_AGENT_PUBLIC_KEY=your-real-sap-wallet-public-key
+```
+
+For a temporary non-SAP demo deployment, placeholders may keep the production server booting, but they should not be used for real on-chain settlement.
+
+## Paystack Dashboard Setup
+
+Use Paystack test mode while testing.
+
+Test webhook URL:
+
+```text
+https://sivan-escrow-agent.onrender.com/webhooks/paystack
+```
+
+Test callback URL:
+
+```text
+https://sivan-escrow-agent.onrender.com/api/health
+```
+
+Make sure:
+
+- `PAYSTACK_SECRET_KEY` starts with `sk_test_` in test mode.
+- `PAYSTACK_PUBLIC_KEY` starts with `pk_test_` in test mode.
+- Paystack IP whitelist is empty/off during Render testing unless you have static outbound IPs.
+- `PAYSTACK_CHANNELS=bank_transfer` is set in Render.
+
+## Local Development
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-3. Run in development mode:
+Run the backend in development mode:
 
 ```bash
 npm run dev
 ```
 
-4. Start the webhook server:
+Run the webhook/API server:
 
 ```bash
 npm run serve
 ```
 
-5. Configure runtime task inputs in `.env` using:
-
-```env
-AGENT_TASK_TYPE=content-creation
-USER_PAYMENT_PREFERENCE=NAIRA
-USER_EMAIL=buyer@example.com
-PAYMENT_AMOUNT=50
-TASK_INSTRUCTIONS=Write a product description for a trustless escrow service.
-```
-
-6. Build and run for production:
+Build:
 
 ```bash
 npm run build
+```
+
+Run tests:
+
+```bash
+npm test -- --run
+```
+
+Start production build:
+
+```bash
 npm start
 ```
 
-7. Build and run with Docker:
+## Admin Dashboard
 
-```bash
-docker build -t sivan-escrow-agent .
-docker run -p 4000:4000 --env-file .env sivan-escrow-agent
+The admin dashboard lives in:
+
+```text
+frontend/
 ```
 
-### Admin UI
-
-1. The `frontend/` folder is now an optional admin dashboard only.
-2. To run it locally:
+Run locally:
 
 ```bash
 cd frontend
@@ -86,66 +310,58 @@ npm install
 npm run dev
 ```
 
-3. Set `VITE_API_BASE_URL` to your Render backend URL when building it.
+Set:
 
-4. Deploy this folder only if you need an internal dashboard.
+```env
+VITE_API_BASE_URL=https://sivan-escrow-agent.onrender.com
+```
 
-## Project structure
+The dashboard is for internal operators, not the main buyer-facing product.
 
-- `./` — backend service deployable to Render.
-- `./frontend/` — optional admin UI for internal monitoring.
+## WhatsApp Bot
 
-## Deployment recommendations
+The WhatsApp bot is a separate repo:
 
-- Use Render for backend hosting with a persistent database.
-- Do not treat the admin UI as your main buyer-facing product.
-- Buyer-facing distribution should be WhatsApp first, with the backend handling incoming messages.
+```text
+https://github.com/Samswitchy/whatsapp-bot
+```
 
-## Standalone WhatsApp bot integration
+It handles:
 
-- The WhatsApp bot should be a separate repository from this core escrow backend.
-- Keep this repo focused on the backend, workflow orchestration, payment handling, and admin monitoring.
-- The WhatsApp bot repo should only forward messages and payment events into the backend API.
-- This keeps your core escrow logic private and maintainable by a separate team.
+- Twilio webhook signature validation
+- incoming WhatsApp messages
+- simple message parsing
+- calling `POST /api/tasks`
+- sending payment links and task updates
 
+Twilio webhook URL:
 
-- `src/index.ts` – main workflow entry point and bootstrap.
-- `src/config.ts` – environment variable loading and validation.
-- `src/services/aceData.ts` – Ace Data Cloud service adapter.
-- `src/services/paymentRouter.ts` – determines whether Naira or USDC payment flows should be used.
-- `src/services/sapAgent.ts` – SAP registration, tool discovery, and escrow lifecycle.
-- `src/services/agentOrchestrator.ts` – coordinates tool discovery, AI execution, and payment settlement.
-- `src/services/paystackClient.ts` – Paystack transaction initiation and webhook signature verification.
-- `src/services/x402Client.ts` – x402 payment facility creation, settlement, and status polling.
-- `src/server.ts` – Express server for authenticated task creation, protected admin endpoints, and Paystack webhook events.
+```text
+https://whatsapp-bot-ix7t.onrender.com/webhooks/twilio
+```
 
-## Why Sivan Escrow Agent?
+## What Is Not Fully Production-Ready Yet
 
-- Built to support local Nigerian Naira escrow through Paystack with funds held until mutual agreement.
-- Designed for trust-first, mobile-native freelance payments.
-- Positioned for communities that already transact through WhatsApp, Telegram, and Discord.
-- Focuses on low-friction onboarding and progressive identity rather than forcing crypto-first signup.
+- Full SAP on-chain escrow settlement needs real SAP wallet credentials and live integration tests.
+- x402 USDC payment flow needs live facilitator verification and settlement testing.
+- Dispute AI is intentionally not implemented yet.
+- SQLite on Render using `/tmp` is not durable. Use Render PostgreSQL or a persistent disk for production.
+- Vite/Vitest dev dependency audit warnings should be upgraded carefully.
+- More monitoring and alerts should be configured for Paystack/webhook failures.
+- WhatsApp UX is functional but still simple; it should become more conversational before launch.
 
-## Implementation status
+## Summary
 
-- Current implementation includes a modular TypeScript backend with production-grade service clients.
-- `sapAgent.ts` now uses JSON-RPC 2.0 and retry logic for SAP agent calls.
-- `x402Client.ts` now supports payment facility creation, settlement, and status polling.
-- `paymentRouter.ts` routes between Paystack and USDC settlement paths.
-- `agentOrchestrator.ts` coordinates AI execution, tool discovery, and payment settlement.
+Sivan currently works as a WhatsApp-first escrow workflow backend that can:
 
-> The system is now ready for real SAP/x402 endpoint deployment, workflow persistence, and production hardening.
+1. receive a task,
+2. create a Paystack bank-transfer payment request,
+3. wait for verified Paystack webhook confirmation,
+4. execute the task after payment,
+5. track everything in admin endpoints,
+6. notify the user through WhatsApp.
 
-## Production-grade direction
+The key product promise is simple:
 
-- Keep the existing TypeScript architecture and modular service pattern.
-- Add durable workflow state persistence and audit logging.
-- Harden all external integrations with retry, error handling, and observability.
-- Add tests, monitoring, and deployment automation before final submission.
+> A buyer funds the task first by transfer, Sivan verifies payment, then the AI/service workflow starts.
 
-## Next implementation steps
-
-- Finalize SAP mainnet integration and on-chain escrow lifecycle.
-- Expand Paystack webhook-driven Naira settlement tests and operational monitoring.
-- Add persistent workflow state, task retry safety, and transaction audit records.
-- Add queue-based scaling, monitoring, and deployment configuration.
