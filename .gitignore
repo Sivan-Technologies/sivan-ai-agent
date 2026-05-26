@@ -1,7 +1,53 @@
-.env
-node_modules
-.DS_Store
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage and caches
+coverage
+*.lcov
+.nyc_output
+.cache
+.parcel-cache
+.vite/
+*.tsbuildinfo
+.npm
+.eslintcache
+.stylelintcache
+
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Build outputs
 dist
+out
+.next
+.nuxt
+.output
+.svelte-kit/
+.docusaurus
+build/Release
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local database and machine files
 data/*.db
 Microsoft/
+.DS_Store
+
+# Duplicate sibling project copy
 whatsapp-bot/
