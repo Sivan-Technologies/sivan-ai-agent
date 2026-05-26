@@ -18,6 +18,18 @@ export interface PaystackTransactionStatus {
   paidAt?: string;
 }
 
+export interface PaystackBank {
+  name: string;
+  code: string;
+  slug?: string;
+}
+
+export interface PaystackAccountResolution {
+  accountNumber: string;
+  accountName: string;
+  bankCode: string;
+}
+
 export class PaystackClient {
   private baseUrl = config.paystack.baseUrl;
   private secretKey = config.paystack.secretKey;
@@ -82,6 +94,41 @@ export class PaystackClient {
       currency: data.currency,
       channel: data.channel,
       paidAt: data.paid_at,
+    };
+  }
+
+  public async listBanks(): Promise<PaystackBank[]> {
+    log("Fetching Paystack bank list");
+    const response = await axios.get(`${this.baseUrl}/bank?country=nigeria&perPage=100`, {
+      headers: this.getHeaders(),
+    });
+
+    if (!response.data || !response.data.status || !Array.isArray(response.data.data)) {
+      throw new Error("Invalid Paystack bank list response");
+    }
+
+    return response.data.data.map((bank: any) => ({
+      name: bank.name,
+      code: bank.code,
+      slug: bank.slug,
+    }));
+  }
+
+  public async resolveBankAccount(accountNumber: string, bankCode: string): Promise<PaystackAccountResolution> {
+    log("Resolving Paystack bank account", { accountNumber, bankCode });
+    const response = await axios.get(
+      `${this.baseUrl}/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+      { headers: this.getHeaders() }
+    );
+
+    if (!response.data || !response.data.status || !response.data.data?.account_name) {
+      throw new Error("Unable to verify bank account with Paystack");
+    }
+
+    return {
+      accountNumber: response.data.data.account_number,
+      accountName: response.data.data.account_name,
+      bankCode,
     };
   }
 }

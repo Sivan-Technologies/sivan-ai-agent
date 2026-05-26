@@ -211,8 +211,8 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 63%
-Production financial-readiness: 45%
+MVP escrow-core readiness: 72%
+Production financial-readiness: 55%
 ```
 
 Legend:
@@ -226,14 +226,14 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | 🟡 Mostly completed | Transfer-only initialization, webhook verification, reference matching, idempotency are implemented; live reconciliation still needs final validation |
-| Phase 2 | WhatsApp bot bridge | 🟡 Mostly completed | Twilio auth works, outbound messages work, webhook route exists, and private DM flow has started |
+| Phase 2 | WhatsApp bot bridge | 🟡 Mostly completed | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, and escrow commands exist |
 | Phase 3 | First-class users | 🟡 In progress | `users` table exists and WhatsApp numbers are now first-class identities; richer profile onboarding is next |
 | Phase 4 | First-class escrows | 🟡 In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
 | Phase 5 | Transaction state machine | 🟡 In progress | Canonical states are stored and release/dispute transitions are guarded in the escrow store |
-| Phase 6 | Private DM onboarding | 🟡 In progress | WhatsApp bot now uses private conversation sessions; group messages only trigger handoff |
-| Phase 7 | Seller payout setup | 🟡 In progress | `payout_accounts` table exists; Paystack bank/account verification is still next |
-| Phase 8 | Manual release approval | 🟡 In progress | Naira release moves to `PENDING_RELEASE`; admin approval endpoint and event trail exist |
-| Phase 9 | Dispute workflow | ⬜ Not started | Need dispute evidence capture, admin notes, and resolution outcomes |
+| Phase 6 | Private DM onboarding | 🟡 In progress | WhatsApp bot now uses private conversation sessions; group messages only trigger handoff; `status`, `accept`, `release`, and `dispute` commands exist |
+| Phase 7 | Seller payout setup | 🟡 In progress | `payout_accounts` table exists and Paystack account resolution marks verified/failed; fuller bank UX is next |
+| Phase 8 | Manual release approval | 🟡 In progress | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
+| Phase 9 | Dispute workflow | 🟡 In progress | Dispute state exists from WhatsApp/admin; evidence capture and resolution outcomes are next |
 | Phase 10 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 11 | SAP/x402/USDC production settlement | 🔮 Future | SDK and config are partially wired; requires real credentials and live testing |
 
@@ -256,10 +256,14 @@ The current system already has:
 - ✅ idempotency guard against repeated webhook execution
 - ✅ admin escrow ledger with release/dispute actions
 - ✅ Naira release policy: buyer request plus manual admin approval
+- ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
+- ✅ seller invite/accept flow before payment initialization
+- ✅ Paystack bank/account verification for seller payout accounts
 - ✅ USDC/x402 policy lane: autonomous release after deterministic checks
 - ✅ WhatsApp notification callback
 - ✅ Twilio webhook signature validation in the bot
 - ✅ WhatsApp private-DM escrow onboarding foundation
+- ✅ WhatsApp commands: `accept SIV-...`, `status SIV-...`, `release SIV-...`, `dispute SIV-...`
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
 - ✅ Render deployment for backend and bot
@@ -271,12 +275,11 @@ The next major engineering work should not be dispute AI yet.
 
 The next work should be deterministic settlement infrastructure:
 
-1. Harden profile onboarding with first name, last name, and payout setup prompts.
-2. Add Paystack bank/account verification before marking payout accounts verified.
-3. Add seller invite/accept flow so both parties explicitly join an escrow.
-4. Add admin evidence notes for disputes.
-5. Add reconciliation views for Paystack funding and manual Naira payouts.
-6. Add production x402/SAP settlement verification before expanding autonomous USDC release.
+1. Harden profile onboarding with first name, last name, and guided payout setup prompts.
+2. Add a better bank selection UX around Paystack bank codes.
+3. Add admin evidence notes and resolution outcomes for disputes.
+4. Add reconciliation dashboard filters for Paystack funding and manual Naira payouts.
+5. Add production x402/SAP settlement verification before expanding autonomous USDC release.
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 

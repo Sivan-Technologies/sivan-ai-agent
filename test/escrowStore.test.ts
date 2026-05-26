@@ -26,8 +26,10 @@ describe("EscrowStore", () => {
     const payout = await escrowStore.upsertPayoutAccount({
       userId: seller.userId,
       bankName: "Test Bank",
+      bankCode: "999",
       accountNumber: "0123456789",
       accountName: "Seller User",
+      verificationStatus: "verified",
     });
 
     const escrow = await escrowStore.createEscrow({
@@ -39,6 +41,9 @@ describe("EscrowStore", () => {
       purpose: "Logo design",
       createdByChannel: "whatsapp_dm",
     });
+    expect(escrow.status).toBe("PENDING_ACCEPTANCE");
+    const accepted = await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    expect(accepted.status).toBe("PENDING_PAYMENT");
     await escrowStore.attachPayment({
       escrowId: escrow.escrowId,
       paymentReference: "paystack-ref-1",
@@ -49,14 +54,18 @@ describe("EscrowStore", () => {
 
     const funded = await escrowStore.markFundedByPaymentReference("paystack-ref-1", { status: "success" });
     const pendingRelease = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
-    const released = await escrowStore.approveManualRelease(escrow.escrowId, "admin");
+    const released = await escrowStore.approveManualRelease(escrow.escrowId, "admin", {
+      manualPayoutReference: "manual-payout-1",
+      payoutNotes: "Paid from Paystack dashboard",
+    });
     const events = await escrowStore.listEvents(escrow.escrowId);
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
 
-    expect(payout.verificationStatus).toBe("pending");
+    expect(payout.verificationStatus).toBe("verified");
     expect(funded?.status).toBe("IN_PROGRESS");
     expect(pendingRelease.status).toBe("PENDING_RELEASE");
     expect(released.status).toBe("RELEASED");
+    expect(released.manualPayoutReference).toBe("manual-payout-1");
     expect(transactions.length).toBeGreaterThanOrEqual(2);
     expect(events.map((event) => event.eventType)).toContain("manual_release_approved");
   });
@@ -74,6 +83,7 @@ describe("EscrowStore", () => {
       purpose: "Smart contract review",
       createdByChannel: "whatsapp_dm",
     });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
     await escrowStore.attachPayment({
       escrowId: escrow.escrowId,
       paymentReference: `x402-${escrow.escrowId}`,

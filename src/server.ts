@@ -18,6 +18,7 @@ import { requireAdminAuth, logAdminAction } from "./middleware/adminAuth";
 import { requireCoreApiAuth } from "./middleware/apiAuth";
 import {
   adminSettingsSchema,
+  adminReleaseApprovalSchema,
   escrowActionSchema,
   escrowCreateSchema,
   formatZodError,
@@ -143,41 +144,15 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     });
 
     let payment: any = null;
-    if (input.currency === "NAIRA" && seller) {
-      const transaction = await paystackClient.initializeTransaction(
-        input.amount,
-        paystackEmailForWhatsapp(input.buyerWhatsapp),
-        config.paystack.callbackUrl
+    if (seller) {
+      await notifyWhatsAppBot(
+        seller.whatsappNumber,
+        `You have been invited to Sivan escrow ${escrow.escrowId} for ${input.currency} ${input.amount}.\nPurpose: ${input.purpose}\nReply: accept ${escrow.escrowId}`
       );
-      await escrowStore.attachPayment({
-        escrowId: escrow.escrowId,
-        paymentReference: transaction.reference,
-        paymentAuthorizationUrl: transaction.authorizationUrl,
-        paymentProvider: "paystack",
-        status: "PENDING_PAYMENT",
-      });
-      payment = {
-        provider: "paystack",
-        reference: transaction.reference,
-        authorizationUrl: transaction.authorizationUrl,
-      };
-    } else if (input.currency === "USDC") {
-      const reference = `x402-${escrow.escrowId}`;
-      await escrowStore.attachPayment({
-        escrowId: escrow.escrowId,
-        paymentReference: reference,
-        paymentProvider: "x402",
-        status: seller ? "PENDING_PAYMENT" : "PENDING_PROFILE",
-      });
-      payment = {
-        provider: "x402",
-        reference,
-        settlementPolicy: "autonomous_usdc_release",
-      };
     }
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
-    res.status(201).json({ escrow: updated, payment });
+    res.status(201).json({ escrow: updated, payment, sellerInviteSent: Boolean(seller) });
   } catch (err: any) {
     captureOperationalError("Failed to create escrow", err);
     res.status(500).json({ error: err.message || "Escrow creation failed" });
@@ -199,15 +174,94 @@ app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payout account payload", details: formatZodError(parsed.error) });
   }
+  let resolution;
+  try {
+    resolution = await paystackClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+  } catch (err: any) {
+    const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
+    const payout = await escrowStore.upsertPayoutAccount({
+      userId: user.userId,
+      bankName: parsed.data.bankName,
+      bankCode: parsed.data.bankCode,
+      accountNumber: parsed.data.accountNumber,
+      accountName: parsed.data.accountName,
+      verificationStatus: "failed",
+    });
+    return res.status(422).json({ error: err.message || "Bank account verification failed", payout });
+  }
   const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
   const payout = await escrowStore.upsertPayoutAccount({
     userId: user.userId,
     bankName: parsed.data.bankName,
+    bankCode: parsed.data.bankCode,
     accountNumber: parsed.data.accountNumber,
-    accountName: parsed.data.accountName,
-    verificationStatus: "pending",
+    accountName: resolution.accountName,
+    verificationStatus: "verified",
   });
   res.status(200).json(payout);
+});
+
+app.get("/api/paystack/banks", requireCoreApiAuth, async (_req, res) => {
+  try {
+    const banks = await paystackClient.listBanks();
+    res.status(200).json(banks);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch banks" });
+  }
+});
+
+app.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  res.status(200).json(escrow);
+});
+
+app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
+    let payment: any = null;
+    if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
+      const transaction = await paystackClient.initializeTransaction(
+        accepted.amount,
+        paystackEmailForWhatsapp(parsed.data.actorWhatsapp),
+        config.paystack.callbackUrl
+      );
+      await escrowStore.attachPayment({
+        escrowId: accepted.escrowId,
+        paymentReference: transaction.reference,
+        paymentAuthorizationUrl: transaction.authorizationUrl,
+        paymentProvider: "paystack",
+        status: "PENDING_PAYMENT",
+      });
+      payment = { provider: "paystack", reference: transaction.reference, authorizationUrl: transaction.authorizationUrl };
+    } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
+      const reference = `x402-${accepted.escrowId}`;
+      await escrowStore.attachPayment({
+        escrowId: accepted.escrowId,
+        paymentReference: reference,
+        paymentProvider: "x402",
+        status: "PENDING_PAYMENT",
+      });
+      payment = { provider: "x402", reference, settlementPolicy: "autonomous_usdc_release" };
+    }
+    const updated = await escrowStore.getEscrowById(req.params.escrowId);
+    if (updated && payment) {
+      const buyer = await escrowStore.getUserById(updated.buyerUserId);
+      if (buyer) {
+        const instruction = payment.authorizationUrl
+          ? `Seller accepted escrow ${updated.escrowId}.\nPay here: ${payment.authorizationUrl}`
+          : `Seller accepted escrow ${updated.escrowId}.\nPayment reference: ${payment.reference}`;
+        await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
+      }
+    }
+    res.status(200).json({ escrow: updated, payment });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Escrow acceptance failed" });
+  }
 });
 
 app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (req, res) => {
@@ -383,7 +437,11 @@ app.get("/admin/escrows/:escrowId", requireAdminAuth, async (req, res) => {
 app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminAction("approve_escrow_release"), async (req, res) => {
   try {
     const adminUser = (req as any).adminUser || "unknown";
-    const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser);
+    const parsed = adminReleaseApprovalSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid payout reconciliation payload", details: formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, parsed.data);
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Release approval failed" });

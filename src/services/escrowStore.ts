@@ -8,6 +8,7 @@ export type EscrowCurrency = "NAIRA" | "USDC";
 export type EscrowStatus =
   | "CREATED"
   | "PENDING_PROFILE"
+  | "PENDING_ACCEPTANCE"
   | "PENDING_PAYMENT"
   | "FUNDED"
   | "IN_PROGRESS"
@@ -36,6 +37,7 @@ export interface PayoutAccountRecord {
   userId: string;
   bankName: string;
   accountNumber: string;
+  bankCode?: string;
   accountName?: string;
   verificationStatus: "pending" | "verified" | "failed";
   providerRecipientCode?: string;
@@ -57,6 +59,10 @@ export interface EscrowRecord {
   paymentAuthorizationUrl?: string;
   paymentProvider?: string;
   releaseRequestedAt?: string;
+  manualPayoutReference?: string;
+  payoutNotes?: string;
+  releasedBy?: string;
+  releasedAt?: string;
   createdByChannel: string;
   createdAt: string;
   updatedAt: string;
@@ -145,6 +151,7 @@ export class EscrowStore {
       userId: row.user_id,
       bankName: row.bank_name,
       accountNumber: row.account_number,
+      bankCode: row.bank_code || undefined,
       accountName: row.account_name || undefined,
       verificationStatus: row.verification_status,
       providerRecipientCode: row.provider_recipient_code || undefined,
@@ -169,6 +176,10 @@ export class EscrowStore {
       paymentAuthorizationUrl: row.payment_authorization_url || undefined,
       paymentProvider: row.payment_provider || undefined,
       releaseRequestedAt: row.release_requested_at || undefined,
+      manualPayoutReference: row.manual_payout_reference || undefined,
+      payoutNotes: row.payout_notes || undefined,
+      releasedBy: row.released_by || undefined,
+      releasedAt: row.released_at || undefined,
       createdByChannel: row.created_by_channel,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -224,6 +235,7 @@ export class EscrowStore {
         user_id TEXT NOT NULL,
         bank_name TEXT NOT NULL,
         account_number TEXT NOT NULL,
+        bank_code TEXT,
         account_name TEXT,
         verification_status TEXT NOT NULL DEFAULT 'pending',
         provider_recipient_code TEXT,
@@ -246,6 +258,10 @@ export class EscrowStore {
         payment_authorization_url TEXT,
         payment_provider TEXT,
         release_requested_at TEXT,
+        manual_payout_reference TEXT,
+        payout_notes TEXT,
+        released_by TEXT,
+        released_at TEXT,
         created_by_channel TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -288,6 +304,18 @@ export class EscrowStore {
 
   private initializeSchemaSync() {
     this.sqlite!.exec(this.schemaSql("REAL"));
+    this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
+    this.ensureSqliteColumn("escrows", "manual_payout_reference", "TEXT");
+    this.ensureSqliteColumn("escrows", "payout_notes", "TEXT");
+    this.ensureSqliteColumn("escrows", "released_by", "TEXT");
+    this.ensureSqliteColumn("escrows", "released_at", "TEXT");
+  }
+
+  private ensureSqliteColumn(table: string, column: string, definition: string) {
+    const columns = this.sqlite!.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    if (!columns.some((entry) => entry.name === column)) {
+      this.sqlite!.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
 
   public async initializeSchema(): Promise<void> {
@@ -296,8 +324,17 @@ export class EscrowStore {
       this.initializeSchemaSync();
     } else {
       await this.pool!.query(this.schemaSql("DOUBLE PRECISION"));
+      await this.ensurePostgresColumn("payout_accounts", "bank_code", "TEXT");
+      await this.ensurePostgresColumn("escrows", "manual_payout_reference", "TEXT");
+      await this.ensurePostgresColumn("escrows", "payout_notes", "TEXT");
+      await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
+      await this.ensurePostgresColumn("escrows", "released_at", "TEXT");
     }
     this.initialized = true;
+  }
+
+  private async ensurePostgresColumn(table: string, column: string, definition: string) {
+    await this.pool!.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
   }
 
   public async upsertUserByWhatsapp(whatsappNumber: string, role?: string): Promise<UserRecord> {
@@ -365,6 +402,7 @@ export class EscrowStore {
     userId: string;
     bankName: string;
     accountNumber: string;
+    bankCode?: string;
     accountName?: string;
     verificationStatus?: "pending" | "verified" | "failed";
     providerRecipientCode?: string;
@@ -379,27 +417,27 @@ export class EscrowStore {
       if (this.provider === "sqlite") {
         this.sqlite!.prepare(`
           UPDATE payout_accounts
-          SET bank_name = @bankName, account_number = @accountNumber, account_name = @accountName,
+          SET bank_name = @bankName, account_number = @accountNumber, bank_code = @bankCode, account_name = @accountName,
               verification_status = @verificationStatus, provider_recipient_code = @providerRecipientCode, updated_at = @now
           WHERE payout_account_id = @payoutAccountId
-        `).run({ ...input, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now, payoutAccountId });
+        `).run({ ...input, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now, payoutAccountId });
       } else {
         await this.pool!.query(
-          `UPDATE payout_accounts SET bank_name = $1, account_number = $2, account_name = $3, verification_status = $4,
-           provider_recipient_code = $5, updated_at = $6 WHERE payout_account_id = $7`,
-          [input.bankName, input.accountNumber, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, payoutAccountId]
+          `UPDATE payout_accounts SET bank_name = $1, account_number = $2, bank_code = $3, account_name = $4, verification_status = $5,
+           provider_recipient_code = $6, updated_at = $7 WHERE payout_account_id = $8`,
+          [input.bankName, input.accountNumber, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, payoutAccountId]
         );
       }
     } else if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, account_name, verification_status, provider_recipient_code, created_at, updated_at)
-        VALUES (@payoutAccountId, @userId, @bankName, @accountNumber, @accountName, @verificationStatus, @providerRecipientCode, @now, @now)
-      `).run({ ...input, payoutAccountId, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now });
+        INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
+        VALUES (@payoutAccountId, @userId, @bankName, @accountNumber, @bankCode, @accountName, @verificationStatus, @providerRecipientCode, @now, @now)
+      `).run({ ...input, payoutAccountId, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now });
     } else {
       await this.pool!.query(
-        `INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, account_name, verification_status, provider_recipient_code, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [payoutAccountId, input.userId, input.bankName, input.accountNumber, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, now]
+        `INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [payoutAccountId, input.userId, input.bankName, input.accountNumber, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, now]
       );
     }
 
@@ -427,7 +465,7 @@ export class EscrowStore {
     await this.initializeSchema();
     const now = new Date().toISOString();
     const escrowId = `SIV-${Date.now().toString().slice(-6)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
-    const status: EscrowStatus = input.sellerUserId ? "PENDING_PAYMENT" : "PENDING_PROFILE";
+    const status: EscrowStatus = input.sellerUserId ? "PENDING_ACCEPTANCE" : "PENDING_PROFILE";
     const settlementPolicy: SettlementPolicy = input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release";
 
     if (this.provider === "sqlite") {
@@ -502,6 +540,26 @@ export class EscrowStore {
     });
   }
 
+  public async acceptEscrow(escrowId: string, sellerWhatsapp: string): Promise<EscrowRecord> {
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) throw new Error("Escrow not found");
+    if (escrow.sellerWhatsapp && escrow.sellerWhatsapp !== sellerWhatsapp) {
+      throw new Error("Only the invited seller can accept this escrow");
+    }
+    if (!["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status)) {
+      return escrow;
+    }
+
+    await this.transitionEscrow(escrowId, "PENDING_PAYMENT", {
+      actor: sellerWhatsapp,
+      actorRole: "seller",
+      channel: "whatsapp_dm",
+      eventType: "seller_accepted",
+      reason: "Seller accepted escrow invitation",
+    });
+    return (await this.getEscrowById(escrowId))!;
+  }
+
   public async markFundedByPaymentReference(paymentReference: string, metadata?: any): Promise<EscrowRecord | null> {
     await this.initializeSchema();
     const escrow = await this.findEscrowByPaymentReference(paymentReference);
@@ -545,6 +603,12 @@ export class EscrowStore {
         reason: "Buyer confirmed release; USDC policy allows autonomous release",
       });
     } else {
+      if (escrow.sellerUserId) {
+        const payout = await this.getPayoutAccount(escrow.sellerUserId);
+        if (!payout || payout.verificationStatus !== "verified") {
+          throw new Error("Seller payout account must be verified before Naira release can be requested");
+        }
+      }
       await this.transitionEscrow(escrowId, "PENDING_RELEASE", {
         actor,
         actorRole: "buyer",
@@ -557,19 +621,28 @@ export class EscrowStore {
     return (await this.getEscrowById(escrowId))!;
   }
 
-  public async approveManualRelease(escrowId: string, adminUser: string): Promise<EscrowRecord> {
+  public async approveManualRelease(escrowId: string, adminUser: string, options: { manualPayoutReference: string; payoutNotes?: string }): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
+    if (!options.manualPayoutReference?.trim()) throw new Error("Manual payout reference is required");
     if (escrow.currency === "NAIRA" && escrow.status !== "PENDING_RELEASE") {
       throw new Error("Naira escrow must be pending release before admin approval");
+    }
+    if (escrow.currency === "NAIRA" && escrow.sellerUserId) {
+      const payout = await this.getPayoutAccount(escrow.sellerUserId);
+      if (!payout || payout.verificationStatus !== "verified") {
+        throw new Error("Seller payout account must be verified before payout approval");
+      }
     }
     await this.transitionEscrow(escrowId, "RELEASED", {
       actor: adminUser,
       actorRole: "admin",
       channel: "admin",
       eventType: "manual_release_approved",
-      reason: escrow.currency === "NAIRA" ? "Manual payout approved for MVP" : "Admin release approved",
+      reason: escrow.currency === "NAIRA" ? `Manual payout approved: ${options.manualPayoutReference}` : "Admin release approved",
+      metadata: { manualPayoutReference: options.manualPayoutReference, payoutNotes: options.payoutNotes || null },
     });
+    await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
     await this.addTransaction({
       escrowId,
       provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
@@ -577,9 +650,31 @@ export class EscrowStore {
       status: escrow.currency === "NAIRA" ? "manual_approved" : "released",
       amount: escrow.amount,
       currency: escrow.currency,
-      reference: escrow.paymentReference,
+      reference: options.manualPayoutReference,
+      rawPayload: JSON.stringify({ paymentReference: escrow.paymentReference, payoutNotes: options.payoutNotes || null }),
     });
     return (await this.getEscrowById(escrowId))!;
+  }
+
+  private async recordPayoutReconciliation(escrowId: string, releasedBy: string, manualPayoutReference: string, payoutNotes?: string): Promise<void> {
+    await this.initializeSchema();
+    const releasedAt = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrows
+        SET manual_payout_reference = @manualPayoutReference,
+            payout_notes = @payoutNotes,
+            released_by = @releasedBy,
+            released_at = @releasedAt,
+            updated_at = @releasedAt
+        WHERE escrow_id = @escrowId
+      `).run({ escrowId, manualPayoutReference, payoutNotes: payoutNotes || null, releasedBy, releasedAt });
+    } else {
+      await this.pool!.query(
+        `UPDATE escrows SET manual_payout_reference = $1, payout_notes = $2, released_by = $3, released_at = $4, updated_at = $4 WHERE escrow_id = $5`,
+        [manualPayoutReference, payoutNotes || null, releasedBy, releasedAt, escrowId]
+      );
+    }
   }
 
   public async markDisputed(escrowId: string, actor: string, channel: string, reason?: string): Promise<EscrowRecord> {
@@ -593,7 +688,11 @@ export class EscrowStore {
     return (await this.getEscrowById(escrowId))!;
   }
 
-  private async transitionEscrow(escrowId: string, nextStatus: EscrowStatus, event: Omit<Parameters<EscrowStore["addEvent"]>[0], "escrowId" | "previousStatus" | "nextStatus"> & { metadata?: any }): Promise<void> {
+  private async transitionEscrow(
+    escrowId: string,
+    nextStatus: EscrowStatus,
+    event: Omit<Parameters<EscrowStore["addEvent"]>[0], "escrowId" | "previousStatus" | "nextStatus" | "metadata"> & { metadata?: any }
+  ): Promise<void> {
     await this.initializeSchema();
     const current = await this.getEscrowById(escrowId);
     if (!current) throw new Error("Escrow not found");

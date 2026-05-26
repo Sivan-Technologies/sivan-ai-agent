@@ -37,6 +37,10 @@ type EscrowRecord = {
   paymentAuthorizationUrl?: string;
   paymentProvider?: string;
   releaseRequestedAt?: string;
+  manualPayoutReference?: string;
+  payoutNotes?: string;
+  releasedBy?: string;
+  releasedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -255,9 +259,13 @@ function App() {
   };
 
   const approveEscrowRelease = async (escrowId: string) => {
+    const manualPayoutReference = window.prompt("Enter manual payout reference from Paystack/bank transfer:");
+    if (!manualPayoutReference) return;
+    const payoutNotes = window.prompt("Optional payout notes:") || undefined;
     const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/approve-release`, {
       method: "POST",
       headers: authHeaders(),
+      body: JSON.stringify({ manualPayoutReference, payoutNotes }),
     });
     if (!response.ok) throw new Error(await parseError(response, "Failed to approve release"));
     await loadEscrows();
@@ -484,6 +492,8 @@ function App() {
                 <div className="detail-row"><span>Currency</span><strong>{selectedEscrow.currency}</strong></div>
                 <div className="detail-row"><span>Policy</span><strong>{selectedEscrow.settlementPolicy}</strong></div>
                 <div className="detail-row"><span>Seller</span><strong>{selectedEscrow.sellerWhatsapp || selectedEscrow.sellerUserId || "pending"}</strong></div>
+                <div className="detail-row"><span>Payout ref</span><strong>{selectedEscrow.manualPayoutReference || "not released"}</strong></div>
+                <div className="detail-row"><span>Released by</span><strong>{selectedEscrow.releasedBy || "not released"}</strong></div>
                 <div className="detail-note">{selectedEscrow.purpose}</div>
                 <button
                   className="button primary full"

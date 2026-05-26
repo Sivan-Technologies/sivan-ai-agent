@@ -31,6 +31,7 @@ export const userProfileSchema = z.object({
 export const payoutAccountSchema = z.object({
   whatsappNumber: whatsappAddress,
   bankName: z.string().trim().min(2).max(120),
+  bankCode: z.string().trim().min(2).max(20),
   accountNumber: z.string().trim().min(6).max(20).regex(/^[0-9]+$/, "Account number must contain only digits"),
   accountName: z.string().trim().min(2).max(160).optional(),
 });
@@ -38,6 +39,11 @@ export const payoutAccountSchema = z.object({
 export const escrowActionSchema = z.object({
   actorWhatsapp: whatsappAddress.optional(),
   reason: z.string().trim().min(2).max(1000).optional(),
+});
+
+export const adminReleaseApprovalSchema = z.object({
+  manualPayoutReference: z.string().trim().min(3).max(160),
+  payoutNotes: z.string().trim().min(2).max(1000).optional(),
 });
 
 export const adminSettingsSchema = z.object({
