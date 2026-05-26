@@ -211,8 +211,8 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 78%
-Production financial-readiness: 61%
+MVP escrow-core readiness: 82%
+Production financial-readiness: 66%
 ```
 
 Legend:
@@ -230,7 +230,7 @@ Legend:
 | Phase 3 | First-class users | 🟡 In progress | `users` table exists, WhatsApp numbers are first-class identities, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | 🟡 In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
 | Phase 5 | Transaction state machine | 🟡 In progress | Canonical states are stored and release/dispute transitions are guarded in the escrow store |
-| Phase 6 | Private DM onboarding | 🟡 In progress | WhatsApp bot now uses private conversation sessions, seller setup, bank search/selection, and escrow commands |
+| Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and Paystack-verified payout account are complete |
 | Phase 8 | Manual release approval | 🟡 In progress | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
 | Phase 9 | Dispute workflow | 🟡 In progress | Dispute state exists from WhatsApp/admin; evidence capture and resolution outcomes are next |
@@ -266,6 +266,7 @@ The current system already has:
 - ✅ WhatsApp notification callback
 - ✅ Twilio webhook signature validation in the bot
 - ✅ WhatsApp private-DM escrow onboarding foundation
+- ✅ WhatsApp conversation sessions persisted in Postgres for Render restart recovery
 - ✅ WhatsApp commands: `accept SIV-...`, `status SIV-...`, `release SIV-...`, `dispute SIV-...`
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
@@ -281,8 +282,7 @@ The next work should be deterministic settlement infrastructure:
 
 1. Add admin evidence notes and resolution outcomes for disputes.
 2. Add reconciliation dashboard filters for Paystack funding and manual Naira payouts.
-3. Persist WhatsApp conversation sessions in Postgres or Redis instead of memory.
-4. Add production x402/SAP settlement verification before expanding autonomous USDC release.
+3. Add production x402/SAP settlement verification before expanding autonomous USDC release.
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
