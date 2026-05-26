@@ -118,4 +118,16 @@ describe("Admin Settings API Integration", () => {
     expect(res.body).toHaveProperty("latencyMs");
     expect(res.body).not.toHaveProperty("databaseUrl");
   });
+
+  it("should expose protected escrow ledger", async () => {
+    const unauthorized = await request(app).get("/admin/escrows");
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get("/admin/escrows")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
 });

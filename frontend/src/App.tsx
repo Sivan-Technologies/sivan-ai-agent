@@ -23,6 +23,24 @@ type WebhookEvent = {
   receivedAt: string;
 };
 
+type EscrowRecord = {
+  escrowId: string;
+  buyerUserId: string;
+  sellerUserId?: string;
+  sellerWhatsapp?: string;
+  amount: number;
+  currency: "NAIRA" | "USDC";
+  purpose: string;
+  status: string;
+  settlementPolicy: string;
+  paymentReference?: string;
+  paymentAuthorizationUrl?: string;
+  paymentProvider?: string;
+  releaseRequestedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 type FeeSettings = {
   nairaFeePercent: number;
   nairaFeeFixed: number;
@@ -42,10 +60,11 @@ type AuditRecord = {
   changedAt: string;
 };
 
-type Tab = "tasks" | "webhooks" | "fees";
+type Tab = "escrows" | "tasks" | "webhooks" | "fees";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
-const storedAdminKey = "sivan.adminKey";
+const storedAdminKey = "sivan.adminToken";
+const adminAuthBase = (import.meta as any).env.VITE_ADMIN_AUTH_BASE_URL || "http://localhost:3600";
 
 const money = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
 
@@ -70,6 +89,7 @@ function App() {
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem(storedAdminKey) || "");
   const [adminKeyInput, setAdminKeyInput] = useState("");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [escrows, setEscrows] = useState<EscrowRecord[]>([]);
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
   const [feeSettings, setFeeSettings] = useState<FeeSettings | null>(null);
@@ -80,7 +100,8 @@ function App() {
     usdcFeeFixed: 0,
   });
 
-  const [activeTab, setActiveTab] = useState<Tab>("tasks");
+  const [activeTab, setActiveTab] = useState<Tab>("escrows");
+  const [selectedEscrow, setSelectedEscrow] = useState<EscrowRecord | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -91,10 +112,18 @@ function App() {
   const [savingFees, setSavingFees] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const authHeaders = () => ({
-    "Content-Type": "application/json",
-    "x-admin-key": adminKey,
-  });
+  const authHeaders = () => {
+    const headers: any = { "Content-Type": "application/json" };
+    if (adminKey) {
+      // if looks like a JWT, use Authorization Bearer, otherwise legacy x-admin-key
+      if (adminKey.split(".").length === 3) {
+        headers["Authorization"] = `Bearer ${adminKey}`;
+      } else {
+        headers["x-admin-key"] = adminKey;
+      }
+    }
+    return headers;
+  };
 
   const parseError = async (response: Response, fallback: string) => {
     try {
@@ -121,6 +150,7 @@ function App() {
     sessionStorage.removeItem(storedAdminKey);
     setAdminKey("");
     setTasks([]);
+    setEscrows([]);
     setWebhooks([]);
     setFeeSettings(null);
     setAuditHistory([]);
@@ -132,6 +162,13 @@ function App() {
     const response = await fetch(`${apiBase}/admin/tasks`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load tasks"));
     setTasks((await response.json()) || []);
+  };
+
+  const loadEscrows = async () => {
+    if (!adminKey) return;
+    const response = await fetch(`${apiBase}/admin/escrows?limit=100`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load escrows"));
+    setEscrows((await response.json()) || []);
   };
 
   const loadWebhooks = async () => {
@@ -167,7 +204,7 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory()]);
+      await Promise.all([loadEscrows(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -217,13 +254,32 @@ function App() {
     }
   };
 
+  const approveEscrowRelease = async (escrowId: string) => {
+    const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/approve-release`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to approve release"));
+    await loadEscrows();
+  };
+
+  const disputeEscrow = async (escrowId: string) => {
+    const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/dispute`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ reason: "Admin review required" }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to dispute escrow"));
+    await loadEscrows();
+  };
+
   const metrics = useMemo(() => {
-    const active = tasks.filter((task) => !/completed|settled|failed/i.test(task.paymentStatus)).length;
-    const pending = tasks.filter((task) => /pending|waiting|created/i.test(task.paymentStatus)).length;
-    const settled = tasks.filter((task) => /settled|completed|confirmed/i.test(task.paymentStatus)).length;
-    const failed = tasks.filter((task) => /failed|error/i.test(task.paymentStatus)).length;
+    const active = escrows.filter((escrow) => !/released|failed|cancelled/i.test(escrow.status)).length;
+    const pending = escrows.filter((escrow) => /pending|created/i.test(escrow.status)).length;
+    const settled = escrows.filter((escrow) => /released/i.test(escrow.status)).length;
+    const failed = escrows.filter((escrow) => /failed|disputed/i.test(escrow.status)).length;
     return { active, pending, settled, failed };
-  }, [tasks]);
+  }, [escrows]);
 
   useEffect(() => {
     if (!adminKey) return;
@@ -242,19 +298,64 @@ function App() {
           <h1>Sivan Escrow Admin</h1>
           <p className="muted">Secure operations console</p>
           {error && <div className="error-banner">{error}</div>}
+          <div style={{ marginBottom: 12 }}>
+            <button
+              className="button primary full"
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  const resp = await fetch(`${adminAuthBase}/auth/request-session`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-admin-request-secret": (import.meta as any).env.VITE_ADMIN_REQUEST_SECRET || "" },
+                    body: JSON.stringify({ adminIdentifier: "frontend" }),
+                  });
+                  if (!resp.ok) throw new Error("Failed to request session");
+                  alert("Token requested. Check Telegram for the 6-digit code.");
+                } catch (err: any) {
+                  setError(err.message || "Failed to request token");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >Request token via Telegram</button>
+          </div>
+
           <label className="field">
-            <span>Admin API key</span>
+            <span>Enter Telegram token</span>
             <input
-              type="password"
+              type="text"
               value={adminKeyInput}
               onChange={(event) => setAdminKeyInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") saveAdminKey();
+              onKeyDown={async (event) => {
+                if (event.key === "Enter") {
+                  // verify token
+                  setLoading(true);
+                  try {
+                    const resp = await fetch(`${adminAuthBase}/auth/verify`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ token: adminKeyInput.trim() }),
+                    });
+                    if (!resp.ok) throw new Error("Invalid token");
+                    const body = await resp.json();
+                    sessionStorage.setItem(storedAdminKey, body.accessToken);
+                    setAdminKey(body.accessToken);
+                    setAdminKeyInput("");
+                    setError(null);
+                  } catch (err: any) {
+                    setError(err.message || "Token verification failed");
+                  } finally {
+                    setLoading(false);
+                  }
+                }
               }}
               autoComplete="off"
             />
           </label>
-          <button className="button primary full" onClick={saveAdminKey}>Unlock console</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="button primary full" onClick={async () => { saveAdminKey(); }}>Verify</button>
+            <button className="button" onClick={() => { setAdminKeyInput(''); setError(null); }}>Clear</button>
+          </div>
           <div className="endpoint-chip">{apiBase}</div>
         </section>
       </main>
@@ -320,12 +421,103 @@ function App() {
       </section>
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["tasks", "webhooks", "fees"] as Tab[]).map((tab) => (
+        {(["escrows", "tasks", "webhooks", "fees"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
-            {tab === "tasks" ? "Tasks" : tab === "webhooks" ? "Webhooks" : "Fees"}
+            {tab === "escrows" ? "Escrows" : tab === "tasks" ? "Tasks" : tab === "webhooks" ? "Webhooks" : "Fees"}
           </button>
         ))}
       </nav>
+
+      {activeTab === "escrows" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Escrow Ledger</h2>
+              <span>{escrows.length} records</span>
+            </div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Escrow</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Release</th>
+                    <th>Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {escrows.map((escrow) => (
+                    <tr
+                      key={escrow.escrowId}
+                      className={selectedEscrow?.escrowId === escrow.escrowId ? "selected" : ""}
+                      onClick={() => setSelectedEscrow(selectedEscrow?.escrowId === escrow.escrowId ? null : escrow)}
+                    >
+                      <td>
+                        <strong>{escrow.escrowId}</strong>
+                        <small>{escrow.purpose}</small>
+                      </td>
+                      <td>{money.format(escrow.amount)} {escrow.currency}</td>
+                      <td><span className={`status ${statusTone(escrow.status)}`}>{escrow.status}</span></td>
+                      <td>{escrow.settlementPolicy}</td>
+                      <td>{compactId(escrow.paymentReference, 16)}</td>
+                    </tr>
+                  ))}
+                  {escrows.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="empty-cell">No escrows yet</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Escrow Actions</h2>
+              <span>{selectedEscrow ? compactId(selectedEscrow.escrowId, 12) : "none"}</span>
+            </div>
+            {selectedEscrow ? (
+              <div className="detail-stack">
+                <div className="detail-row"><span>Status</span><strong>{selectedEscrow.status}</strong></div>
+                <div className="detail-row"><span>Currency</span><strong>{selectedEscrow.currency}</strong></div>
+                <div className="detail-row"><span>Policy</span><strong>{selectedEscrow.settlementPolicy}</strong></div>
+                <div className="detail-row"><span>Seller</span><strong>{selectedEscrow.sellerWhatsapp || selectedEscrow.sellerUserId || "pending"}</strong></div>
+                <div className="detail-note">{selectedEscrow.purpose}</div>
+                <button
+                  className="button primary full"
+                  disabled={selectedEscrow.status !== "PENDING_RELEASE"}
+                  onClick={async () => {
+                    try {
+                      await approveEscrowRelease(selectedEscrow.escrowId);
+                    } catch (err: any) {
+                      setError(err.message || "Release approval failed");
+                    }
+                  }}
+                >
+                  Approve Naira release
+                </button>
+                <button
+                  className="button secondary full"
+                  disabled={["RELEASED", "CANCELLED"].includes(selectedEscrow.status)}
+                  onClick={async () => {
+                    try {
+                      await disputeEscrow(selectedEscrow.escrowId);
+                    } catch (err: any) {
+                      setError(err.message || "Dispute failed");
+                    }
+                  }}
+                >
+                  Mark disputed
+                </button>
+              </div>
+            ) : (
+              <p className="muted">Select an escrow row.</p>
+            )}
+          </aside>
+        </section>
+      )}
 
       {activeTab === "tasks" && (
         <section className="content-grid">

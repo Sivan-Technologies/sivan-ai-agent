@@ -13,9 +13,20 @@ import { AgentOrchestrator, TaskRequest } from "./services/agentOrchestrator";
 import { notifyWhatsAppBot, formatTaskSummary } from "./services/notificationService";
 import { WorkflowStore } from "./services/workflowStore";
 import { SettingsStore } from "./services/settingsStore";
+import { EscrowStore } from "./services/escrowStore";
 import { requireAdminAuth, logAdminAction } from "./middleware/adminAuth";
 import { requireCoreApiAuth } from "./middleware/apiAuth";
-import { adminSettingsSchema, formatZodError, limitQuerySchema, paystackWebhookSchema, taskRequestSchema } from "./validation";
+import {
+  adminSettingsSchema,
+  escrowActionSchema,
+  escrowCreateSchema,
+  formatZodError,
+  limitQuerySchema,
+  paystackWebhookSchema,
+  payoutAccountSchema,
+  taskRequestSchema,
+  userProfileSchema,
+} from "./validation";
 import { captureOperationalError, capturePaymentWarning } from "./services/monitoring";
 import crypto from "crypto";
 
@@ -32,7 +43,9 @@ const aceData = new AceDataClient(config.aceData.baseUrl, config.aceData.apiKey)
 const paymentRouter = new PaymentRouter(sapAgent);
 const workflowStore = new WorkflowStore(config.app.databaseUrl, config.app.databaseProvider);
 const settingsStore = new SettingsStore(config.app.databaseUrl, config.app.databaseProvider);
+const escrowStore = new EscrowStore(config.app.databaseUrl, config.app.databaseProvider);
 void settingsStore.initializeSchema();
+void escrowStore.initializeSchema();
 const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 const paystackClient = new PaystackClient();
 
@@ -64,6 +77,7 @@ async function buildDatabaseStatus() {
   const startedAt = Date.now();
   const settings = await settingsStore.getSettings();
   await workflowStore.getWebhookEvents(1);
+  await escrowStore.listEscrows(1);
 
   return {
     status: "ok",
@@ -72,6 +86,11 @@ async function buildDatabaseStatus() {
     settingsVersion: settings.version,
     latencyMs: Date.now() - startedAt,
   };
+}
+
+function paystackEmailForWhatsapp(whatsappNumber: string) {
+  const digits = whatsappNumber.replace(/\D/g, "");
+  return `whatsapp_${digits || "user"}@sivan.local`;
 }
 
 app.get("/health/readiness", async (req, res) => {
@@ -97,6 +116,132 @@ app.post("/api/tasks", requireCoreApiAuth, async (req, res) => {
   } catch (err: any) {
     captureOperationalError("Failed to create task", err);
     return res.status(500).json({ error: err.message || "Task creation failed" });
+  }
+});
+
+app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid escrow request", details: formatZodError(parsed.error) });
+    }
+
+    const input = parsed.data;
+    const buyer = await escrowStore.upsertUserByWhatsapp(input.buyerWhatsapp, "buyer");
+    const seller = input.sellerWhatsapp
+      ? await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller")
+      : null;
+
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller?.userId,
+      sellerWhatsapp: input.sellerWhatsapp,
+      amount: input.amount,
+      currency: input.currency,
+      purpose: input.purpose,
+      createdByChannel: input.channel,
+    });
+
+    let payment: any = null;
+    if (input.currency === "NAIRA" && seller) {
+      const transaction = await paystackClient.initializeTransaction(
+        input.amount,
+        paystackEmailForWhatsapp(input.buyerWhatsapp),
+        config.paystack.callbackUrl
+      );
+      await escrowStore.attachPayment({
+        escrowId: escrow.escrowId,
+        paymentReference: transaction.reference,
+        paymentAuthorizationUrl: transaction.authorizationUrl,
+        paymentProvider: "paystack",
+        status: "PENDING_PAYMENT",
+      });
+      payment = {
+        provider: "paystack",
+        reference: transaction.reference,
+        authorizationUrl: transaction.authorizationUrl,
+      };
+    } else if (input.currency === "USDC") {
+      const reference = `x402-${escrow.escrowId}`;
+      await escrowStore.attachPayment({
+        escrowId: escrow.escrowId,
+        paymentReference: reference,
+        paymentProvider: "x402",
+        status: seller ? "PENDING_PAYMENT" : "PENDING_PROFILE",
+      });
+      payment = {
+        provider: "x402",
+        reference,
+        settlementPolicy: "autonomous_usdc_release",
+      };
+    }
+
+    const updated = await escrowStore.getEscrowById(escrow.escrowId);
+    res.status(201).json({ escrow: updated, payment });
+  } catch (err: any) {
+    captureOperationalError("Failed to create escrow", err);
+    res.status(500).json({ error: err.message || "Escrow creation failed" });
+  }
+});
+
+app.post("/api/users/profile", requireCoreApiAuth, async (req, res) => {
+  const parsed = userProfileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid profile payload", details: formatZodError(parsed.error) });
+  }
+  const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber);
+  const updated = await escrowStore.updateUserProfile(user.userId, parsed.data.firstName, parsed.data.lastName);
+  res.status(200).json(updated);
+});
+
+app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
+  const parsed = payoutAccountSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payout account payload", details: formatZodError(parsed.error) });
+  }
+  const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
+  const payout = await escrowStore.upsertPayoutAccount({
+    userId: user.userId,
+    bankName: parsed.data.bankName,
+    accountNumber: parsed.data.accountNumber,
+    accountName: parsed.data.accountName,
+    verificationStatus: "pending",
+  });
+  res.status(200).json(payout);
+});
+
+app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid release payload", details: formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.requestRelease(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp || "unknown",
+      "whatsapp_dm"
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Release request failed" });
+  }
+});
+
+app.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid dispute payload", details: formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.markDisputed(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp || "unknown",
+      "whatsapp_dm",
+      parsed.data.reason
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Dispute failed" });
   }
 });
 
@@ -159,7 +304,38 @@ app.post("/webhooks/paystack", async (req, res) => {
         }
       }
     } else {
-      capturePaymentWarning("Paystack webhook did not match any workflow task", { paymentReference, eventType });
+      const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
+      if (escrow && eventType === "charge.success") {
+        const transaction = await paystackClient.fetchTransaction(paymentReference);
+        if (transaction.status !== "success") {
+          capturePaymentWarning("Paystack escrow webhook verification did not confirm success", {
+            escrowId: escrow.escrowId,
+            paymentReference,
+            status: transaction.status,
+          });
+          return res.status(202).send({ status: "verification_pending" });
+        }
+
+        const funded = await escrowStore.markFundedByPaymentReference(paymentReference, transaction);
+        if (funded) {
+          info("Escrow funded from verified Paystack webhook", { escrowId: funded.escrowId, paymentReference });
+          await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+        }
+      } else if (escrow) {
+        await escrowStore.addEvent({
+          escrowId: escrow.escrowId,
+          actor: "paystack",
+          actorRole: "payment_provider",
+          channel: "webhook",
+          previousStatus: escrow.status,
+          nextStatus: escrow.status,
+          eventType: "payment_event_received",
+          reason: eventType,
+          metadata: JSON.stringify(event),
+        });
+      } else {
+        capturePaymentWarning("Paystack webhook did not match any workflow task or escrow", { paymentReference, eventType });
+      }
     }
   }
 
@@ -181,6 +357,51 @@ app.get("/admin/tasks/:taskId", requireAdminAuth, async (req, res) => {
     return res.status(404).send({ error: "Task not found" });
   }
   res.status(200).json(task);
+});
+
+app.get("/admin/escrows", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  const escrows = await escrowStore.listEscrows(parsed.data.limit);
+  res.status(200).json(escrows);
+});
+
+app.get("/admin/escrows/:escrowId", requireAdminAuth, async (req, res) => {
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) {
+    return res.status(404).json({ error: "Escrow not found" });
+  }
+  const [transactions, events] = await Promise.all([
+    escrowStore.listTransactions(escrow.escrowId),
+    escrowStore.listEvents(escrow.escrowId, 100),
+  ]);
+  res.status(200).json({ escrow, transactions, events });
+});
+
+app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminAction("approve_escrow_release"), async (req, res) => {
+  try {
+    const adminUser = (req as any).adminUser || "unknown";
+    const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser);
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Release approval failed" });
+  }
+});
+
+app.post("/admin/escrows/:escrowId/dispute", requireAdminAuth, logAdminAction("admin_dispute_escrow"), async (req, res) => {
+  try {
+    const adminUser = (req as any).adminUser || "unknown";
+    const parsed = escrowActionSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid dispute payload", details: formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.markDisputed(req.params.escrowId, adminUser, "admin", parsed.data.reason);
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Dispute failed" });
+  }
 });
 
 app.get("/admin/webhooks", requireAdminAuth, async (req, res) => {

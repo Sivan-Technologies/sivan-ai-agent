@@ -213,12 +213,12 @@ Recommended MVP rules:
 | Phase 0 | Core backend/API foundation | Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | Mostly completed | Transfer-only initialization, webhook verification, reference matching, idempotency are implemented; Render Paystack env still needs final validation |
 | Phase 2 | WhatsApp bot bridge | Mostly completed | Twilio auth works, outbound messages work, webhook route exists; conversational state is still simple |
-| Phase 3 | First-class users | Not started | Need `users` table and profile onboarding |
-| Phase 4 | First-class escrows | Not started | Need `escrows` table separate from task records |
-| Phase 5 | Transaction state machine | Not started | Need canonical states and transition guards |
-| Phase 6 | Private DM onboarding | Not started | Need conversation sessions and profile collection |
-| Phase 7 | Seller payout setup | Not started | Need payout details, Paystack bank resolution, payout recipient storage |
-| Phase 8 | Manual release approval | Not started | Need `PENDING_RELEASE`, admin approve/reject, audit trail |
+| Phase 3 | First-class users | In progress | `users` table exists and WhatsApp numbers are now first-class identities; richer profile onboarding is next |
+| Phase 4 | First-class escrows | In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
+| Phase 5 | Transaction state machine | In progress | Canonical states are stored and release/dispute transitions are guarded in the escrow store |
+| Phase 6 | Private DM onboarding | In progress | WhatsApp bot now uses private conversation sessions; group messages only trigger handoff |
+| Phase 7 | Seller payout setup | In progress | `payout_accounts` table exists; Paystack bank/account verification is still next |
+| Phase 8 | Manual release approval | In progress | Naira release moves to `PENDING_RELEASE`; admin approval endpoint and event trail exist |
 | Phase 9 | Dispute workflow | Not started | Need dispute state, evidence capture, admin resolution |
 | Phase 10 | Smart autonomy | Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 11 | SAP/x402/USDC production settlement | Future | SDK and config are partially wired; requires real credentials and live testing |
@@ -250,16 +250,12 @@ The next major engineering work should not be dispute AI yet.
 
 The next work should be deterministic settlement infrastructure:
 
-1. Add `users` table.
-2. Add `escrows` table.
-3. Add `transactions` table.
-4. Add escrow state machine.
-5. Add audit log for every state transition.
-6. Add WhatsApp private-DM conversation sessions.
-7. Add seller onboarding and payout account capture.
-8. Add Paystack bank/account verification.
-9. Add `PENDING_RELEASE` state.
-10. Add admin manual release approval.
+1. Harden profile onboarding with first name, last name, and payout setup prompts.
+2. Add Paystack bank/account verification before marking payout accounts verified.
+3. Add seller invite/accept flow so both parties explicitly join an escrow.
+4. Add admin evidence notes for disputes.
+5. Add reconciliation views for Paystack funding and manual Naira payouts.
+6. Add production x402/SAP settlement verification before expanding autonomous USDC release.
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
@@ -270,11 +266,12 @@ For the first MVP:
 ```text
 Payment funding: automated after Paystack verification.
 Work start: automated after funding.
-Payment release: buyer confirmation + manual admin approval.
+Naira payment release: buyer confirmation + manual admin approval.
+USDC/x402 release: autonomous after deterministic backend checks.
 Disputes: manual admin review.
 ```
 
-This creates enough automation to prove the product while avoiding dangerous uncontrolled payout automation.
+This creates enough automation to prove the product while avoiding dangerous uncontrolled Naira payout automation.
 
 ## Future Smart Release Policy
 
@@ -350,4 +347,3 @@ The recommended immediate implementation order:
 7. admin manual release approval
 
 This will convert Sivan from a working payment-task prototype into a real escrow coordination product.
-
