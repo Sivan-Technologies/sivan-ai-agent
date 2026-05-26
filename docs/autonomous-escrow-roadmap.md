@@ -208,41 +208,62 @@ Recommended MVP rules:
 
 ## Phase Completion Matrix
 
+Current estimate:
+
+```text
+MVP escrow-core readiness: 63%
+Production financial-readiness: 45%
+```
+
+Legend:
+
+- ✅ Completed
+- 🟡 In progress
+- ⬜ Not started
+- 🔮 Future/autonomy phase
+
 | Phase | Goal | Status | Notes |
 | --- | --- | --- | --- |
-| Phase 0 | Core backend/API foundation | Completed | Express API, config, persistence, tests, admin endpoints exist |
-| Phase 1 | Paystack transfer-only payment verification | Mostly completed | Transfer-only initialization, webhook verification, reference matching, idempotency are implemented; Render Paystack env still needs final validation |
-| Phase 2 | WhatsApp bot bridge | Mostly completed | Twilio auth works, outbound messages work, webhook route exists; conversational state is still simple |
-| Phase 3 | First-class users | In progress | `users` table exists and WhatsApp numbers are now first-class identities; richer profile onboarding is next |
-| Phase 4 | First-class escrows | In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
-| Phase 5 | Transaction state machine | In progress | Canonical states are stored and release/dispute transitions are guarded in the escrow store |
-| Phase 6 | Private DM onboarding | In progress | WhatsApp bot now uses private conversation sessions; group messages only trigger handoff |
-| Phase 7 | Seller payout setup | In progress | `payout_accounts` table exists; Paystack bank/account verification is still next |
-| Phase 8 | Manual release approval | In progress | Naira release moves to `PENDING_RELEASE`; admin approval endpoint and event trail exist |
-| Phase 9 | Dispute workflow | Not started | Need dispute state, evidence capture, admin resolution |
-| Phase 10 | Smart autonomy | Future | Auto-release only for low-risk transactions after rule checks |
-| Phase 11 | SAP/x402/USDC production settlement | Future | SDK and config are partially wired; requires real credentials and live testing |
+| Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
+| Phase 1 | Paystack transfer-only payment verification | 🟡 Mostly completed | Transfer-only initialization, webhook verification, reference matching, idempotency are implemented; live reconciliation still needs final validation |
+| Phase 2 | WhatsApp bot bridge | 🟡 Mostly completed | Twilio auth works, outbound messages work, webhook route exists, and private DM flow has started |
+| Phase 3 | First-class users | 🟡 In progress | `users` table exists and WhatsApp numbers are now first-class identities; richer profile onboarding is next |
+| Phase 4 | First-class escrows | 🟡 In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
+| Phase 5 | Transaction state machine | 🟡 In progress | Canonical states are stored and release/dispute transitions are guarded in the escrow store |
+| Phase 6 | Private DM onboarding | 🟡 In progress | WhatsApp bot now uses private conversation sessions; group messages only trigger handoff |
+| Phase 7 | Seller payout setup | 🟡 In progress | `payout_accounts` table exists; Paystack bank/account verification is still next |
+| Phase 8 | Manual release approval | 🟡 In progress | Naira release moves to `PENDING_RELEASE`; admin approval endpoint and event trail exist |
+| Phase 9 | Dispute workflow | ⬜ Not started | Need dispute evidence capture, admin notes, and resolution outcomes |
+| Phase 10 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
+| Phase 11 | SAP/x402/USDC production settlement | 🔮 Future | SDK and config are partially wired; requires real credentials and live testing |
 
 ## What Is Completed So Far
 
 The current system already has:
 
-- backend health and readiness endpoints
-- authenticated task creation with `CORE_API_SECRET`
-- protected admin endpoints with `ADMIN_API_KEY`
-- request validation with Zod
-- Paystack transfer-only checkout configuration
-- Paystack transaction reference storage
-- Paystack webhook signature verification
-- Paystack transaction verification before Naira execution
-- webhook persistence
-- idempotency guard against repeated webhook execution
-- WhatsApp notification callback
-- Twilio webhook signature validation in the bot
-- outbound WhatsApp message testing
-- Render deployment for backend and bot
-- admin dashboard foundation
-- documentation for WhatsApp escrow MVP flow
+- ✅ backend health and readiness endpoints
+- ✅ authenticated task creation with `CORE_API_SECRET`
+- ✅ protected admin endpoints with `ADMIN_API_KEY`
+- ✅ request validation with Zod
+- ✅ Postgres-backed storage support
+- ✅ first-class `users`, `escrows`, `transactions`, `payout_accounts`, and `escrow_events`
+- ✅ legacy `workflow_tasks` retained as agent-task history
+- ✅ Paystack transfer-only checkout configuration
+- ✅ Paystack transaction reference storage
+- ✅ Paystack webhook signature verification
+- ✅ Paystack transaction verification before Naira execution
+- ✅ webhook persistence
+- ✅ idempotency guard against repeated webhook execution
+- ✅ admin escrow ledger with release/dispute actions
+- ✅ Naira release policy: buyer request plus manual admin approval
+- ✅ USDC/x402 policy lane: autonomous release after deterministic checks
+- ✅ WhatsApp notification callback
+- ✅ Twilio webhook signature validation in the bot
+- ✅ WhatsApp private-DM escrow onboarding foundation
+- ✅ WhatsApp group behavior limited to intent detection and private handoff
+- ✅ outbound WhatsApp message testing
+- ✅ Render deployment for backend and bot
+- ✅ documentation for WhatsApp escrow MVP flow
 
 ## What Should Be Built Next
 
