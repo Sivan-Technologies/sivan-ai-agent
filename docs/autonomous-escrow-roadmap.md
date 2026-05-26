@@ -213,8 +213,8 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 85%
-Production financial-readiness: 72%
+MVP escrow-core readiness: 87%
+Production financial-readiness: 75%
 ```
 
 Legend:
@@ -235,7 +235,7 @@ Legend:
 | Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and Paystack-verified payout account are complete |
 | Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
-| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, and release timestamp |
+| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Dispute workflow | 🟡 In progress | Dispute state exists from WhatsApp/admin; evidence capture and resolution outcomes are next |
 | Phase 11 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 12 | SAP/x402/USDC production settlement | 🔮 Future | SDK and config are partially wired; requires real credentials and live testing |
@@ -262,6 +262,9 @@ The current system already has:
 - ✅ operational warning logs for invalid signatures, payment mismatch, verification failure, blocked release, and payout approval
 - ✅ admin escrow ledger with release/dispute actions
 - ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, payout reference, approver, release timestamp
+- ✅ reconciliation filters for `REVIEW_REQUIRED`, `PENDING_RELEASE`, `RELEASED`, missing payout references, and Paystack amount mismatches
+- ✅ reconciliation CSV export for accounting and manual operations
+- ✅ admin needs-attention view for payment reviews, payout queue, missing payout references, and amount mismatches
 - ✅ Naira release policy: buyer request plus manual admin approval
 - ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
 - ✅ seller invite/accept flow before payment initialization
@@ -287,9 +290,9 @@ The next major engineering work should not be dispute AI yet.
 
 The next work should be production hardening around deterministic settlement infrastructure:
 
-1. Add reconciliation filters/exports for Paystack funding and manual Naira payouts.
-2. Add live Render smoke checks for Paystack webhook replay and admin re-check.
-3. Add production x402/SAP settlement verification before expanding autonomous USDC release.
+1. Add live Render smoke checks to CI or a small operator script.
+2. Add production x402/SAP settlement verification before expanding autonomous USDC release.
+3. Add alert routing in Sentry/Datadog for reconciliation and payout warnings.
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 

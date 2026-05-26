@@ -130,4 +130,31 @@ describe("Admin Settings API Integration", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });
+
+  it("should expose protected reconciliation summary and CSV export", async () => {
+    const unauthorized = await request(app).get("/admin/reconciliation");
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get("/admin/reconciliation?limit=20")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.rows)).toBe(true);
+    expect(res.body.needsAttention).toMatchObject({
+      paymentsNeedingReview: expect.any(Number),
+      releasesAwaitingPayout: expect.any(Number),
+      releasedMissingPayoutReference: expect.any(Number),
+      paystackAmountMismatches: expect.any(Number),
+    });
+
+    const csv = await request(app)
+      .get("/admin/reconciliation.csv?limit=20")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(csv.status).toBe(200);
+    expect(csv.headers["content-type"]).toContain("text/csv");
+    expect(csv.text).toContain("escrow ID");
+    expect(csv.text).toContain("Paystack reference");
+  });
 });

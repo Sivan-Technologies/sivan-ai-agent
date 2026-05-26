@@ -276,6 +276,45 @@ button {
   margin-bottom: 18px;
 }
 
+.attention-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.attention-card {
+  display: grid;
+  gap: 8px;
+  min-height: 82px;
+  padding: 14px;
+  text-align: left;
+  color: var(--text);
+  background: rgba(16, 22, 29, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.attention-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.attention-card strong {
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.attention-card.watch {
+  border-color: rgba(227, 179, 65, 0.32);
+}
+
+.attention-card.critical {
+  border-color: rgba(255, 107, 107, 0.32);
+}
+
 .metric-card,
 .surface {
   background: rgba(16, 22, 29, 0.88);
@@ -334,6 +373,38 @@ button {
   color: var(--text);
   background: var(--surface-2);
   border-color: var(--line-strong);
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.filter-bar button,
+.export-button {
+  min-height: 34px;
+  padding: 7px 11px;
+  color: var(--soft);
+  background: #0b1015;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 730;
+}
+
+.filter-bar button.active {
+  color: var(--text);
+  border-color: rgba(76, 201, 176, 0.48);
+  background: rgba(76, 201, 176, 0.12);
+}
+
+.filter-bar .export-button {
+  margin-left: auto;
+  color: #061014;
+  border-color: transparent;
+  background: linear-gradient(135deg, #4cc9b0, #6ea8fe);
 }
 
 .content-grid {
@@ -635,6 +706,7 @@ button {
   }
 
   .metrics-grid,
+  .attention-grid,
   .fee-grid {
     grid-template-columns: 1fr;
   }

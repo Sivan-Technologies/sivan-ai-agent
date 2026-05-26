@@ -22,6 +22,11 @@ Today, the strongest working flow is Nigerian Naira collection through Paystack 
 - Send task/payment updates back to the WhatsApp bot.
 - Provide protected admin endpoints for tasks, webhook events, fee settings, and audit history.
 - Run a React admin dashboard for internal monitoring.
+- Manage first-class buyer/seller escrow records with payout readiness checks.
+- Detect Paystack amount mismatches and move affected escrows to `REVIEW_REQUIRED`.
+- Re-check Paystack transactions from the admin panel if a webhook was missed or Render was sleeping.
+- Show an admin reconciliation view for payments needing review, releases awaiting payout, missing payout references, and Paystack amount mismatches.
+- Export reconciliation CSVs for operations and accounting.
 
 ## Current Public Services
 
@@ -198,6 +203,13 @@ Endpoints:
 GET /admin/tasks
 GET /admin/tasks/:taskId
 GET /admin/webhooks
+GET /admin/db-status
+GET /admin/escrows
+GET /admin/escrows/:escrowId
+POST /admin/escrows/:escrowId/recheck-payment
+POST /admin/escrows/:escrowId/approve-release
+GET /admin/reconciliation
+GET /admin/reconciliation.csv
 GET /admin/settings
 POST /admin/settings
 GET /admin/audit-history
@@ -339,6 +351,13 @@ VITE_API_BASE_URL=https://sivan-escrow-agent.onrender.com
 
 The dashboard is for internal operators, not the main buyer-facing product.
 
+Current operator features:
+
+- escrow ledger filters for `REVIEW_REQUIRED`, `PENDING_RELEASE`, `RELEASED`, missing payout reference, and Paystack amount mismatch
+- needs-attention cards for payments needing review, releases awaiting payout, released escrows missing payout references, and amount mismatches
+- reconciliation CSV export with escrow ID, buyer/seller, expected amount, received amount, Paystack reference, payout reference, release approver, release timestamp, and status
+- Paystack payment re-check button for escrow recovery when a webhook was missed or delayed
+
 ## WhatsApp Bot
 
 The WhatsApp bot is a separate repo:
@@ -363,16 +382,14 @@ https://whatsapp-bot-ix7t.onrender.com/webhooks/twilio
 
 ## What Is Not Fully Production-Ready Yet
 
-- First-class buyer/seller onboarding and payout account setup are the next major architecture step.
-- Group-to-private-DM escrow initiation is documented but not fully implemented yet.
-- Manual payout approval should be implemented before automated seller payouts.
+- Group-to-private-DM escrow initiation works as a foundation, but the customer experience still needs more polish.
 - Full SAP on-chain escrow settlement needs real SAP wallet credentials and live integration tests.
 - x402 USDC payment flow needs live facilitator verification and settlement testing.
 - Dispute AI is intentionally not implemented yet.
 - SQLite remains supported for local development, but Render production should use Postgres with `DATABASE_PROVIDER=postgres`.
 - Vite/Vitest dev dependency audit warnings should be upgraded carefully.
-- More monitoring and alerts should be configured for Paystack/webhook failures.
-- WhatsApp UX is functional but still simple; it should become more conversational before launch.
+- Monitoring logs exist for payment failures and release events, but production alert routing should still be configured in Sentry/Datadog.
+- WhatsApp UX is functional but should continue moving toward a more guided, customer-friendly conversation.
 
 ## Summary
 

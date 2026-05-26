@@ -144,6 +144,83 @@ async function buildEscrowDetail(escrowId: string) {
   };
 }
 
+async function buildReconciliationRows(limit = 250) {
+  const escrows = await escrowStore.listEscrows(limit);
+  return Promise.all(
+    escrows.map(async (escrow) => {
+      const [buyer, seller, payout] = await Promise.all([
+        escrowStore.getUserById(escrow.buyerUserId),
+        escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
+        escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
+      ]);
+      const flags = new Set(escrow.reconciliationFlags || []);
+      if (escrow.status === "REVIEW_REQUIRED") flags.add("payment_review_required");
+      if (escrow.status === "RELEASED" && !escrow.manualPayoutReference) flags.add("missing_payout_reference");
+      if (escrow.status === "PENDING_RELEASE") flags.add("release_awaiting_manual_payout");
+      if ((escrow.reconciliationFlags || []).includes("payment_amount_mismatch")) flags.add("payment_amount_mismatch");
+
+      return {
+        escrowId: escrow.escrowId,
+        buyer: buyer?.whatsappNumber || escrow.buyerUserId,
+        seller: seller?.whatsappNumber || escrow.sellerWhatsapp || escrow.sellerUserId || "unassigned",
+        expectedAmount: escrow.amount,
+        receivedAmount: escrow.receivedAmount ?? null,
+        currency: escrow.currency,
+        paystackReference: escrow.paymentProvider === "paystack" ? escrow.paymentReference || null : null,
+        paymentProvider: escrow.paymentProvider || null,
+        paymentStatus: escrow.providerPaymentStatus || escrow.status,
+        payoutReference: escrow.manualPayoutReference || null,
+        payoutApprover: escrow.releasedBy || null,
+        releaseTimestamp: escrow.releasedAt || null,
+        status: escrow.status,
+        flags: Array.from(flags),
+        purpose: escrow.purpose,
+        payoutVerified: payout?.verificationStatus === "verified",
+        paymentCheckedAt: escrow.paymentCheckedAt || null,
+      };
+    })
+  );
+}
+
+function csvEscape(value: unknown) {
+  const text = value === null || value === undefined ? "" : Array.isArray(value) ? value.join("|") : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconciliationRows>>) {
+  const headers = [
+    "escrow ID",
+    "buyer",
+    "seller",
+    "expected amount",
+    "received amount",
+    "currency",
+    "Paystack reference",
+    "payment status",
+    "payout reference",
+    "release approver",
+    "release timestamp",
+    "status",
+    "flags",
+  ];
+  const lines = rows.map((row) => [
+    row.escrowId,
+    row.buyer,
+    row.seller,
+    row.expectedAmount,
+    row.receivedAmount,
+    row.currency,
+    row.paystackReference,
+    row.paymentStatus,
+    row.payoutReference,
+    row.payoutApprover,
+    row.releaseTimestamp,
+    row.status,
+    row.flags,
+  ].map(csvEscape).join(","));
+  return [headers.map(csvEscape).join(","), ...lines].join("\n");
+}
+
 function amountsMatch(expected: number, received: number) {
   return Math.round(expected * 100) === Math.round(received * 100);
 }
@@ -548,6 +625,32 @@ app.get("/admin/escrows/:escrowId", requireAdminAuth, async (req, res) => {
     return res.status(404).json({ error: "Escrow not found" });
   }
   res.status(200).json(detail);
+});
+
+app.get("/admin/reconciliation", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  const rows = await buildReconciliationRows(parsed.data.limit);
+  const needsAttention = {
+    paymentsNeedingReview: rows.filter((row) => row.status === "REVIEW_REQUIRED").length,
+    releasesAwaitingPayout: rows.filter((row) => row.status === "PENDING_RELEASE").length,
+    releasedMissingPayoutReference: rows.filter((row) => row.status === "RELEASED" && !row.payoutReference).length,
+    paystackAmountMismatches: rows.filter((row) => row.flags.includes("payment_amount_mismatch")).length,
+  };
+  res.status(200).json({ rows, needsAttention });
+});
+
+app.get("/admin/reconciliation.csv", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  const rows = await buildReconciliationRows(parsed.data.limit);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="sivan-reconciliation-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.status(200).send(reconciliationRowsToCsv(rows));
 });
 
 app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminAction("approve_escrow_release"), async (req, res) => {

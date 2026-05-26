@@ -49,6 +49,33 @@ type EscrowRecord = {
   updatedAt?: string;
 };
 
+type ReconciliationRow = {
+  escrowId: string;
+  buyer: string;
+  seller: string;
+  expectedAmount: number;
+  receivedAmount: number | null;
+  currency: "NAIRA" | "USDC";
+  paystackReference?: string | null;
+  paymentProvider?: string | null;
+  paymentStatus: string;
+  payoutReference?: string | null;
+  payoutApprover?: string | null;
+  releaseTimestamp?: string | null;
+  status: string;
+  flags: string[];
+  purpose: string;
+  payoutVerified: boolean;
+  paymentCheckedAt?: string | null;
+};
+
+type ReconciliationSummary = {
+  paymentsNeedingReview: number;
+  releasesAwaitingPayout: number;
+  releasedMissingPayoutReference: number;
+  paystackAmountMismatches: number;
+};
+
 type FeeSettings = {
   nairaFeePercent: number;
   nairaFeeFixed: number;
@@ -69,6 +96,7 @@ type AuditRecord = {
 };
 
 type Tab = "escrows" | "tasks" | "webhooks" | "fees";
+type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
 const storedAdminKey = "sivan.adminToken";
@@ -98,6 +126,13 @@ function App() {
   const [adminKeyInput, setAdminKeyInput] = useState("");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [escrows, setEscrows] = useState<EscrowRecord[]>([]);
+  const [reconciliationRows, setReconciliationRows] = useState<ReconciliationRow[]>([]);
+  const [reconciliationSummary, setReconciliationSummary] = useState<ReconciliationSummary>({
+    paymentsNeedingReview: 0,
+    releasesAwaitingPayout: 0,
+    releasedMissingPayoutReference: 0,
+    paystackAmountMismatches: 0,
+  });
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
   const [feeSettings, setFeeSettings] = useState<FeeSettings | null>(null);
@@ -109,6 +144,7 @@ function App() {
   });
 
   const [activeTab, setActiveTab] = useState<Tab>("escrows");
+  const [escrowFilter, setEscrowFilter] = useState<EscrowFilter>("all");
   const [selectedEscrow, setSelectedEscrow] = useState<EscrowRecord | null>(null);
   const [selectedTask, setSelectedTask] = useState<TaskRecord | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -179,6 +215,20 @@ function App() {
     setEscrows((await response.json()) || []);
   };
 
+  const loadReconciliation = async () => {
+    if (!adminKey) return;
+    const response = await fetch(`${apiBase}/admin/reconciliation?limit=250`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load reconciliation"));
+    const payload = await response.json();
+    setReconciliationRows(payload.rows || []);
+    setReconciliationSummary(payload.needsAttention || {
+      paymentsNeedingReview: 0,
+      releasesAwaitingPayout: 0,
+      releasedMissingPayoutReference: 0,
+      paystackAmountMismatches: 0,
+    });
+  };
+
   const loadWebhooks = async () => {
     if (!adminKey) return;
     const response = await fetch(`${apiBase}/admin/webhooks?limit=100`, { headers: authHeaders() });
@@ -212,7 +262,7 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory()]);
+      await Promise.all([loadEscrows(), loadReconciliation(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -273,6 +323,7 @@ function App() {
     });
     if (!response.ok) throw new Error(await parseError(response, "Failed to approve release"));
     await loadEscrows();
+    await loadReconciliation();
   };
 
   const disputeEscrow = async (escrowId: string) => {
@@ -283,6 +334,7 @@ function App() {
     });
     if (!response.ok) throw new Error(await parseError(response, "Failed to dispute escrow"));
     await loadEscrows();
+    await loadReconciliation();
   };
 
   const recheckEscrowPayment = async (escrowId: string) => {
@@ -294,8 +346,39 @@ function App() {
     if (!response.ok) throw new Error(await parseError(response, "Failed to re-check payment"));
     const body = await response.json();
     await loadEscrows();
+    await loadReconciliation();
     if (body?.escrow) setSelectedEscrow(body.escrow);
   };
+
+  const downloadReconciliationCsv = async () => {
+    const response = await fetch(`${apiBase}/admin/reconciliation.csv?limit=250`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to export reconciliation CSV"));
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sivan-reconciliation-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const reconciliationByEscrow = useMemo(() => {
+    return new Map(reconciliationRows.map((row) => [row.escrowId, row]));
+  }, [reconciliationRows]);
+
+  const filteredEscrows = useMemo(() => {
+    return escrows.filter((escrow) => {
+      const row = reconciliationByEscrow.get(escrow.escrowId);
+      if (escrowFilter === "review") return escrow.status === "REVIEW_REQUIRED";
+      if (escrowFilter === "pendingRelease") return escrow.status === "PENDING_RELEASE";
+      if (escrowFilter === "released") return escrow.status === "RELEASED";
+      if (escrowFilter === "missingPayout") return escrow.status === "RELEASED" && !escrow.manualPayoutReference;
+      if (escrowFilter === "amountMismatch") return Boolean(row?.flags.includes("payment_amount_mismatch") || escrow.reconciliationFlags?.includes("payment_amount_mismatch"));
+      return true;
+    });
+  }, [escrowFilter, escrows, reconciliationByEscrow]);
 
   const metrics = useMemo(() => {
     const active = escrows.filter((escrow) => !/released|failed|cancelled/i.test(escrow.status)).length;
@@ -444,6 +527,27 @@ function App() {
         </div>
       </section>
 
+      {activeTab === "escrows" && (
+        <section className="attention-grid">
+          <button className="attention-card critical" onClick={() => setEscrowFilter("review")}>
+            <span>Payments needing review</span>
+            <strong>{reconciliationSummary.paymentsNeedingReview}</strong>
+          </button>
+          <button className="attention-card watch" onClick={() => setEscrowFilter("pendingRelease")}>
+            <span>Releases awaiting payout</span>
+            <strong>{reconciliationSummary.releasesAwaitingPayout}</strong>
+          </button>
+          <button className="attention-card critical" onClick={() => setEscrowFilter("missingPayout")}>
+            <span>Released missing payout ref</span>
+            <strong>{reconciliationSummary.releasedMissingPayoutReference}</strong>
+          </button>
+          <button className="attention-card critical" onClick={() => setEscrowFilter("amountMismatch")}>
+            <span>Paystack amount mismatch</span>
+            <strong>{reconciliationSummary.paystackAmountMismatches}</strong>
+          </button>
+        </section>
+      )}
+
       <nav className="tabs" aria-label="Admin sections">
         {(["escrows", "tasks", "webhooks", "fees"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
@@ -457,7 +561,33 @@ function App() {
           <div className="surface">
             <div className="section-head">
               <h2>Escrow Ledger</h2>
-              <span>{escrows.length} records</span>
+              <span>{filteredEscrows.length} of {escrows.length} records</span>
+            </div>
+            <div className="filter-bar">
+              {([
+                ["all", "All"],
+                ["review", "Review required"],
+                ["pendingRelease", "Pending release"],
+                ["released", "Released"],
+                ["missingPayout", "Missing payout ref"],
+                ["amountMismatch", "Amount mismatch"],
+              ] as [EscrowFilter, string][]).map(([value, label]) => (
+                <button key={value} className={escrowFilter === value ? "active" : ""} onClick={() => setEscrowFilter(value)}>
+                  {label}
+                </button>
+              ))}
+              <button
+                className="export-button"
+                onClick={async () => {
+                  try {
+                    await downloadReconciliationCsv();
+                  } catch (err: any) {
+                    setError(err.message || "CSV export failed");
+                  }
+                }}
+              >
+                Export CSV
+              </button>
             </div>
             <div className="table-wrap">
               <table className="data-table">
@@ -472,7 +602,7 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {escrows.map((escrow) => (
+                  {filteredEscrows.map((escrow) => (
                     <tr
                       key={escrow.escrowId}
                       className={selectedEscrow?.escrowId === escrow.escrowId ? "selected" : ""}
@@ -489,9 +619,9 @@ function App() {
                       <td>{compactId(escrow.paymentReference, 16)}</td>
                     </tr>
                   ))}
-                  {escrows.length === 0 && (
+                  {filteredEscrows.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="empty-cell">No escrows yet</td>
+                      <td colSpan={6} className="empty-cell">No escrows match this filter</td>
                     </tr>
                   )}
                 </tbody>
