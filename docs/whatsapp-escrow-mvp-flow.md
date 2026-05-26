@@ -2,6 +2,8 @@
 
 This document defines the recommended MVP architecture for Sivan as a WhatsApp-first escrow coordination system.
 
+For the phased autonomy model and completion matrix, see `docs/autonomous-escrow-roadmap.md`.
+
 The key product shift is important:
 
 Sivan should not be a random bank-transfer bot. Sivan should be an escrow coordination layer, payment verification layer, and settlement orchestration layer.
@@ -436,4 +438,3 @@ Release only when the buyer approves.
 Keep payment and payout details private.
 Track every state in the backend.
 ```
-

@@ -57,6 +57,12 @@ For the full recommended WhatsApp group/private-DM escrow architecture, see:
 docs/whatsapp-escrow-mvp-flow.md
 ```
 
+For the phased autonomous escrow roadmap, see:
+
+```text
+docs/autonomous-escrow-roadmap.md
+```
+
 ### 1. User Sends A WhatsApp Message
 
 A customer sends a message to the Sivan WhatsApp bot, for example:
