@@ -31,9 +31,12 @@ This file documents the environment variables required to run the Sivan Escrow A
 ### Paystack / Naira Bridge
 
 - `PAYSTACK_SECRET_KEY` - Paystack secret key for API calls.
+- `PAYSTACK_PUBLIC_KEY` - Paystack public key for frontend or checkout metadata if needed.
 - `PAYSTACK_BASE_URL` - Paystack API base URL.
 - `PAYSTACK_WEBHOOK_SECRET` - Secret for validating Paystack webhook signatures.
 - `PAYSTACK_RECEIVER_ACCOUNT` - Optional receiver account identifier for Paystack.
+- `PAYSTACK_CHANNELS` - Comma-separated Paystack checkout channels. Use `bank_transfer` for transfer-only escrow collection.
+- `PAYSTACK_CALLBACK_URL` - Browser redirect URL after Paystack checkout. This is not the webhook URL.
 
 ### Application and workflow
 
@@ -79,9 +82,12 @@ X402_CLIENT_ID=
 X402_CLIENT_SECRET=
 
 PAYSTACK_SECRET_KEY=your-paystack-secret-key
+PAYSTACK_PUBLIC_KEY=your-paystack-public-key
 PAYSTACK_BASE_URL=https://api.paystack.co
 PAYSTACK_WEBHOOK_SECRET=your-paystack-webhook-secret
 PAYSTACK_RECEIVER_ACCOUNT=your-paystack-receiver-account
+PAYSTACK_CHANNELS=bank_transfer
+PAYSTACK_CALLBACK_URL=https://yourapp.example.com/payment/callback
 
 NODE_ENV=development
 LOG_LEVEL=debug

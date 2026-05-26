@@ -35,7 +35,7 @@ export class PaymentRouter {
     const transaction = await this.paystackClient.initializeTransaction(
       amount,
       email,
-      process.env.WEBHOOK_URL || ""
+      config.paystack.callbackUrl
     );
 
     return {

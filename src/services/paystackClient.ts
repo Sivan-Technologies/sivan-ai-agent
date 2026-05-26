@@ -14,6 +14,7 @@ export interface PaystackTransactionStatus {
   reference: string;
   amount: number;
   currency: string;
+  channel?: string;
   paidAt?: string;
 }
 
@@ -21,6 +22,7 @@ export class PaystackClient {
   private baseUrl = config.paystack.baseUrl;
   private secretKey = config.paystack.secretKey;
   private receiverAccount = config.paystack.receiverAccount;
+  private channels = config.paystack.channels;
 
   private getHeaders() {
     return {
@@ -39,6 +41,7 @@ export class PaystackClient {
         amount: Math.round(amount * 100),
         currency: "NGN",
         callback_url: callbackUrl,
+        channels: this.channels,
         metadata: { receiver: this.receiverAccount },
       },
       { headers: this.getHeaders() }
@@ -77,6 +80,7 @@ export class PaystackClient {
       reference: data.reference,
       amount: data.amount / 100,
       currency: data.currency,
+      channel: data.channel,
       paidAt: data.paid_at,
     };
   }

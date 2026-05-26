@@ -48,9 +48,15 @@ export const config = {
   },
   paystack: {
     secretKey: envValue("PAYSTACK_SECRET_KEY"),
+    publicKey: envValue("PAYSTACK_PUBLIC_KEY"),
     baseUrl: envValue("PAYSTACK_BASE_URL", "https://api.paystack.co"),
     webhookSecret: envValue("PAYSTACK_WEBHOOK_SECRET"),
     receiverAccount: envValue("PAYSTACK_RECEIVER_ACCOUNT"),
+    callbackUrl: envValue("PAYSTACK_CALLBACK_URL"),
+    channels: envValue("PAYSTACK_CHANNELS", "bank_transfer")
+      .split(",")
+      .map((channel) => channel.trim())
+      .filter(Boolean),
   },
   app: {
     env: envValue("NODE_ENV", "development"),
