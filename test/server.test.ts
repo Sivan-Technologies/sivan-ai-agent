@@ -15,5 +15,9 @@ describe("server basic endpoints", () => {
     const res = await request(app).get("/health/readiness");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ready");
+    expect(res.body.database).toMatchObject({
+      status: "ok",
+      configured: true,
+    });
   });
 });

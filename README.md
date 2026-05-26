@@ -212,6 +212,7 @@ Important backend variables:
 ```env
 NODE_ENV=production
 PORT=4000
+DATABASE_PROVIDER=sqlite
 DATABASE_URL=/tmp/sivan-escrow-agent.db
 
 ADMIN_API_KEY=change-me
@@ -234,6 +235,14 @@ SYNAPSE_API_KEY=your-synapse-key
 SYNAPSE_RPC_URL=your-synapse-rpc-url
 SYNAPSE_X402_FACILITATOR_URL=your-x402-facilitator-url
 SYNAPSE_X402_NETWORK=solana-devnet
+```
+
+For Render Postgres production, use the internal Render database URL:
+
+```env
+DATABASE_PROVIDER=postgres
+DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
+POSTGRES_SSL=true
 ```
 
 SAP wallet variables are still required for full SAP/on-chain production use:
@@ -360,7 +369,7 @@ https://whatsapp-bot-ix7t.onrender.com/webhooks/twilio
 - Full SAP on-chain escrow settlement needs real SAP wallet credentials and live integration tests.
 - x402 USDC payment flow needs live facilitator verification and settlement testing.
 - Dispute AI is intentionally not implemented yet.
-- SQLite on Render using `/tmp` is not durable. Use Render PostgreSQL or a persistent disk for production.
+- SQLite remains supported for local development, but Render production should use Postgres with `DATABASE_PROVIDER=postgres`.
 - Vite/Vitest dev dependency audit warnings should be upgraded carefully.
 - More monitoring and alerts should be configured for Paystack/webhook failures.
 - WhatsApp UX is functional but still simple; it should become more conversational before launch.

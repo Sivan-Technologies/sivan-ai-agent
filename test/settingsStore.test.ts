@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
 import { SettingsStore } from "../src/services/settingsStore";
 import fs from "fs";
 import path from "path";
@@ -19,10 +18,9 @@ function settingsUpdate(overrides: Partial<Parameters<SettingsStore["updateSetti
 }
 
 describe("SettingsStore", () => {
-  let db: Database.Database;
   let settingsStore: SettingsStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const folder = path.dirname(TEST_DB_PATH);
     if (!fs.existsSync(folder)) {
       fs.mkdirSync(folder, { recursive: true });
@@ -31,20 +29,19 @@ describe("SettingsStore", () => {
       fs.unlinkSync(TEST_DB_PATH);
     }
 
-    db = new Database(TEST_DB_PATH);
-    settingsStore = new SettingsStore(db);
-    settingsStore.initializeSchema();
+    settingsStore = new SettingsStore(TEST_DB_PATH, "sqlite");
+    await settingsStore.initializeSchema();
   });
 
-  afterEach(() => {
-    db.close();
+  afterEach(async () => {
+    await settingsStore.close();
     if (fs.existsSync(TEST_DB_PATH)) {
       fs.unlinkSync(TEST_DB_PATH);
     }
   });
 
-  it("creates default settings", () => {
-    const settings = settingsStore.getSettings();
+  it("creates default settings", async () => {
+    const settings = await settingsStore.getSettings();
 
     expect(settings.nairaFeePercent).toBe(2.5);
     expect(settings.nairaFeeFixed).toBe(50);
@@ -53,30 +50,26 @@ describe("SettingsStore", () => {
     expect(settings.version).toBe(1);
   });
 
-  it("validates fee bounds", () => {
-    expect(() => {
-      settingsStore.updateSettings(settingsUpdate({ nairaFeePercent: 51 }));
-    }).toThrow("Naira fee percent must be between 0 and 50");
+  it("validates fee bounds", async () => {
+    await expect(settingsStore.updateSettings(settingsUpdate({ nairaFeePercent: 51 }))).rejects.toThrow("Naira fee percent must be between 0 and 50");
 
-    expect(() => {
-      settingsStore.updateSettings(settingsUpdate({ usdcFeeFixed: -0.5 }));
-    }).toThrow("USDC fixed fee must be non-negative");
+    await expect(settingsStore.updateSettings(settingsUpdate({ usdcFeeFixed: -0.5 }))).rejects.toThrow("USDC fixed fee must be non-negative");
   });
 
-  it("increments version and writes an audit record", () => {
-    const updated = settingsStore.updateSettings(settingsUpdate({ nairaFeePercent: 3, nairaFeeFixed: 75 }));
+  it("increments version and writes an audit record", async () => {
+    const updated = await settingsStore.updateSettings(settingsUpdate({ nairaFeePercent: 3, nairaFeeFixed: 75 }));
 
     expect(updated.version).toBe(2);
     expect(updated.nairaFeePercent).toBe(3);
 
-    const history = settingsStore.getAuditHistory();
+    const history = await settingsStore.getAuditHistory();
     expect(history).toHaveLength(1);
     expect(history[0].settingName).toBe("platform_settings");
     expect(history[0].changedBy).toBe("test-admin");
   });
 
-  it("calculates Naira fees", () => {
-    const settings = settingsStore.getSettings();
+  it("calculates Naira fees", async () => {
+    const settings = await settingsStore.getSettings();
     const fee = settingsStore.calculateNairaFee(10000, settings);
 
     expect(fee.totalPlatformFee).toBe(300);
@@ -84,8 +77,8 @@ describe("SettingsStore", () => {
     expect(fee.recipientNet).toBe(9700);
   });
 
-  it("calculates USDC fees", () => {
-    const settings = settingsStore.getSettings();
+  it("calculates USDC fees", async () => {
+    const settings = await settingsStore.getSettings();
     const fee = settingsStore.calculateUSDCFee(1000, settings);
 
     expect(fee.totalPlatformFee).toBe(15.5);

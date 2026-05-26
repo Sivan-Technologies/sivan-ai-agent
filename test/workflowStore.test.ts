@@ -19,7 +19,8 @@ describe("WorkflowStore", () => {
     store = new WorkflowStore(TEST_DB_PATH);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await store.close();
     if (fs.existsSync(TEST_DB_PATH)) {
       try {
         fs.unlinkSync(TEST_DB_PATH);
@@ -29,8 +30,8 @@ describe("WorkflowStore", () => {
     }
   });
 
-  it("claims a confirmed Naira task once", () => {
-    store.createTask({
+  it("claims a confirmed Naira task once", async () => {
+    await store.createTask({
       taskId: "task-1",
       taskType: "content-creation",
       userPaymentPreference: "NAIRA",
@@ -42,11 +43,11 @@ describe("WorkflowStore", () => {
       paymentReference: "paystack-ref-1",
     });
 
-    const first = store.claimNairaExecution("task-1");
+    const first = await store.claimNairaExecution("task-1");
     expect(first.claimed).toBe(true);
     expect(first.task.paymentStatus).toBe("executing");
 
-    const second = store.claimNairaExecution("task-1");
+    const second = await store.claimNairaExecution("task-1");
     expect(second.claimed).toBe(false);
     expect(second.reason).toBe("status_executing");
   });

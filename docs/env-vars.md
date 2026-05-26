@@ -42,7 +42,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 
 - `NODE_ENV` - `development` or `production`.
 - `LOG_LEVEL` - `info`, `debug`, `warn`, or `error`.
-- `DATABASE_URL` - SQLite database file path for workflow persistence.
+- `DATABASE_PROVIDER` - Storage provider. Use `sqlite` locally or `postgres` on Render.
+- `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or Render internal Postgres URL when `DATABASE_PROVIDER=postgres`.
+- `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
 - `SENTRY_DSN` - Optional Sentry DSN for production error and payment/webhook alerting.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
@@ -91,7 +93,9 @@ PAYSTACK_CALLBACK_URL=https://yourapp.example.com/payment/callback
 
 NODE_ENV=development
 LOG_LEVEL=debug
+DATABASE_PROVIDER=sqlite
 DATABASE_URL=./data/sivan-escrow-agent.db
+POSTGRES_SSL=true
 SENTRY_DSN=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
@@ -103,3 +107,15 @@ USER_EMAIL=buyer@example.com
 PAYMENT_AMOUNT=50
 TASK_INSTRUCTIONS=Write a product description for a trustless escrow service.
 ```
+
+## Render Postgres
+
+For Render production, set the backend service to use the internal database URL:
+
+```env
+DATABASE_PROVIDER=postgres
+DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
+POSTGRES_SSL=true
+```
+
+Use the external database URL only from your local machine or database tools.

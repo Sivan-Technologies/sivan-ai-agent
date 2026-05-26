@@ -99,4 +99,23 @@ describe("Admin Settings API Integration", () => {
     expect(res.body[0]).toHaveProperty("newValue");
     expect(res.body[0]).toHaveProperty("changedBy");
   });
+
+  it("should expose protected database status", async () => {
+    const unauthorized = await request(app).get("/admin/db-status");
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get("/admin/db-status")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: "ok",
+      provider: "sqlite",
+      configured: true,
+    });
+    expect(res.body).toHaveProperty("settingsVersion");
+    expect(res.body).toHaveProperty("latencyMs");
+    expect(res.body).not.toHaveProperty("databaseUrl");
+  });
 });

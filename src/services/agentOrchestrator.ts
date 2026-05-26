@@ -25,7 +25,7 @@ export class AgentOrchestrator {
 
   private async executeAiWork(taskId: string, request: TaskRequest, existingAgentKey?: string) {
     const agentKey = existingAgentKey || await this.sapAgent.registerAgent();
-    this.workflowStore.updateTaskAgent(taskId, agentKey);
+    await this.workflowStore.updateTaskAgent(taskId, agentKey);
     log("Agent registered", { taskId, agentKey });
 
     const tools = await this.sapAgent.discoverTools(request.taskType);
@@ -38,7 +38,7 @@ export class AgentOrchestrator {
 
     log("AI tasks completed", executionResults.map((result) => result.service));
 
-    this.workflowStore.updateTaskExecution(
+    await this.workflowStore.updateTaskExecution(
       taskId,
       tools.map((tool) => tool.name),
       executionResults.map((result) => JSON.stringify(result))
@@ -54,7 +54,7 @@ export class AgentOrchestrator {
     const paymentMethod = this.paymentRouter.determinePaymentMethod(request.userPaymentPreference);
     let paymentResult: PaymentResult;
 
-    this.workflowStore.createTask({
+    await this.workflowStore.createTask({
       taskId,
       taskType: request.taskType,
       userPaymentPreference: request.userPaymentPreference,
@@ -67,9 +67,9 @@ export class AgentOrchestrator {
 
     if (paymentMethod === "NAIRA") {
       paymentResult = await this.paymentRouter.processNairaPayment(request.amount, request.userEmail);
-      this.workflowStore.updateTaskPayment(taskId, paymentResult.reference, null, "payment_pending");
-      this.workflowStore.updateTaskStatus(taskId, "payment_pending", "Waiting for Paystack webhook confirmation.");
-      const task = this.workflowStore.getTaskById(taskId);
+      await this.workflowStore.updateTaskPayment(taskId, paymentResult.reference, null, "payment_pending");
+      await this.workflowStore.updateTaskStatus(taskId, "payment_pending", "Waiting for Paystack webhook confirmation.");
+      const task = await this.workflowStore.getTaskById(taskId);
       if (task) {
         const paymentLink = paymentResult.authorizationUrl || paymentResult.reference;
         await notifyWhatsAppBot(
@@ -87,7 +87,7 @@ export class AgentOrchestrator {
       };
     } else {
       const agentKey = await this.sapAgent.registerAgent();
-      this.workflowStore.updateTaskAgent(taskId, agentKey);
+      await this.workflowStore.updateTaskAgent(taskId, agentKey);
       log("Agent registered", { taskId, agentKey });
 
       if (request.usdcChannel === "sap") {
@@ -95,13 +95,13 @@ export class AgentOrchestrator {
       } else {
         paymentResult = await this.paymentRouter.processUsdcEscrow(request.amount, agentKey);
       }
-      this.workflowStore.updateTaskPayment(taskId, paymentResult.reference, paymentResult.paymentId || null, paymentResult.status);
-      this.workflowStore.updateTaskStatus(taskId, paymentResult.status, "USDC payment facility created.");
+      await this.workflowStore.updateTaskPayment(taskId, paymentResult.reference, paymentResult.paymentId || null, paymentResult.status);
+      await this.workflowStore.updateTaskStatus(taskId, paymentResult.status, "USDC payment facility created.");
     }
 
     log("Payment initialized", paymentResult);
 
-    const task = this.workflowStore.getTaskById(taskId);
+    const task = await this.workflowStore.getTaskById(taskId);
     if (!task?.agentKey) {
       throw new Error("Missing agent key for USDC workflow");
     }
@@ -117,7 +117,7 @@ export class AgentOrchestrator {
 
       if (request.usdcChannel === "sap") {
         const escrowReleased = await this.sapAgent.releaseEscrow(paymentResult.reference);
-        this.workflowStore.updateTaskStatus(taskId, escrowReleased ? "settled" : "release_failed", "SAP on-chain escrow release attempted.");
+        await this.workflowStore.updateTaskStatus(taskId, escrowReleased ? "settled" : "release_failed", "SAP on-chain escrow release attempted.");
         paymentResult = {
           method: "USDC",
           status: escrowReleased ? "settled" : "release_failed",
@@ -126,17 +126,17 @@ export class AgentOrchestrator {
           details: { escrowReleased },
         };
         log("SAP escrow released", { escrowReleased, escrowId: paymentResult.reference });
-        const task = this.workflowStore.getTaskById(taskId);
+        const task = await this.workflowStore.getTaskById(taskId);
         if (task) {
           await notifyWhatsAppBot(request.userEmail, formatTaskSummary(task));
         }
       } else {
         const settlement = await this.paymentRouter.settleUsdcPayment(paymentResult.paymentId);
-        this.workflowStore.updateTaskPayment(taskId, settlement.reference, settlement.paymentId || null, settlement.status);
-        this.workflowStore.updateTaskStatus(taskId, settlement.status, "USDC payment settled.");
+        await this.workflowStore.updateTaskPayment(taskId, settlement.reference, settlement.paymentId || null, settlement.status);
+        await this.workflowStore.updateTaskStatus(taskId, settlement.status, "USDC payment settled.");
         paymentResult = settlement;
         log("USDC payment settled", settlement);
-        const task = this.workflowStore.getTaskById(taskId);
+        const task = await this.workflowStore.getTaskById(taskId);
         if (task) {
           await notifyWhatsAppBot(request.userEmail, formatTaskSummary(task));
         }
@@ -153,7 +153,7 @@ export class AgentOrchestrator {
   }
 
   public async executeConfirmedNairaTask(taskId: string) {
-    const claim = this.workflowStore.claimNairaExecution(taskId);
+    const claim = await this.workflowStore.claimNairaExecution(taskId);
     if (!claim.claimed) {
       log("Skipping Naira execution request", { taskId, reason: claim.reason, status: claim.task?.paymentStatus });
       return {
@@ -176,9 +176,9 @@ export class AgentOrchestrator {
       };
 
       const result = await this.executeAiWork(taskId, request);
-      this.workflowStore.updateTaskStatus(taskId, "completed", "Naira payment confirmed and AI work completed.");
+      await this.workflowStore.updateTaskStatus(taskId, "completed", "Naira payment confirmed and AI work completed.");
 
-      const updatedTask = this.workflowStore.getTaskById(taskId);
+      const updatedTask = await this.workflowStore.getTaskById(taskId);
       if (updatedTask) {
         await notifyWhatsAppBot(updatedTask.userEmail, formatTaskSummary(updatedTask));
       }
@@ -189,7 +189,7 @@ export class AgentOrchestrator {
         ...result,
       };
     } catch (err: any) {
-      this.workflowStore.updateTaskStatus(taskId, "failed", err.message || "Naira task execution failed.");
+      await this.workflowStore.updateTaskStatus(taskId, "failed", err.message || "Naira task execution failed.");
       throw err;
     }
   }

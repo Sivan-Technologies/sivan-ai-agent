@@ -61,6 +61,7 @@ export const config = {
   app: {
     env: envValue("NODE_ENV", "development"),
     logLevel: envValue("LOG_LEVEL", "info"),
+    databaseProvider: envValue("DATABASE_PROVIDER", "sqlite"),
     databaseUrl: envValue("DATABASE_URL", path.resolve(process.cwd(), "data", "sivan-escrow-agent.db")),
     webhookUrl: envValue("WEBHOOK_URL"),
     notificationUrl: envValue("NOTIFICATION_URL"),

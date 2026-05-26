@@ -14,7 +14,7 @@ async function runDemo() {
   const sapAgent = new SapAgent(config.sap.rpcUrl, config.synapse.apiKey);
   const aceData = new AceDataClient(config.aceData.baseUrl, config.aceData.apiKey);
   const paymentRouter = new PaymentRouter(sapAgent);
-  const workflowStore = new WorkflowStore(config.app.databaseUrl);
+  const workflowStore = new WorkflowStore(config.app.databaseUrl, config.app.databaseProvider);
   const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 
   const request: TaskRequest = {

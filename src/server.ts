@@ -30,14 +30,9 @@ const app = express();
 const sapAgent = new SapAgent(config.sap.rpcUrl, config.synapse.apiKey);
 const aceData = new AceDataClient(config.aceData.baseUrl, config.aceData.apiKey);
 const paymentRouter = new PaymentRouter(sapAgent);
-const workflowStore = new WorkflowStore(config.app.databaseUrl);
-const Database = require("better-sqlite3");
-const db = new Database(config.app.databaseUrl);
-const settingsStore = new SettingsStore(db);
-// Initialize settings schema if not present
-if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='platform_settings'").get()) {
-  settingsStore.initializeSchema();
-}
+const workflowStore = new WorkflowStore(config.app.databaseUrl, config.app.databaseProvider);
+const settingsStore = new SettingsStore(config.app.databaseUrl, config.app.databaseProvider);
+void settingsStore.initializeSchema();
 const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 const paystackClient = new PaystackClient();
 
@@ -65,14 +60,27 @@ app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok", uptime: process.uptime() });
 });
 
-app.get("/health/readiness", (req, res) => {
-  // readiness can include DB or downstream checks; keep simple for now
+async function buildDatabaseStatus() {
+  const startedAt = Date.now();
+  const settings = await settingsStore.getSettings();
+  await workflowStore.getWebhookEvents(1);
+
+  return {
+    status: "ok",
+    provider: config.app.databaseProvider,
+    configured: Boolean(config.app.databaseUrl),
+    settingsVersion: settings.version,
+    latencyMs: Date.now() - startedAt,
+  };
+}
+
+app.get("/health/readiness", async (req, res) => {
   try {
-    // a light check that workflow store DB path is configured
     if (!config.app.databaseUrl) {
       return res.status(500).json({ status: "unready", reason: "database not configured" });
     }
-    res.status(200).json({ status: "ready" });
+    const database = await buildDatabaseStatus();
+    res.status(200).json({ status: "ready", database });
   } catch (err: any) {
     res.status(500).json({ status: "unready", error: err.message || err });
   }
@@ -120,8 +128,8 @@ app.post("/webhooks/paystack", async (req, res) => {
   const paymentReference = event.data.reference;
   const eventType = event.event || "unknown";
   if (paymentReference) {
-    workflowStore.addWebhookEvent(String(event.id || crypto.randomUUID()), paymentReference, eventType, JSON.stringify(event));
-    const task = workflowStore.findTaskByPaymentReference(paymentReference);
+    await workflowStore.addWebhookEvent(String(event.id || crypto.randomUUID()), paymentReference, eventType, JSON.stringify(event));
+    const task = await workflowStore.findTaskByPaymentReference(paymentReference);
     if (task) {
       if (eventType === "charge.success") {
         const transaction = await paystackClient.fetchTransaction(paymentReference);
@@ -134,7 +142,7 @@ app.post("/webhooks/paystack", async (req, res) => {
           return res.status(202).send({ status: "verification_pending" });
         }
 
-        workflowStore.updateTaskStatus(task.taskId, "payment_confirmed", `Paystack event verified: ${eventType}`);
+        await workflowStore.updateTaskStatus(task.taskId, "payment_confirmed", `Paystack event verified: ${eventType}`);
         info("Updated workflow task status from verified Paystack webhook", { taskId: task.taskId, paymentReference });
         const execution = await orchestrator.executeConfirmedNairaTask(task.taskId);
         if ((execution as any).skipped) {
@@ -143,9 +151,9 @@ app.post("/webhooks/paystack", async (req, res) => {
       } else {
         const shouldKeepCurrentStatus = ["executing", "completed", "settled"].includes(task.paymentStatus);
         if (!shouldKeepCurrentStatus) {
-          workflowStore.updateTaskStatus(task.taskId, "payment_event_received", `Paystack event: ${eventType}`);
+          await workflowStore.updateTaskStatus(task.taskId, "payment_event_received", `Paystack event: ${eventType}`);
         }
-        const updatedTask = workflowStore.getTaskById(task.taskId);
+        const updatedTask = await workflowStore.getTaskById(task.taskId);
         if (updatedTask) {
           await notifyWhatsAppBot(updatedTask.userEmail, formatTaskSummary(updatedTask));
         }
@@ -162,33 +170,43 @@ app.post("/webhooks/paystack", async (req, res) => {
   }
 });
 
-app.get("/admin/tasks", requireAdminAuth, (req, res) => {
-  const tasks = workflowStore.getAllTasks();
+app.get("/admin/tasks", requireAdminAuth, async (req, res) => {
+  const tasks = await workflowStore.getAllTasks();
   res.status(200).json(tasks);
 });
 
-app.get("/admin/tasks/:taskId", requireAdminAuth, (req, res) => {
-  const task = workflowStore.getTaskById(req.params.taskId);
+app.get("/admin/tasks/:taskId", requireAdminAuth, async (req, res) => {
+  const task = await workflowStore.getTaskById(req.params.taskId);
   if (!task) {
     return res.status(404).send({ error: "Task not found" });
   }
   res.status(200).json(task);
 });
 
-app.get("/admin/webhooks", requireAdminAuth, (req, res) => {
+app.get("/admin/webhooks", requireAdminAuth, async (req, res) => {
   const parsed = limitQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
   const limit = parsed.data.limit;
-  const events = workflowStore.getWebhookEvents(limit);
+  const events = await workflowStore.getWebhookEvents(limit);
   res.status(200).json(events);
 });
 
-// Admin Settings Endpoints (requires authentication)
-app.get("/admin/settings", requireAdminAuth, (req, res) => {
+app.get("/admin/db-status", requireAdminAuth, async (_req, res) => {
   try {
-    const settings = settingsStore.getSettings();
+    const database = await buildDatabaseStatus();
+    res.status(200).json(database);
+  } catch (err: any) {
+    captureOperationalError("Database status check failed", err);
+    res.status(503).json({ status: "error", error: err.message || "Database check failed" });
+  }
+});
+
+// Admin Settings Endpoints (requires authentication)
+app.get("/admin/settings", requireAdminAuth, async (req, res) => {
+  try {
+    const settings = await settingsStore.getSettings();
     res.status(200).json(settings);
   } catch (err: any) {
     error("Failed to fetch settings", err.message || err);
@@ -196,7 +214,7 @@ app.get("/admin/settings", requireAdminAuth, (req, res) => {
   }
 });
 
-app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"), (req, res) => {
+app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"), async (req, res) => {
   try {
     const adminUser = (req as any).adminUser || "unknown";
     const parsed = adminSettingsSchema.safeParse(req.body);
@@ -206,7 +224,7 @@ app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"),
     const updates = parsed.data;
 
     // Update settings with optimistic locking
-    const updated = settingsStore.updateSettings({
+    const updated = await settingsStore.updateSettings({
       nairaFeePercent: updates.nairaFeePercent,
       nairaFeeFixed: updates.nairaFeeFixed,
       usdcFeePercent: updates.usdcFeePercent,
@@ -227,14 +245,14 @@ app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"),
   }
 });
 
-app.get("/admin/audit-history", requireAdminAuth, (req, res) => {
+app.get("/admin/audit-history", requireAdminAuth, async (req, res) => {
   try {
     const parsed = limitQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
     }
     const limit = parsed.data.limit;
-    const history = settingsStore.getAuditHistory(limit);
+    const history = await settingsStore.getAuditHistory(limit);
     res.status(200).json(history);
   } catch (err: any) {
     captureOperationalError("Failed to fetch audit history", err);
