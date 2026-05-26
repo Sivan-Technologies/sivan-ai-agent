@@ -493,7 +493,9 @@ function App() {
                 <div className="detail-row"><span>Policy</span><strong>{selectedEscrow.settlementPolicy}</strong></div>
                 <div className="detail-row"><span>Seller</span><strong>{selectedEscrow.sellerWhatsapp || selectedEscrow.sellerUserId || "pending"}</strong></div>
                 <div className="detail-row"><span>Payout ref</span><strong>{selectedEscrow.manualPayoutReference || "not released"}</strong></div>
+                <div className="detail-row"><span>Payout notes</span><strong>{selectedEscrow.payoutNotes || "none"}</strong></div>
                 <div className="detail-row"><span>Released by</span><strong>{selectedEscrow.releasedBy || "not released"}</strong></div>
+                <div className="detail-row"><span>Dispute</span><strong>{selectedEscrow.status === "DISPUTED" ? "open" : "none"}</strong></div>
                 <div className="detail-note">{selectedEscrow.purpose}</div>
                 <button
                   className="button primary full"

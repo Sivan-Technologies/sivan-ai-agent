@@ -94,6 +94,53 @@ function paystackEmailForWhatsapp(whatsappNumber: string) {
   return `whatsapp_${digits || "user"}@sivan.local`;
 }
 
+async function buildEscrowDetail(escrowId: string) {
+  const escrow = await escrowStore.getEscrowById(escrowId);
+  if (!escrow) return null;
+
+  const [buyer, seller, transactions, events] = await Promise.all([
+    escrowStore.getUserById(escrow.buyerUserId),
+    escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
+    escrowStore.listTransactions(escrow.escrowId),
+    escrowStore.listEvents(escrow.escrowId, 100),
+  ]);
+  const payout = escrow.sellerUserId ? await escrowStore.getPayoutAccount(escrow.sellerUserId) : null;
+  const buyerProfileComplete = Boolean(buyer?.firstName && buyer?.lastName);
+  const sellerProfileComplete = Boolean(seller?.firstName && seller?.lastName);
+  const payoutVerified = Boolean(payout && payout.verificationStatus === "verified");
+
+  return {
+    escrow,
+    buyer,
+    seller,
+    payout,
+    transactions,
+    events,
+    readiness: {
+      buyerProfileComplete,
+      sellerProfileComplete,
+      payoutVerified,
+      sellerAccepted: !["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status),
+      fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
+      releaseRequested: escrow.status === "PENDING_RELEASE",
+      nextAction:
+        escrow.status === "PENDING_ACCEPTANCE"
+          ? "seller_acceptance_required"
+          : escrow.currency === "NAIRA" && !sellerProfileComplete
+          ? "seller_profile_required"
+          : escrow.currency === "NAIRA" && !payoutVerified
+          ? "seller_payout_verification_required"
+          : escrow.status === "PENDING_PAYMENT"
+          ? "buyer_payment_required"
+          : escrow.status === "IN_PROGRESS"
+          ? "delivery_or_release_required"
+          : escrow.status === "PENDING_RELEASE"
+          ? "admin_manual_payout_required"
+          : "monitor",
+    },
+  };
+}
+
 app.get("/health/readiness", async (req, res) => {
   try {
     if (!config.app.databaseUrl) {
@@ -201,19 +248,23 @@ app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
   res.status(200).json(payout);
 });
 
-app.get("/api/paystack/banks", requireCoreApiAuth, async (_req, res) => {
+app.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
   try {
+    const query = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
     const banks = await paystackClient.listBanks();
-    res.status(200).json(banks);
+    const filtered = query
+      ? banks.filter((bank) => bank.name.toLowerCase().includes(query) || bank.code.includes(query) || (bank.slug || "").includes(query)).slice(0, 8)
+      : banks;
+    res.status(200).json(filtered);
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to fetch banks" });
   }
 });
 
 app.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
-  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
-  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
-  res.status(200).json(escrow);
+  const detail = await buildEscrowDetail(req.params.escrowId);
+  if (!detail) return res.status(404).json({ error: "Escrow not found" });
+  res.status(200).json(detail);
 });
 
 app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) => {
@@ -222,6 +273,19 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     if (!parsed.success || !parsed.data.actorWhatsapp) {
       return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
     }
+    const detailBefore = await buildEscrowDetail(req.params.escrowId);
+    if (!detailBefore) return res.status(404).json({ error: "Escrow not found" });
+    if (detailBefore.escrow.currency === "NAIRA") {
+      if (!detailBefore.readiness.sellerProfileComplete || !detailBefore.readiness.payoutVerified) {
+        return res.status(409).json({
+          error: "SELLER_PAYOUT_SETUP_REQUIRED",
+          message: "Seller profile and verified payout account are required before accepting a Naira escrow",
+          escrow: detailBefore.escrow,
+          readiness: detailBefore.readiness,
+        });
+      }
+    }
+
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
@@ -248,13 +312,13 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
       });
       payment = { provider: "x402", reference, settlementPolicy: "autonomous_usdc_release" };
     }
-    const updated = await escrowStore.getEscrowById(req.params.escrowId);
-    if (updated && payment) {
-      const buyer = await escrowStore.getUserById(updated.buyerUserId);
+    const updated = await buildEscrowDetail(req.params.escrowId);
+    if (updated?.escrow && payment) {
+      const buyer = updated.buyer;
       if (buyer) {
         const instruction = payment.authorizationUrl
-          ? `Seller accepted escrow ${updated.escrowId}.\nPay here: ${payment.authorizationUrl}`
-          : `Seller accepted escrow ${updated.escrowId}.\nPayment reference: ${payment.reference}`;
+          ? `Seller accepted escrow ${updated.escrow.escrowId}.\nPay here: ${payment.authorizationUrl}`
+          : `Seller accepted escrow ${updated.escrow.escrowId}.\nPayment reference: ${payment.reference}`;
         await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
       }
     }
@@ -423,15 +487,11 @@ app.get("/admin/escrows", requireAdminAuth, async (req, res) => {
 });
 
 app.get("/admin/escrows/:escrowId", requireAdminAuth, async (req, res) => {
-  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
-  if (!escrow) {
+  const detail = await buildEscrowDetail(req.params.escrowId);
+  if (!detail) {
     return res.status(404).json({ error: "Escrow not found" });
   }
-  const [transactions, events] = await Promise.all([
-    escrowStore.listTransactions(escrow.escrowId),
-    escrowStore.listEvents(escrow.escrowId, 100),
-  ]);
-  res.status(200).json({ escrow, transactions, events });
+  res.status(200).json(detail);
 });
 
 app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminAction("approve_escrow_release"), async (req, res) => {
