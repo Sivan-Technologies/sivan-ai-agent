@@ -185,6 +185,7 @@ These states should become the canonical state machine:
 | `PENDING_RELEASE` | Release requested, waiting for admin/manual approval |
 | `RELEASED` | Seller payout completed |
 | `DISPUTED` | Under review |
+| `REVIEW_REQUIRED` | Payment or reconciliation issue needs admin review |
 | `FAILED` | Payment or workflow failure |
 | `CANCELLED` | Escrow cancelled before completion |
 
@@ -198,6 +199,7 @@ Recommended MVP rules:
 | `CREATED` | `PENDING_PAYMENT` | Buyer and seller are attached |
 | `PENDING_PROFILE` | `PENDING_PAYMENT` | Required onboarding is complete |
 | `PENDING_PAYMENT` | `FUNDED` | Paystack webhook and transaction verification pass |
+| `PENDING_PAYMENT` | `REVIEW_REQUIRED` | Paystack verification fails or amount received does not match escrow amount |
 | `FUNDED` | `IN_PROGRESS` | Seller is notified to proceed |
 | `IN_PROGRESS` | `COMPLETED` | Buyer confirms work is complete |
 | `COMPLETED` | `PENDING_RELEASE` | Buyer confirms release intent |
@@ -211,8 +213,8 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 82%
-Production financial-readiness: 66%
+MVP escrow-core readiness: 85%
+Production financial-readiness: 72%
 ```
 
 Legend:
@@ -225,17 +227,18 @@ Legend:
 | Phase | Goal | Status | Notes |
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
-| Phase 1 | Paystack transfer-only payment verification | 🟡 Mostly completed | Transfer-only initialization, webhook verification, reference matching, idempotency are implemented; live reconciliation still needs final validation |
+| Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
 | Phase 2 | WhatsApp bot bridge | 🟡 Mostly completed | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, and escrow commands exist |
 | Phase 3 | First-class users | 🟡 In progress | `users` table exists, WhatsApp numbers are first-class identities, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | 🟡 In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
-| Phase 5 | Transaction state machine | 🟡 In progress | Canonical states are stored and release/dispute transitions are guarded in the escrow store |
+| Phase 5 | Transaction state machine | 🟡 In progress | Canonical states are stored, release/dispute transitions are guarded, and payment review states are enforced |
 | Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and Paystack-verified payout account are complete |
-| Phase 8 | Manual release approval | 🟡 In progress | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
-| Phase 9 | Dispute workflow | 🟡 In progress | Dispute state exists from WhatsApp/admin; evidence capture and resolution outcomes are next |
-| Phase 10 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
-| Phase 11 | SAP/x402/USDC production settlement | 🔮 Future | SDK and config are partially wired; requires real credentials and live testing |
+| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
+| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, and release timestamp |
+| Phase 10 | Dispute workflow | 🟡 In progress | Dispute state exists from WhatsApp/admin; evidence capture and resolution outcomes are next |
+| Phase 11 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
+| Phase 12 | SAP/x402/USDC production settlement | 🔮 Future | SDK and config are partially wired; requires real credentials and live testing |
 
 ## What Is Completed So Far
 
@@ -252,9 +255,13 @@ The current system already has:
 - ✅ Paystack transaction reference storage
 - ✅ Paystack webhook signature verification
 - ✅ Paystack transaction verification before Naira execution
+- ✅ Paystack amount mismatch detection with `REVIEW_REQUIRED`
+- ✅ admin Paystack transaction re-check by escrow reference
 - ✅ webhook persistence
 - ✅ idempotency guard against repeated webhook execution
+- ✅ operational warning logs for invalid signatures, payment mismatch, verification failure, blocked release, and payout approval
 - ✅ admin escrow ledger with release/dispute actions
+- ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, payout reference, approver, release timestamp
 - ✅ Naira release policy: buyer request plus manual admin approval
 - ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
 - ✅ seller invite/accept flow before payment initialization
@@ -278,10 +285,10 @@ The current system already has:
 
 The next major engineering work should not be dispute AI yet.
 
-The next work should be deterministic settlement infrastructure:
+The next work should be production hardening around deterministic settlement infrastructure:
 
-1. Add admin evidence notes and resolution outcomes for disputes.
-2. Add reconciliation dashboard filters for Paystack funding and manual Naira payouts.
+1. Add reconciliation filters/exports for Paystack funding and manual Naira payouts.
+2. Add live Render smoke checks for Paystack webhook replay and admin re-check.
 3. Add production x402/SAP settlement verification before expanding autonomous USDC release.
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.

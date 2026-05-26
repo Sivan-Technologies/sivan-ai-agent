@@ -36,6 +36,10 @@ type EscrowRecord = {
   paymentReference?: string;
   paymentAuthorizationUrl?: string;
   paymentProvider?: string;
+  receivedAmount?: number;
+  providerPaymentStatus?: string;
+  paymentCheckedAt?: string;
+  reconciliationFlags?: string[];
   releaseRequestedAt?: string;
   manualPayoutReference?: string;
   payoutNotes?: string;
@@ -78,7 +82,7 @@ function compactId(value?: string, length = 10) {
 }
 
 function statusTone(status: string) {
-  if (/failed|error|invalid|release_failed/i.test(status)) return "critical";
+  if (/failed|error|invalid|release_failed|review_required|mismatch/i.test(status)) return "critical";
   if (/settled|completed|confirmed|success/i.test(status)) return "good";
   if (/pending|created|received|executing|waiting/i.test(status)) return "watch";
   return "neutral";
@@ -281,11 +285,23 @@ function App() {
     await loadEscrows();
   };
 
+  const recheckEscrowPayment = async (escrowId: string) => {
+    const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/recheck-payment`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to re-check payment"));
+    const body = await response.json();
+    await loadEscrows();
+    if (body?.escrow) setSelectedEscrow(body.escrow);
+  };
+
   const metrics = useMemo(() => {
     const active = escrows.filter((escrow) => !/released|failed|cancelled/i.test(escrow.status)).length;
     const pending = escrows.filter((escrow) => /pending|created/i.test(escrow.status)).length;
     const settled = escrows.filter((escrow) => /released/i.test(escrow.status)).length;
-    const failed = escrows.filter((escrow) => /failed|disputed/i.test(escrow.status)).length;
+    const failed = escrows.filter((escrow) => /failed|disputed|review_required/i.test(escrow.status)).length;
     return { active, pending, settled, failed };
   }, [escrows]);
 
@@ -450,6 +466,7 @@ function App() {
                     <th>Escrow</th>
                     <th>Amount</th>
                     <th>Status</th>
+                    <th>Received</th>
                     <th>Release</th>
                     <th>Reference</th>
                   </tr>
@@ -467,13 +484,14 @@ function App() {
                       </td>
                       <td>{money.format(escrow.amount)} {escrow.currency}</td>
                       <td><span className={`status ${statusTone(escrow.status)}`}>{escrow.status}</span></td>
+                      <td>{escrow.receivedAmount === undefined ? "pending" : `${money.format(escrow.receivedAmount)} ${escrow.currency}`}</td>
                       <td>{escrow.settlementPolicy}</td>
                       <td>{compactId(escrow.paymentReference, 16)}</td>
                     </tr>
                   ))}
                   {escrows.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="empty-cell">No escrows yet</td>
+                      <td colSpan={6} className="empty-cell">No escrows yet</td>
                     </tr>
                   )}
                 </tbody>
@@ -491,12 +509,36 @@ function App() {
                 <div className="detail-row"><span>Status</span><strong>{selectedEscrow.status}</strong></div>
                 <div className="detail-row"><span>Currency</span><strong>{selectedEscrow.currency}</strong></div>
                 <div className="detail-row"><span>Policy</span><strong>{selectedEscrow.settlementPolicy}</strong></div>
+                <div className="detail-row"><span>Funding reference</span><strong>{selectedEscrow.paymentReference || "pending"}</strong></div>
+                <div className="detail-row"><span>Payment status</span><strong>{selectedEscrow.providerPaymentStatus || selectedEscrow.status}</strong></div>
+                <div className="detail-row"><span>Expected amount</span><strong>{money.format(selectedEscrow.amount)} {selectedEscrow.currency}</strong></div>
+                <div className="detail-row"><span>Received amount</span><strong>{selectedEscrow.receivedAmount === undefined ? "not verified" : `${money.format(selectedEscrow.receivedAmount)} ${selectedEscrow.currency}`}</strong></div>
+                <div className="detail-row"><span>Payment checked</span><strong>{formatTime(selectedEscrow.paymentCheckedAt)}</strong></div>
                 <div className="detail-row"><span>Seller</span><strong>{selectedEscrow.sellerWhatsapp || selectedEscrow.sellerUserId || "pending"}</strong></div>
-                <div className="detail-row"><span>Payout ref</span><strong>{selectedEscrow.manualPayoutReference || "not released"}</strong></div>
+                <div className="detail-row"><span>Payout ref</span><strong>{selectedEscrow.manualPayoutReference || (selectedEscrow.status === "RELEASED" ? "MISSING REFERENCE" : "not released")}</strong></div>
                 <div className="detail-row"><span>Payout notes</span><strong>{selectedEscrow.payoutNotes || "none"}</strong></div>
                 <div className="detail-row"><span>Released by</span><strong>{selectedEscrow.releasedBy || "not released"}</strong></div>
+                <div className="detail-row"><span>Released at</span><strong>{formatTime(selectedEscrow.releasedAt)}</strong></div>
                 <div className="detail-row"><span>Dispute</span><strong>{selectedEscrow.status === "DISPUTED" ? "open" : "none"}</strong></div>
+                {selectedEscrow.reconciliationFlags?.length ? (
+                  <div className="detail-note critical-note">
+                    {selectedEscrow.reconciliationFlags.join(", ")}
+                  </div>
+                ) : null}
                 <div className="detail-note">{selectedEscrow.purpose}</div>
+                <button
+                  className="button secondary full"
+                  disabled={!selectedEscrow.paymentReference || selectedEscrow.paymentProvider !== "paystack"}
+                  onClick={async () => {
+                    try {
+                      await recheckEscrowPayment(selectedEscrow.escrowId);
+                    } catch (err: any) {
+                      setError(err.message || "Payment recheck failed");
+                    }
+                  }}
+                >
+                  Re-check Paystack payment
+                </button>
                 <button
                   className="button primary full"
                   disabled={selectedEscrow.status !== "PENDING_RELEASE"}

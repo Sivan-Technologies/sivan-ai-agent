@@ -16,6 +16,7 @@ export type EscrowStatus =
   | "PENDING_RELEASE"
   | "RELEASED"
   | "DISPUTED"
+  | "REVIEW_REQUIRED"
   | "FAILED"
   | "CANCELLED";
 
@@ -58,6 +59,10 @@ export interface EscrowRecord {
   paymentReference?: string;
   paymentAuthorizationUrl?: string;
   paymentProvider?: string;
+  receivedAmount?: number;
+  providerPaymentStatus?: string;
+  paymentCheckedAt?: string;
+  reconciliationFlags?: string[];
   releaseRequestedAt?: string;
   manualPayoutReference?: string;
   payoutNotes?: string;
@@ -175,6 +180,10 @@ export class EscrowStore {
       paymentReference: row.payment_reference || undefined,
       paymentAuthorizationUrl: row.payment_authorization_url || undefined,
       paymentProvider: row.payment_provider || undefined,
+      receivedAmount: row.received_amount === null || row.received_amount === undefined ? undefined : Number(row.received_amount),
+      providerPaymentStatus: row.provider_payment_status || undefined,
+      paymentCheckedAt: row.payment_checked_at || undefined,
+      reconciliationFlags: row.reconciliation_flags ? JSON.parse(row.reconciliation_flags) : undefined,
       releaseRequestedAt: row.release_requested_at || undefined,
       manualPayoutReference: row.manual_payout_reference || undefined,
       payoutNotes: row.payout_notes || undefined,
@@ -257,6 +266,10 @@ export class EscrowStore {
         payment_reference TEXT UNIQUE,
         payment_authorization_url TEXT,
         payment_provider TEXT,
+        received_amount ${numberType},
+        provider_payment_status TEXT,
+        payment_checked_at TEXT,
+        reconciliation_flags TEXT,
         release_requested_at TEXT,
         manual_payout_reference TEXT,
         payout_notes TEXT,
@@ -309,6 +322,10 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "payout_notes", "TEXT");
     this.ensureSqliteColumn("escrows", "released_by", "TEXT");
     this.ensureSqliteColumn("escrows", "released_at", "TEXT");
+    this.ensureSqliteColumn("escrows", "received_amount", "REAL");
+    this.ensureSqliteColumn("escrows", "provider_payment_status", "TEXT");
+    this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
+    this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
   }
 
   private ensureSqliteColumn(table: string, column: string, definition: string) {
@@ -329,6 +346,10 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "payout_notes", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_at", "TEXT");
+      await this.ensurePostgresColumn("escrows", "received_amount", "DOUBLE PRECISION");
+      await this.ensurePostgresColumn("escrows", "provider_payment_status", "TEXT");
+      await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
+      await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
     }
     this.initialized = true;
   }
@@ -566,6 +587,11 @@ export class EscrowStore {
     if (!escrow) return null;
     if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status)) return escrow;
 
+    await this.recordPaymentReconciliation(escrow.escrowId, {
+      receivedAmount: metadata?.amount,
+      providerPaymentStatus: metadata?.status || "success",
+      reconciliationFlags: [],
+    });
     await this.transitionEscrow(escrow.escrowId, "IN_PROGRESS", {
       actor: "paystack",
       actorRole: "payment_provider",
@@ -576,6 +602,87 @@ export class EscrowStore {
     });
     await this.updateTransactionStatus(paymentReference, "success", metadata);
     return this.getEscrowById(escrow.escrowId);
+  }
+
+  public async markPaymentReviewRequired(
+    escrowId: string,
+    input: {
+      receivedAmount?: number;
+      providerPaymentStatus?: string;
+      flags: string[];
+      reason: string;
+      reference?: string;
+      metadata?: any;
+    }
+  ): Promise<EscrowRecord> {
+    await this.initializeSchema();
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) throw new Error("Escrow not found");
+
+    await this.recordPaymentReconciliation(escrowId, {
+      receivedAmount: input.receivedAmount,
+      providerPaymentStatus: input.providerPaymentStatus,
+      reconciliationFlags: input.flags,
+    });
+    await this.transitionEscrow(escrowId, "REVIEW_REQUIRED", {
+      actor: "paystack",
+      actorRole: "payment_provider",
+      channel: "reconciliation",
+      eventType: "payment_review_required",
+      reason: input.reason,
+      metadata: {
+        reference: input.reference || escrow.paymentReference || null,
+        expectedAmount: escrow.amount,
+        receivedAmount: input.receivedAmount ?? null,
+        providerPaymentStatus: input.providerPaymentStatus || null,
+        flags: input.flags,
+        providerPayload: input.metadata || null,
+      },
+    });
+    if (input.reference) {
+      await this.updateTransactionStatus(input.reference, "review_required", {
+        reason: input.reason,
+        expectedAmount: escrow.amount,
+        receivedAmount: input.receivedAmount ?? null,
+        providerPaymentStatus: input.providerPaymentStatus || null,
+        flags: input.flags,
+        providerPayload: input.metadata || null,
+      });
+    }
+    return (await this.getEscrowById(escrowId))!;
+  }
+
+  private async recordPaymentReconciliation(
+    escrowId: string,
+    input: { receivedAmount?: number; providerPaymentStatus?: string; reconciliationFlags?: string[] }
+  ): Promise<void> {
+    await this.initializeSchema();
+    const checkedAt = new Date().toISOString();
+    const flags = input.reconciliationFlags ? JSON.stringify(input.reconciliationFlags) : null;
+    const receivedAmount = input.receivedAmount === undefined ? null : input.receivedAmount;
+    const providerPaymentStatus = input.providerPaymentStatus || null;
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrows
+        SET received_amount = COALESCE(@receivedAmount, received_amount),
+            provider_payment_status = COALESCE(@providerPaymentStatus, provider_payment_status),
+            payment_checked_at = @checkedAt,
+            reconciliation_flags = @flags,
+            updated_at = @checkedAt
+        WHERE escrow_id = @escrowId
+      `).run({ escrowId, receivedAmount, providerPaymentStatus, checkedAt, flags });
+    } else {
+      await this.pool!.query(
+        `UPDATE escrows
+         SET received_amount = COALESCE($1, received_amount),
+             provider_payment_status = COALESCE($2, provider_payment_status),
+             payment_checked_at = $3,
+             reconciliation_flags = $4,
+             updated_at = $3
+         WHERE escrow_id = $5`,
+        [receivedAmount, providerPaymentStatus, checkedAt, flags, escrowId]
+      );
+    }
   }
 
   public async findEscrowByPaymentReference(paymentReference: string): Promise<EscrowRecord | null> {

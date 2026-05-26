@@ -13,7 +13,7 @@ import { AgentOrchestrator, TaskRequest } from "./services/agentOrchestrator";
 import { notifyWhatsAppBot, formatTaskSummary } from "./services/notificationService";
 import { WorkflowStore } from "./services/workflowStore";
 import { SettingsStore } from "./services/settingsStore";
-import { EscrowStore } from "./services/escrowStore";
+import { EscrowRecord, EscrowStore } from "./services/escrowStore";
 import { requireAdminAuth, logAdminAction } from "./middleware/adminAuth";
 import { requireCoreApiAuth } from "./middleware/apiAuth";
 import {
@@ -30,6 +30,7 @@ import {
 } from "./validation";
 import { captureOperationalError, capturePaymentWarning } from "./services/monitoring";
 import crypto from "crypto";
+import type { PaystackTransactionStatus } from "./services/paystackClient";
 
 validateConfig();
 
@@ -124,7 +125,9 @@ async function buildEscrowDetail(escrowId: string) {
       fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
       releaseRequested: escrow.status === "PENDING_RELEASE",
       nextAction:
-        escrow.status === "PENDING_ACCEPTANCE"
+        escrow.status === "REVIEW_REQUIRED"
+          ? "payment_reconciliation_required"
+          : escrow.status === "PENDING_ACCEPTANCE"
           ? "seller_acceptance_required"
           : escrow.currency === "NAIRA" && !sellerProfileComplete
           ? "seller_profile_required"
@@ -139,6 +142,60 @@ async function buildEscrowDetail(escrowId: string) {
           : "monitor",
     },
   };
+}
+
+function amountsMatch(expected: number, received: number) {
+  return Math.round(expected * 100) === Math.round(received * 100);
+}
+
+async function reconcileEscrowPayment(
+  escrowId: string,
+  transaction: PaystackTransactionStatus,
+  source: "webhook" | "admin_recheck"
+): Promise<EscrowRecord> {
+  const escrow = await escrowStore.getEscrowById(escrowId);
+  if (!escrow) throw new Error("Escrow not found");
+
+  if (transaction.status !== "success") {
+    capturePaymentWarning("Paystack escrow transaction verification did not confirm success", {
+      escrowId,
+      paymentReference: transaction.reference,
+      status: transaction.status,
+      source,
+    });
+    return escrowStore.markPaymentReviewRequired(escrowId, {
+      receivedAmount: transaction.amount,
+      providerPaymentStatus: transaction.status,
+      flags: ["paystack_verification_not_success"],
+      reason: `Paystack verification returned ${transaction.status}`,
+      reference: transaction.reference,
+      metadata: { ...transaction, source },
+    });
+  }
+
+  if (!amountsMatch(escrow.amount, transaction.amount)) {
+    capturePaymentWarning("Paystack escrow payment amount mismatch", {
+      escrowId,
+      paymentReference: transaction.reference,
+      expectedAmount: escrow.amount,
+      receivedAmount: transaction.amount,
+      source,
+    });
+    return escrowStore.markPaymentReviewRequired(escrowId, {
+      receivedAmount: transaction.amount,
+      providerPaymentStatus: transaction.status,
+      flags: ["payment_amount_mismatch"],
+      reason: `Expected ${escrow.amount} ${escrow.currency}, received ${transaction.amount} ${transaction.currency}`,
+      reference: transaction.reference,
+      metadata: { ...transaction, source },
+    });
+  }
+
+  const funded = await escrowStore.markFundedByPaymentReference(transaction.reference, { ...transaction, source });
+  if (!funded) {
+    throw new Error("Verified Paystack transaction did not match an escrow payment reference");
+  }
+  return funded;
 }
 
 app.get("/health/readiness", async (req, res) => {
@@ -341,6 +398,12 @@ app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (re
     );
     res.status(200).json(updated);
   } catch (err: any) {
+    if (/payout account/i.test(err.message || "")) {
+      capturePaymentWarning("Release requested but seller payout account is missing or unverified", {
+        escrowId: req.params.escrowId,
+        actorWhatsapp: req.body?.actorWhatsapp,
+      });
+    }
     res.status(400).json({ error: err.message || "Release request failed" });
   }
 });
@@ -369,13 +432,13 @@ app.post("/webhooks/paystack", async (req, res) => {
     const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
     if (!signature) {
-      warn("Missing Paystack signature header");
+      capturePaymentWarning("Missing Paystack webhook signature header", { path: req.path });
       return res.status(400).send({ error: "Missing signature header" });
     }
 
     const verified = await paystackClient.verifyWebhookSignature(rawBody, signature);
     if (!verified) {
-      warn("Invalid Paystack signature");
+      capturePaymentWarning("Invalid Paystack webhook signature", { paymentReference: req.body?.data?.reference || "unknown" });
       return res.status(400).send({ error: "Invalid webhook signature" });
     }
 
@@ -425,19 +488,12 @@ app.post("/webhooks/paystack", async (req, res) => {
       const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
       if (escrow && eventType === "charge.success") {
         const transaction = await paystackClient.fetchTransaction(paymentReference);
-        if (transaction.status !== "success") {
-          capturePaymentWarning("Paystack escrow webhook verification did not confirm success", {
-            escrowId: escrow.escrowId,
-            paymentReference,
-            status: transaction.status,
-          });
-          return res.status(202).send({ status: "verification_pending" });
-        }
-
-        const funded = await escrowStore.markFundedByPaymentReference(paymentReference, transaction);
-        if (funded) {
+        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+        if (funded.status === "IN_PROGRESS") {
           info("Escrow funded from verified Paystack webhook", { escrowId: funded.escrowId, paymentReference });
           await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+        } else if (funded.status === "REVIEW_REQUIRED") {
+          info("Escrow payment moved to review from Paystack webhook", { escrowId: funded.escrowId, paymentReference });
         }
       } else if (escrow) {
         await escrowStore.addEvent({
@@ -502,9 +558,39 @@ app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminA
       return res.status(400).json({ error: "Invalid payout reconciliation payload", details: formatZodError(parsed.error) });
     }
     const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, parsed.data);
+    info("Manual payout approval recorded", {
+      escrowId: updated.escrowId,
+      adminUser,
+      manualPayoutReference: updated.manualPayoutReference,
+      releasedAt: updated.releasedAt,
+    });
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Release approval failed" });
+  }
+});
+
+app.post("/admin/escrows/:escrowId/recheck-payment", requireAdminAuth, logAdminAction("recheck_escrow_payment"), async (req, res) => {
+  try {
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+    const paymentReference = typeof req.body?.paymentReference === "string" && req.body.paymentReference.trim()
+      ? req.body.paymentReference.trim()
+      : escrow.paymentReference;
+    if (!paymentReference) {
+      return res.status(400).json({ error: "Escrow has no Paystack payment reference" });
+    }
+
+    const transaction = await paystackClient.fetchTransaction(paymentReference);
+    const updated = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
+    const detail = await buildEscrowDetail(updated.escrowId);
+    res.status(200).json({ escrow: updated, detail, transaction });
+  } catch (err: any) {
+    capturePaymentWarning("Admin Paystack payment recheck failed", {
+      escrowId: req.params.escrowId,
+      error: err.message || err,
+    });
+    res.status(400).json({ error: err.message || "Payment recheck failed" });
   }
 });
 

@@ -52,7 +52,7 @@ describe("EscrowStore", () => {
       status: "PENDING_PAYMENT",
     });
 
-    const funded = await escrowStore.markFundedByPaymentReference("paystack-ref-1", { status: "success" });
+    const funded = await escrowStore.markFundedByPaymentReference("paystack-ref-1", { status: "success", amount: 10000 });
     const pendingRelease = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     const released = await escrowStore.approveManualRelease(escrow.escrowId, "admin", {
       manualPayoutReference: "manual-payout-1",
@@ -63,6 +63,8 @@ describe("EscrowStore", () => {
 
     expect(payout.verificationStatus).toBe("verified");
     expect(funded?.status).toBe("IN_PROGRESS");
+    expect(funded?.receivedAmount).toBe(10000);
+    expect(funded?.providerPaymentStatus).toBe("success");
     expect(pendingRelease.status).toBe("PENDING_RELEASE");
     expect(released.status).toBe("RELEASED");
     expect(released.manualPayoutReference).toBe("manual-payout-1");
@@ -94,5 +96,42 @@ describe("EscrowStore", () => {
     const released = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     expect(released.status).toBe("RELEASED");
     expect(released.settlementPolicy).toBe("autonomous_usdc_release");
+  });
+
+  it("marks Paystack funding mismatches for review without activating the escrow", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000005", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000006", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 15000,
+      currency: "NAIRA",
+      purpose: "Video editing",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "paystack-mismatch-1",
+      paymentProvider: "paystack",
+      status: "PENDING_PAYMENT",
+    });
+
+    const reviewed = await escrowStore.markPaymentReviewRequired(escrow.escrowId, {
+      receivedAmount: 10000,
+      providerPaymentStatus: "success",
+      flags: ["payment_amount_mismatch"],
+      reason: "Expected 15000 NAIRA, received 10000 NGN",
+      reference: "paystack-mismatch-1",
+    });
+    const events = await escrowStore.listEvents(escrow.escrowId);
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+
+    expect(reviewed.status).toBe("REVIEW_REQUIRED");
+    expect(reviewed.receivedAmount).toBe(10000);
+    expect(reviewed.reconciliationFlags).toContain("payment_amount_mismatch");
+    expect(events.map((event) => event.eventType)).toContain("payment_review_required");
+    expect(transactions[0].status).toBe("review_required");
   });
 });
