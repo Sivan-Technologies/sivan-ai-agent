@@ -26,11 +26,11 @@ This document is a concise submission checklist and progress report for the OOBE
   - Paystack live account and webhook URL: `PAYSTACK_SECRET_KEY`, `PAYSTACK_WEBHOOK_SECRET` and a reachable HTTPS webhook endpoint (or use a tunnel during demo).
   - Public webhook endpoint: deploy or expose `src/server.ts` so Paystack webhooks can reach it (ngrok/localtunnel or real deployment).
 
-- ❌ Missing production hardening & operational items (required to be bounty-ready):
-  - Durable workflow state persistence (database): the orchestrator currently runs in-memory—add a DB to record task lifecycles, payment state, and results.
+- ❌ Missing / incomplete production hardening & operational items (required to be bounty-ready):
+  - Durable workflow state persistence (database): implemented for tasks, escrows, settings, webhooks, transactions, and audit events; still needs production migration/versioning discipline.
   - Distributed scaling / queue: add Redis + job queue (bull or equivalent) so agents can run at scale and safely retry.
-  - Observability & audit logs: structured logs, tracing, and metrics to prove legitimate usage patterns.
-  - Tests & demo harness: automated tests and a reproducible demo script to demonstrate the full flow.
+  - Observability & audit logs: admin operations endpoints, Sentry hooks, alert webhook routing, and audit logs now exist; external dashboards/alert destinations still need production setup.
+  - Tests & demo harness: automated tests and smoke-check script exist; live demo proof still needs to be recorded.
   - On-chain proofs & transaction patterns: to claim volume/usage you must actually run agents on SAP mainnet and produce legitimate transactions.
 
 ## What works now (short bullets)
@@ -94,9 +94,9 @@ Progress (emoji):
 - ✅ Ace Data Cloud adapters (3 service types) — requires API key
 - ✅ x402 client (payment facility + settlement)
 - ✅ Paystack init + webhook verification
-- ⚠ Persistent DB and durable workflow state (required)
+- ✅ Persistent DB and durable workflow state for MVP
 - ⚠ Synapse Sentinel usage (must be invoked and demonstrated)
-- ❌ Production deployment, monitoring, and legitimate volume generation (required to win)
+- ⚠ Production monitoring hooks and smoke checks exist; external alert destinations and legitimate volume generation are still required to win
 
 Demo instructions (short):
 
