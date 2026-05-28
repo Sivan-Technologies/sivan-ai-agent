@@ -10,7 +10,7 @@ import { SapAgent } from "./services/sapAgent";
 import { AceDataClient } from "./services/aceData";
 import { PaymentRouter } from "./services/paymentRouter";
 import { AgentOrchestrator, TaskRequest } from "./services/agentOrchestrator";
-import { notifyWhatsAppBot, formatTaskSummary } from "./services/notificationService";
+import { notifyWhatsAppBot, notifyWhatsAppBotStrict, formatTaskSummary } from "./services/notificationService";
 import { WorkflowStore } from "./services/workflowStore";
 import { SettingsStore } from "./services/settingsStore";
 import { EscrowRecord, EscrowStore } from "./services/escrowStore";
@@ -27,6 +27,11 @@ import {
   payoutAccountSchema,
   supportCaseCreateSchema,
   supportNoteCreateSchema,
+  supportCaseUpdateSchema,
+  supportSearchSchema,
+  queueJobCreateSchema,
+  queueRetrySchema,
+  queueRunSchema,
   taskRequestSchema,
   userProfileSchema,
 } from "./validation";
@@ -34,6 +39,7 @@ import { buildOperationalVisibility, captureOperationalError, capturePaymentWarn
 import { getLatestSettlementVerification, runSettlementVerification } from "./services/settlementVerification";
 import { ProductionOpsStore } from "./services/productionOpsStore";
 import { AbusePreventionService } from "./services/abusePrevention";
+import { RetryWorker } from "./services/retryWorker";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
@@ -103,6 +109,32 @@ async function buildQueueStatus() {
   return {
     status: status.dead > 0 || status.failed > 10 ? "attention" : "ok",
     ...status,
+  };
+}
+
+async function buildStuckEscrowStatus(limit = 250) {
+  const thresholdMinutes = Number(process.env.STUCK_ESCROW_ALERT_MINUTES || "1440");
+  const thresholdMs = thresholdMinutes * 60 * 1000;
+  const now = Date.now();
+  const watchedStatuses = new Set(["PENDING_PAYMENT", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED", "DISPUTED"]);
+  const escrows = await escrowStore.listEscrows(limit);
+  const stuck = escrows
+    .filter((escrow) => watchedStatuses.has(escrow.status))
+    .filter((escrow) => now - new Date(escrow.updatedAt).getTime() > thresholdMs)
+    .map((escrow) => ({
+      escrowId: escrow.escrowId,
+      status: escrow.status,
+      currency: escrow.currency,
+      updatedAt: escrow.updatedAt,
+      ageMinutes: Math.round((now - new Date(escrow.updatedAt).getTime()) / 60000),
+      paymentReference: escrow.paymentReference || null,
+    }));
+
+  return {
+    status: stuck.length > 0 ? "attention" : "ok",
+    thresholdMinutes,
+    count: stuck.length,
+    samples: stuck.slice(0, 25),
   };
 }
 
@@ -292,6 +324,56 @@ async function reconcileEscrowPayment(
     throw new Error("Verified Paystack transaction did not match an escrow payment reference");
   }
   return funded;
+}
+
+const retryWorker = new RetryWorker(opsStore, {
+  whatsapp_notification: async (payload) => {
+    if (!payload.to || !payload.message) {
+      throw new Error("whatsapp_notification requires payload.to and payload.message");
+    }
+    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message));
+  },
+  paystack_recheck: async (payload) => {
+    const paymentReference = String(payload.paymentReference || "").trim();
+    if (!paymentReference) throw new Error("paystack_recheck requires paymentReference");
+    const escrow = payload.escrowId
+      ? await escrowStore.getEscrowById(String(payload.escrowId))
+      : await escrowStore.findEscrowByPaymentReference(paymentReference);
+    if (!escrow) throw new Error("No escrow found for Paystack payment reference");
+    const transaction = await paystackClient.fetchTransaction(paymentReference);
+    await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
+  },
+  webhook_recovery: async (payload) => {
+    const paymentReference = String(payload.paymentReference || "").trim();
+    if (!paymentReference) throw new Error("webhook_recovery requires paymentReference");
+    const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
+    if (!escrow) throw new Error("No escrow found for webhook recovery payment reference");
+    const transaction = await paystackClient.fetchTransaction(paymentReference);
+    await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+  },
+  payout_review: async (payload) => {
+    if (!payload.escrowId) throw new Error("payout_review requires escrowId");
+    const escrow = await escrowStore.getEscrowById(String(payload.escrowId));
+    if (!escrow) throw new Error("Escrow not found for payout review");
+    capturePaymentWarning("Payout retry job requires manual operator review", {
+      escrowId: escrow.escrowId,
+      status: escrow.status,
+      manualPayoutReference: escrow.manualPayoutReference,
+      reason: payload.reason || "payout_review",
+    });
+  },
+}, {
+  baseDelayMs: Number(process.env.QUEUE_RETRY_BASE_DELAY_MS || "30000"),
+  maxDelayMs: Number(process.env.QUEUE_RETRY_MAX_DELAY_MS || "1800000"),
+  lockTimeoutSeconds: Number(process.env.QUEUE_LOCK_TIMEOUT_SECONDS || "300"),
+});
+
+if (process.env.QUEUE_WORKER_ENABLED === "true") {
+  const intervalMs = Number(process.env.QUEUE_WORKER_INTERVAL_MS || "15000");
+  setInterval(() => {
+    retryWorker.processBatch(Number(process.env.QUEUE_WORKER_BATCH_SIZE || "5"), "background-worker")
+      .catch((err) => captureOperationalError("Background retry worker failed", err));
+  }, intervalMs);
 }
 
 app.get("/health/readiness", async (req, res) => {
@@ -655,7 +737,19 @@ app.post("/webhooks/paystack", async (req, res) => {
 
     return res.status(200).send({ status: "received" });
   } catch (err: any) {
-    captureOperationalError("Paystack webhook processing failed", err);
+    const reference = typeof req.body?.data?.reference === "string" ? req.body.data.reference : "";
+    if (reference) {
+      try {
+        await opsStore.enqueueJob("webhook_recovery", {
+          paymentReference: reference,
+          eventType: req.body?.event || "unknown",
+          reason: "paystack_webhook_processing_failed",
+        }, { maxAttempts: 8 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue Paystack webhook recovery job", enqueueErr, { paymentReference: reference });
+      }
+    }
+    captureOperationalError("Paystack webhook processing failed", err, { paymentReference: reference || "unknown" });
     return res.status(500).send({ error: "Webhook processing failed" });
   }
 });
@@ -688,6 +782,21 @@ app.get("/admin/escrows/:escrowId", requireAdminAuth, async (req, res) => {
     return res.status(404).json({ error: "Escrow not found" });
   }
   res.status(200).json(detail);
+});
+
+app.get("/admin/escrows/:escrowId/events", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  const [events, transactions, supportCases] = await Promise.all([
+    escrowStore.listEvents(req.params.escrowId, parsed.data.limit),
+    escrowStore.listTransactions(req.params.escrowId),
+    opsStore.searchSupportCases(req.params.escrowId, 25),
+  ]);
+  res.status(200).json({ escrowId: req.params.escrowId, events, transactions, supportCases });
 });
 
 app.get("/admin/reconciliation", requireAdminAuth, async (req, res) => {
@@ -760,6 +869,32 @@ app.post("/admin/escrows/:escrowId/recheck-payment", requireAdminAuth, logAdminA
   }
 });
 
+app.post("/admin/escrows/:escrowId/payout-review", requireAdminAuth, logAdminAction("enqueue_payout_review"), async (req, res) => {
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  const adminUser = (req as any).adminUser || "unknown";
+  const reason = typeof req.body?.reason === "string" && req.body.reason.trim()
+    ? req.body.reason.trim().slice(0, 1000)
+    : "manual_payout_safety_review";
+  const job = await opsStore.enqueueJob("payout_review", {
+    escrowId: escrow.escrowId,
+    status: escrow.status,
+    reason,
+    requestedBy: adminUser,
+  }, { maxAttempts: 3 });
+  await escrowStore.addEvent({
+    escrowId: escrow.escrowId,
+    actor: adminUser,
+    actorRole: "admin",
+    channel: "admin",
+    previousStatus: escrow.status,
+    nextStatus: escrow.status,
+    eventType: "payout_review_enqueued",
+    reason,
+  });
+  res.status(201).json(job);
+});
+
 app.post("/admin/escrows/:escrowId/dispute", requireAdminAuth, logAdminAction("admin_dispute_escrow"), async (req, res) => {
   try {
     const adminUser = (req as any).adminUser || "unknown";
@@ -808,12 +943,13 @@ app.get("/admin/ops/status", requireAdminAuth, async (_req, res) => {
       buildDatabaseStatus(),
       Promise.resolve(buildOperationalVisibility()),
     ]);
-    const queue = await buildQueueStatus();
+    const [queue, stuckEscrows] = await Promise.all([buildQueueStatus(), buildStuckEscrowStatus()]);
     res.status(200).json({
-      status: database.status === "ok" && operations.status === "ok" && queue.status === "ok" ? "ok" : "attention",
+      status: database.status === "ok" && operations.status === "ok" && queue.status === "ok" && stuckEscrows.status === "ok" ? "ok" : "attention",
       database,
       operations,
       queue,
+      stuckEscrows,
     });
   } catch (err: any) {
     captureOperationalError("Operations status check failed", err);
@@ -857,6 +993,48 @@ app.get("/admin/queue/jobs", requireAdminAuth, async (req, res) => {
   res.status(200).json(await opsStore.listQueueJobs(parsed.data.limit));
 });
 
+app.post("/admin/queue/jobs", requireAdminAuth, logAdminAction("enqueue_queue_job"), async (req, res) => {
+  const parsed = queueJobCreateSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid queue job payload", details: formatZodError(parsed.error) });
+  }
+  const job = await opsStore.enqueueJob(parsed.data.jobType, parsed.data.payload, {
+    maxAttempts: parsed.data.maxAttempts,
+    runAfter: parsed.data.runAfter,
+  });
+  res.status(201).json(job);
+});
+
+app.get("/admin/queue/jobs/:jobId", requireAdminAuth, async (req, res) => {
+  const job = await opsStore.getQueueJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "Queue job not found" });
+  res.status(200).json(job);
+});
+
+app.post("/admin/queue/jobs/:jobId/retry", requireAdminAuth, logAdminAction("retry_queue_job"), async (req, res) => {
+  const parsed = queueRetrySchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid queue retry payload", details: formatZodError(parsed.error) });
+  }
+  const job = await opsStore.retryQueueJob(req.params.jobId, parsed.data);
+  if (!job) return res.status(404).json({ error: "Queue job not found" });
+  res.status(200).json(job);
+});
+
+app.post("/admin/queue/run", requireAdminAuth, logAdminAction("run_retry_worker"), async (req, res) => {
+  const parsed = queueRunSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid queue run payload", details: formatZodError(parsed.error) });
+  }
+  try {
+    const result = await retryWorker.processBatch(parsed.data.limit, (req as any).adminUser || "admin-runner");
+    res.status(200).json({ result, queue: await buildQueueStatus() });
+  } catch (err: any) {
+    captureOperationalError("Admin retry worker run failed", err);
+    res.status(500).json({ error: err.message || "Retry worker run failed" });
+  }
+});
+
 app.get("/admin/abuse/signals", requireAdminAuth, async (req, res) => {
   const parsed = limitQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -873,6 +1051,14 @@ app.get("/admin/support/cases", requireAdminAuth, async (req, res) => {
   res.status(200).json(await opsStore.listSupportCases(parsed.data.limit));
 });
 
+app.get("/admin/support/search", requireAdminAuth, async (req, res) => {
+  const parsed = supportSearchSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await opsStore.searchSupportCases(parsed.data.q, parsed.data.limit));
+});
+
 app.post("/admin/support/cases", requireAdminAuth, logAdminAction("create_support_case"), async (req, res) => {
   const parsed = supportCaseCreateSchema.safeParse(req.body || {});
   if (!parsed.success) {
@@ -881,6 +1067,20 @@ app.post("/admin/support/cases", requireAdminAuth, logAdminAction("create_suppor
   const adminUser = (req as any).adminUser || "unknown";
   const supportCase = await opsStore.createSupportCase({ ...parsed.data, createdBy: adminUser });
   res.status(201).json(supportCase);
+});
+
+app.patch("/admin/support/cases/:caseId", requireAdminAuth, logAdminAction("update_support_case"), async (req, res) => {
+  const parsed = supportCaseUpdateSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid support case update payload", details: formatZodError(parsed.error) });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const updated = await opsStore.updateSupportCase(req.params.caseId, parsed.data);
+  if (!updated) return res.status(404).json({ error: "Support case not found" });
+  if (parsed.data.note) {
+    await opsStore.addSupportNote(req.params.caseId, adminUser, parsed.data.note, "case_updated");
+  }
+  res.status(200).json(updated);
 });
 
 app.get("/admin/support/cases/:caseId/notes", requireAdminAuth, async (req, res) => {

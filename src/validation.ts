@@ -68,6 +68,33 @@ export const supportNoteCreateSchema = z.object({
   actionType: z.string().trim().min(2).max(80).optional(),
 });
 
+export const supportCaseUpdateSchema = z.object({
+  status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
+  priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+  assignedTo: z.string().trim().min(2).max(120).optional(),
+  note: z.string().trim().min(2).max(2000).optional(),
+});
+
+export const supportSearchSchema = z.object({
+  q: z.string().trim().min(2).max(120),
+  limit: z.coerce.number().int().min(1).max(250).default(50),
+});
+
+export const queueJobCreateSchema = z.object({
+  jobType: z.enum(["whatsapp_notification", "paystack_recheck", "payout_review", "webhook_recovery"]),
+  payload: z.record(z.string(), z.any()).default({}),
+  maxAttempts: z.coerce.number().int().min(1).max(25).default(5),
+  runAfter: z.string().datetime().optional(),
+});
+
+export const queueRunSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+export const queueRetrySchema = z.object({
+  resetAttempts: z.coerce.boolean().default(false),
+});
+
 export const paystackWebhookSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
   event: z.string().trim().min(1).max(120),

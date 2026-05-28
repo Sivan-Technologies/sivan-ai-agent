@@ -2,6 +2,14 @@ import { config } from "../config";
 import { WorkflowTaskRecord } from "./workflowStore";
 
 export async function notifyWhatsAppBot(to: string, message: string) {
+  try {
+    await notifyWhatsAppBotStrict(to, message);
+  } catch (error) {
+    console.error("Failed to notify WhatsApp bot", error);
+  }
+}
+
+export async function notifyWhatsAppBotStrict(to: string, message: string) {
   const notifyUrl = config.app.notificationUrl;
   const secret = config.app.notificationSecret;
 
@@ -9,22 +17,18 @@ export async function notifyWhatsAppBot(to: string, message: string) {
     return;
   }
 
-  try {
-    const response = await fetch(`${notifyUrl}/api/notify`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(secret ? { "x-notify-secret": secret } : {}),
-      },
-      body: JSON.stringify({ to, message }),
-    });
+  const response = await fetch(`${notifyUrl}/api/notify`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(secret ? { "x-notify-secret": secret } : {}),
+    },
+    body: JSON.stringify({ to, message }),
+  });
 
-    if (!response.ok) {
-      const payload = await response.text();
-      console.error("WhatsApp notify failed", response.status, payload);
-    }
-  } catch (error) {
-    console.error("Failed to notify WhatsApp bot", error);
+  if (!response.ok) {
+    const payload = await response.text();
+    throw new Error(`WhatsApp notify failed: ${response.status} ${payload}`);
   }
 }
 

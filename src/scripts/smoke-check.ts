@@ -38,6 +38,12 @@ async function main() {
       ? [
           check("admin db status", "/admin/db-status", headers),
           check("operations status", "/admin/ops/status", headers),
+          check("queue status", "/admin/queue/status", headers),
+          check("recent queue jobs", "/admin/queue/jobs?limit=10", headers),
+          check("recent webhooks", "/admin/webhooks?limit=10", headers),
+          check("reconciliation summary", "/admin/reconciliation?limit=25", headers),
+          check("support cases", "/admin/support/cases?limit=10", headers),
+          check("abuse signals", "/admin/abuse/signals?limit=10", headers),
           check("recent operational events", "/admin/ops/events?limit=10", headers),
           ...(requireSettlementProof ? [check("latest settlement verification", "/admin/settlement/verification", headers)] : []),
         ]
