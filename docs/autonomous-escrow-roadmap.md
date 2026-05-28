@@ -423,6 +423,14 @@ Completed from the prior immediate implementation order:
 7. ✅ admin manual release approval
 8. ✅ explicit buyer completion before release
 9. ✅ production-hardening visibility: monitoring, alerts, and smoke checks
+10. ✅ retry worker system: queue claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
+11. ✅ live smoke testing surface: health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
+12. ✅ production environment hardening foundation: env docs, secret placeholders, admin/API auth gates, rate limiting, CORS, and HTTPS deploy assumptions
+13. ✅ abuse prevention expansion for MVP: velocity checks, self-dealing checks, high-amount checks, scam keyword scoring, abuse signal persistence, and operator visibility
+14. ✅ transaction recovery procedures: payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund, and queue recovery runbook
+15. ✅ support operations workflow: support inbox, status tracking, internal notes, assignment, search, and dispute-linked support cases
+16. ✅ payout automation safety foundation: manual payout gate, payout review jobs, reconciliation views, duplicate-risk prevention by operator review, and no blind autonomous retry
+17. ✅ audit/event explorer: escrow timeline endpoint with events, transactions, operator actions, release history, payment history, dispute history, and linked support cases
 
 Next production-hardening focus:
 
