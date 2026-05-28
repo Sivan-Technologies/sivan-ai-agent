@@ -119,6 +119,75 @@ describe("Admin Settings API Integration", () => {
     expect(res.body).not.toHaveProperty("databaseUrl");
   });
 
+  it("should expose protected operations visibility", async () => {
+    const unauthorized = await request(app).get("/admin/ops/status");
+    expect(unauthorized.status).toBe(401);
+
+    const status = await request(app)
+      .get("/admin/ops/status")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(status.status).toBe(200);
+    expect(status.body).toHaveProperty("database");
+    expect(status.body).toHaveProperty("operations");
+    expect(status.body.operations).toHaveProperty("sentryConfigured");
+    expect(status.body.operations).toHaveProperty("alertsConfigured");
+
+    const events = await request(app)
+      .get("/admin/ops/events?limit=10")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(events.status).toBe(200);
+    expect(Array.isArray(events.body)).toBe(true);
+  });
+
+  it("should protect settlement verification proof endpoints", async () => {
+    const unauthorized = await request(app).get("/admin/settlement/verification");
+    expect(unauthorized.status).toBe(401);
+
+    const latest = await request(app)
+      .get("/admin/settlement/verification")
+      .set("x-admin-key", "test-admin-key");
+
+    expect([200, 404]).toContain(latest.status);
+    expect(latest.body).toHaveProperty("status");
+  });
+
+  it("should expose production ops workflow endpoints", async () => {
+    const headers = { "x-admin-key": "test-admin-key" };
+
+    const queue = await request(app).get("/admin/queue/status").set(headers);
+    expect(queue.status).toBe(200);
+    expect(queue.body).toMatchObject({
+      status: expect.any(String),
+      queued: expect.any(Number),
+      failed: expect.any(Number),
+      dead: expect.any(Number),
+    });
+
+    const abuse = await request(app).get("/admin/abuse/signals?limit=10").set(headers);
+    expect(abuse.status).toBe(200);
+    expect(Array.isArray(abuse.body)).toBe(true);
+
+    const support = await request(app).get("/admin/support/cases?limit=10").set(headers);
+    expect(support.status).toBe(200);
+    expect(Array.isArray(support.body)).toBe(true);
+
+    const created = await request(app)
+      .post("/admin/support/cases")
+      .set(headers)
+      .send({ subject: "Buyer cannot find payment link", priority: "normal", source: "test", note: "Initial support note" });
+    expect(created.status).toBe(201);
+    expect(created.body).toHaveProperty("caseId");
+
+    const note = await request(app)
+      .post(`/admin/support/cases/${created.body.caseId}/notes`)
+      .set(headers)
+      .send({ body: "Follow-up note", actionType: "follow_up" });
+    expect(note.status).toBe(201);
+    expect(note.body).toHaveProperty("noteId");
+  });
+
   it("should expose protected escrow ledger", async () => {
     const unauthorized = await request(app).get("/admin/escrows");
     expect(unauthorized.status).toBe(401);

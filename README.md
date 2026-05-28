@@ -27,6 +27,12 @@ Today, the strongest working flow is Nigerian Naira collection through Paystack 
 - Re-check Paystack transactions from the admin panel if a webhook was missed or Render was sleeping.
 - Show an admin reconciliation view for payments needing review, releases awaiting payout, missing payout references, and Paystack amount mismatches.
 - Export reconciliation CSVs for operations and accounting.
+- Require explicit buyer completion before any escrow can move into release.
+- Expose protected operations visibility endpoints for database, Sentry, alert, and recent warning/error status.
+- Run live smoke checks with `npm run smoke`.
+- Track durable queue status, abuse signals, support cases, and support notes for production operations.
+- Risk-score escrow creation for obvious abuse patterns such as velocity spikes, self-dealing, high amounts, and scam keywords.
+- Auto-create support cases when disputes are opened.
 
 ## Current Public Services
 
@@ -177,6 +183,16 @@ Requires:
 x-core-api-key: CORE_API_SECRET
 ```
 
+### Escrow Participant Actions
+
+```text
+POST /api/escrows/:escrowId/complete
+POST /api/escrows/:escrowId/release-request
+POST /api/escrows/:escrowId/dispute
+```
+
+These require `x-core-api-key: CORE_API_SECRET`. Release requests require the buyer to confirm completion first.
+
 ### Paystack Webhook
 
 ```text
@@ -210,6 +226,17 @@ POST /admin/escrows/:escrowId/recheck-payment
 POST /admin/escrows/:escrowId/approve-release
 GET /admin/reconciliation
 GET /admin/reconciliation.csv
+GET /admin/ops/status
+GET /admin/ops/events
+GET /admin/settlement/verification
+POST /admin/settlement/verify
+GET /admin/queue/status
+GET /admin/queue/jobs
+GET /admin/abuse/signals
+GET /admin/support/cases
+POST /admin/support/cases
+GET /admin/support/cases/:caseId/notes
+POST /admin/support/cases/:caseId/notes
 GET /admin/settings
 POST /admin/settings
 GET /admin/audit-history
@@ -229,6 +256,8 @@ DATABASE_URL=/tmp/sivan-escrow-agent.db
 
 ADMIN_API_KEY=change-me
 CORE_API_SECRET=change-me
+OPERATIONS_ALERT_WEBHOOK_URL=
+OPERATIONS_ALERT_WEBHOOK_SECRET=
 
 ACE_DATA_API_KEY=your-ace-data-key
 ACE_DATA_BASE_URL=https://api.acedata.cloud
@@ -239,6 +268,14 @@ PAYSTACK_BASE_URL=https://api.paystack.co
 PAYSTACK_CHANNELS=bank_transfer
 PAYSTACK_CALLBACK_URL=https://sivan-escrow-agent.onrender.com/api/health
 WEBHOOK_URL=https://sivan-escrow-agent.onrender.com/webhooks/paystack
+SMOKE_BASE_URL=https://sivan-escrow-agent.onrender.com
+SMOKE_ADMIN_API_KEY=
+SMOKE_REQUIRE_SETTLEMENT_PROOF=false
+ABUSE_BLOCK_SCORE=95
+ABUSE_REVIEW_SCORE=60
+ABUSE_ESCROW_VELOCITY_LIMIT=8
+ABUSE_HIGH_AMOUNT_NAIRA=1000000
+ABUSE_HIGH_AMOUNT_USDC=5000
 
 NOTIFICATION_URL=https://whatsapp-bot-ix7t.onrender.com
 NOTIFICATION_SECRET=same-value-as-whatsapp-notify-secret
@@ -321,6 +358,20 @@ Run tests:
 npm test -- --run
 ```
 
+Run smoke checks against a local or deployed backend:
+
+```bash
+SMOKE_BASE_URL=https://sivan-escrow-agent.onrender.com SMOKE_ADMIN_API_KEY=$ADMIN_API_KEY npm run smoke
+```
+
+Run SAP/x402 production verification and write a proof JSON:
+
+```bash
+SETTLEMENT_PROOF_OUTPUT=./data/settlement-verification-proof.json npm run verify:settlement
+```
+
+For x402 live proof, set `X402_VERIFY_PAYMENT_ID` to an existing payment ID. Only set `X402_VERIFY_CREATE_PAYMENT=true` when you intentionally want the verifier to create a tiny payment facility.
+
 Start production build:
 
 ```bash
@@ -357,6 +408,11 @@ Current operator features:
 - needs-attention cards for payments needing review, releases awaiting payout, released escrows missing payout references, and amount mismatches
 - reconciliation CSV export with escrow ID, buyer/seller, expected amount, received amount, Paystack reference, payout reference, release approver, release timestamp, and status
 - Paystack payment re-check button for escrow recovery when a webhook was missed or delayed
+- operations status for database readiness, Sentry/alert configuration, and recent operational warnings/errors
+- settlement verification runner for SAP discovery and x402 status/probe proof
+- queue status for retry/dead-letter visibility
+- abuse signals for suspicious escrow creation patterns
+- support cases and internal notes for founder/operator support workflows
 
 ## WhatsApp Bot
 
@@ -385,7 +441,10 @@ https://whatsapp-bot-ix7t.onrender.com/webhooks/twilio
 - Group-to-private-DM escrow initiation works as a foundation, but the customer experience still needs more polish.
 - Full SAP on-chain escrow settlement needs real SAP wallet credentials and live integration tests.
 - x402 USDC payment flow needs live facilitator verification and settlement testing.
-- Dispute AI is intentionally not implemented yet.
+- Dispute AI is intentionally not implemented yet; disputes now create support cases, but evidence capture and resolution outcomes still need implementation.
+- Queue persistence/status exists, but the retry worker and dead-letter replay tooling are still next.
+- Abuse prevention has MVP risk scoring and analytics, but device fingerprinting, fraud reputation, and richer velocity dashboards are still future work.
+- Support workflows have cases and internal notes, but canned actions, SLAs, and escalation automation are still future work.
 - SQLite remains supported for local development, but Render production should use Postgres with `DATABASE_PROVIDER=postgres`.
 - Vite/Vitest dev dependency audit warnings should be upgraded carefully.
 - Monitoring logs exist for payment failures and release events, but production alert routing should still be configured in Sentry/Datadog.

@@ -63,10 +63,13 @@
 - Public request bodies and webhook payloads are validated with Zod schemas before workflow code runs.
 - Paystack `charge.success` processing uses an atomic workflow status claim so duplicate webhook delivery cannot double-run Naira execution.
 - Payment/webhook anomalies are routed through monitoring helpers and can be reported to Sentry when `SENTRY_DSN` is configured.
+- Operations status endpoints expose database readiness, Sentry/alert configuration, and recent operational warnings/errors.
+- Payment and operational warnings can be forwarded to an operations alert webhook through `OPERATIONS_ALERT_WEBHOOK_URL`.
+- Escrow release requires explicit buyer completion before release request; non-admin disputes require buyer/seller participation.
 
 ## Progress Summary (Percent Complete)
 
-- **Overall progress:** 82%
+- **Overall progress:** 86%
 
 - **Mostly complete (>=90%):**
    - **SAP Agent Service:** 90% (core interfaces and RPC wiring implemented; on-chain escrow hooks present but require full integration tests and security review)
@@ -74,6 +77,8 @@
    - **Payment Router (logic):** 95% (can choose Naira vs USDC and routes to respective clients; minor hardening and edge-case handling remain)
    - **Paystack webhook persistence and tracker:** 100% (webhook receiver, transaction-reference matching, transaction verification, and `WorkflowStore` persistence implemented)
    - **Project rename + docs (branding, GTM):** 100% (README/CHANGELOG updates and WhatsApp GTM doc added)
+   - **Escrow state machine:** 90% (buyer completion and authorization checks now gate release; dispute evidence/resolution is still next)
+   - **Operations visibility:** 85% (admin operations endpoints, Sentry/alert hooks, and smoke-check script exist; external dashboards still need setup)
 
 - **Partially complete (work in progress):**
    - **x402 Payment Facility integration:** 90% — client and flows implemented; needs live end-to-end verification with x402 credentials and settlement monitoring.
@@ -83,7 +88,7 @@
    - **Demo frontend/runner:** 10% (a `run-demo.ts` CLI script exists; an interactive UI or public webhook demo is not implemented)
    - **Admin dashboard:** 10% (basic query endpoints added to `server.ts`; UI and RBAC missing)
    - **On-chain SAP escrow (production-ready):** 40% (create/release/status methods exist in `SapAgent`; additional integration tests and security review required)
-   - **CI / Tests / Monitoring:** 40% (basic unit tests, supertest checks, a CI workflow, and Sentry/rate-limit stubs added; more coverage and observability needed)
+   - **CI / Tests / Monitoring:** 60% (basic unit tests, supertest checks, Sentry hooks, operations endpoints, and a smoke-check script exist; CI wiring and external dashboards still need setup)
 
 ## What remains (actionable items)
 
@@ -96,7 +101,7 @@
    - Implement on-chain SAP escrow full flow (create, monitor, release) with testnet coverage.
    - Add request/response schema validation, contract tests for payment clients, and unit tests for orchestrator logic.
    - Add CI (GitHub Actions) that runs lint, typecheck, and tests; add pre-commit formatting rules.
-   - Add monitoring and alerting (Sentry for errors, Prometheus/Cloudwatch metrics, basic dashboards).
+   - Configure live monitoring and alerting destinations (Sentry project, operations alert webhook, Prometheus/Cloudwatch metrics, basic dashboards).
    - Add database migrations (or simple versioning) for the SQLite store or migrate to a managed datastore.
 
 - Long-term / scaling:

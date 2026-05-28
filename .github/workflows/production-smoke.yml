@@ -1,0 +1,24 @@
+name: Production smoke checks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run backend smoke checks
+        run: npm run smoke
+        env:
+          SMOKE_BASE_URL: ${{ secrets.SIVAN_SMOKE_BASE_URL }}
+          SMOKE_ADMIN_API_KEY: ${{ secrets.SIVAN_SMOKE_ADMIN_API_KEY }}
+          SMOKE_REQUIRE_SETTLEMENT_PROOF: ${{ vars.SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF || 'false' }}

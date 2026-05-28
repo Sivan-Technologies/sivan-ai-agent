@@ -551,6 +551,26 @@ button {
   background: #0b1015;
 }
 
+.ops-metrics {
+  margin-bottom: 16px;
+}
+
+.ops-event.warning {
+  border-color: rgba(227, 179, 65, 0.34);
+}
+
+.ops-event.error {
+  border-color: rgba(255, 107, 107, 0.34);
+}
+
+.ops-subhead {
+  margin-top: 18px;
+}
+
+.ops-action {
+  margin-top: 14px;
+}
+
 .event-row strong,
 .event-row span {
   display: block;

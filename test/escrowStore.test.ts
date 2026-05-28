@@ -53,6 +53,8 @@ describe("EscrowStore", () => {
     });
 
     const funded = await escrowStore.markFundedByPaymentReference("paystack-ref-1", { status: "success", amount: 10000 });
+    await expect(escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/IN_PROGRESS/);
+    const completed = await escrowStore.completeEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     const pendingRelease = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     const released = await escrowStore.approveManualRelease(escrow.escrowId, "admin", {
       manualPayoutReference: "manual-payout-1",
@@ -65,6 +67,7 @@ describe("EscrowStore", () => {
     expect(funded?.status).toBe("IN_PROGRESS");
     expect(funded?.receivedAmount).toBe(10000);
     expect(funded?.providerPaymentStatus).toBe("success");
+    expect(completed.status).toBe("COMPLETED");
     expect(pendingRelease.status).toBe("PENDING_RELEASE");
     expect(released.status).toBe("RELEASED");
     expect(released.manualPayoutReference).toBe("manual-payout-1");
@@ -72,7 +75,7 @@ describe("EscrowStore", () => {
     expect(events.map((event) => event.eventType)).toContain("manual_release_approved");
   });
 
-  it("auto-releases USDC escrows when release is requested", async () => {
+  it("auto-releases USDC escrows after buyer completion and release request", async () => {
     const escrowStore = freshStore();
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000003", "buyer");
     const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000004", "seller");
@@ -93,9 +96,38 @@ describe("EscrowStore", () => {
       status: "IN_PROGRESS",
     });
 
+    await expect(escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/IN_PROGRESS/);
+    await escrowStore.completeEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     const released = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     expect(released.status).toBe("RELEASED");
     expect(released.settlementPolicy).toBe("autonomous_usdc_release");
+  });
+
+  it("blocks non-buyers from completing or requesting release", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000007", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000008", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 25000,
+      currency: "NAIRA",
+      purpose: "Landing page build",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "paystack-ref-authz",
+      paymentProvider: "paystack",
+      status: "PENDING_PAYMENT",
+    });
+    await escrowStore.markFundedByPaymentReference("paystack-ref-authz", { status: "success", amount: 25000 });
+
+    await expect(escrowStore.completeEscrow(escrow.escrowId, seller.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/Only the buyer/);
+    await escrowStore.completeEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
+    await expect(escrowStore.requestRelease(escrow.escrowId, seller.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/Only the buyer/);
   });
 
   it("marks Paystack funding mismatches for review without activating the escrow", async () => {

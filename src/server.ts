@@ -25,10 +25,15 @@ import {
   limitQuerySchema,
   paystackWebhookSchema,
   payoutAccountSchema,
+  supportCaseCreateSchema,
+  supportNoteCreateSchema,
   taskRequestSchema,
   userProfileSchema,
 } from "./validation";
-import { captureOperationalError, capturePaymentWarning } from "./services/monitoring";
+import { buildOperationalVisibility, captureOperationalError, capturePaymentWarning, listOperationalEvents } from "./services/monitoring";
+import { getLatestSettlementVerification, runSettlementVerification } from "./services/settlementVerification";
+import { ProductionOpsStore } from "./services/productionOpsStore";
+import { AbusePreventionService } from "./services/abusePrevention";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
@@ -46,8 +51,11 @@ const paymentRouter = new PaymentRouter(sapAgent);
 const workflowStore = new WorkflowStore(config.app.databaseUrl, config.app.databaseProvider);
 const settingsStore = new SettingsStore(config.app.databaseUrl, config.app.databaseProvider);
 const escrowStore = new EscrowStore(config.app.databaseUrl, config.app.databaseProvider);
+const opsStore = new ProductionOpsStore(config.app.databaseUrl, config.app.databaseProvider);
+const abusePrevention = new AbusePreventionService(escrowStore, opsStore);
 void settingsStore.initializeSchema();
 void escrowStore.initializeSchema();
+void opsStore.initializeSchema();
 const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 const paystackClient = new PaystackClient();
 
@@ -90,6 +98,14 @@ async function buildDatabaseStatus() {
   };
 }
 
+async function buildQueueStatus() {
+  const status = await opsStore.queueStatus();
+  return {
+    status: status.dead > 0 || status.failed > 10 ? "attention" : "ok",
+    ...status,
+  };
+}
+
 function paystackEmailForWhatsapp(whatsappNumber: string) {
   const digits = whatsappNumber.replace(/\D/g, "");
   return `whatsapp_${digits || "user"}@sivan.local`;
@@ -123,6 +139,7 @@ async function buildEscrowDetail(escrowId: string) {
       payoutVerified,
       sellerAccepted: !["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status),
       fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
+      buyerCompleted: ["COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
       releaseRequested: escrow.status === "PENDING_RELEASE",
       nextAction:
         escrow.status === "REVIEW_REQUIRED"
@@ -136,7 +153,9 @@ async function buildEscrowDetail(escrowId: string) {
           : escrow.status === "PENDING_PAYMENT"
           ? "buyer_payment_required"
           : escrow.status === "IN_PROGRESS"
-          ? "delivery_or_release_required"
+          ? "buyer_completion_required"
+          : escrow.status === "COMPLETED"
+          ? "release_request_required"
           : escrow.status === "PENDING_RELEASE"
           ? "admin_manual_payout_required"
           : "monitor",
@@ -281,7 +300,8 @@ app.get("/health/readiness", async (req, res) => {
       return res.status(500).json({ status: "unready", reason: "database not configured" });
     }
     const database = await buildDatabaseStatus();
-    res.status(200).json({ status: "ready", database });
+    const operations = buildOperationalVisibility();
+    res.status(200).json({ status: "ready", database, operations: { status: operations.status } });
   } catch (err: any) {
     res.status(500).json({ status: "unready", error: err.message || err });
   }
@@ -309,6 +329,23 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     }
 
     const input = parsed.data;
+    const abuseDecision = await abusePrevention.evaluateEscrowCreate(input);
+    if (!abuseDecision.allowed) {
+      capturePaymentWarning("Escrow creation blocked by abuse prevention", {
+        buyerWhatsapp: input.buyerWhatsapp,
+        sellerWhatsapp: input.sellerWhatsapp,
+        amount: input.amount,
+        currency: input.currency,
+        riskScore: abuseDecision.riskScore,
+        reasons: abuseDecision.reasons,
+      });
+      return res.status(403).json({
+        error: "ESCROW_RISK_BLOCKED",
+        message: "This escrow requires support review before it can be created",
+        risk: abuseDecision,
+      });
+    }
+
     const buyer = await escrowStore.upsertUserByWhatsapp(input.buyerWhatsapp, "buyer");
     const seller = input.sellerWhatsapp
       ? await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller")
@@ -333,7 +370,7 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     }
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
-    res.status(201).json({ escrow: updated, payment, sellerInviteSent: Boolean(seller) });
+    res.status(201).json({ escrow: updated, payment, sellerInviteSent: Boolean(seller), risk: abuseDecision });
   } catch (err: any) {
     captureOperationalError("Failed to create escrow", err);
     res.status(500).json({ error: err.message || "Escrow creation failed" });
@@ -485,6 +522,23 @@ app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (re
   }
 });
 
+app.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.completeEscrow(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp,
+      "whatsapp_dm"
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Completion confirmation failed" });
+  }
+});
+
 app.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = escrowActionSchema.safeParse(req.body);
@@ -497,6 +551,15 @@ app.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) 
       "whatsapp_dm",
       parsed.data.reason
     );
+    await opsStore.createSupportCase({
+      subject: `Dispute opened for ${req.params.escrowId}`,
+      priority: "high",
+      relatedEscrowId: req.params.escrowId,
+      relatedUser: parsed.data.actorWhatsapp,
+      source: "whatsapp_dispute",
+      createdBy: parsed.data.actorWhatsapp || "whatsapp",
+      note: parsed.data.reason || "Dispute opened from WhatsApp",
+    });
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Dispute failed" });
@@ -705,6 +768,14 @@ app.post("/admin/escrows/:escrowId/dispute", requireAdminAuth, logAdminAction("a
       return res.status(400).json({ error: "Invalid dispute payload", details: formatZodError(parsed.error) });
     }
     const updated = await escrowStore.markDisputed(req.params.escrowId, adminUser, "admin", parsed.data.reason);
+    await opsStore.createSupportCase({
+      subject: `Admin dispute for ${req.params.escrowId}`,
+      priority: "high",
+      relatedEscrowId: req.params.escrowId,
+      source: "admin_dispute",
+      createdBy: adminUser,
+      note: parsed.data.reason || "Admin opened dispute",
+    });
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Dispute failed" });
@@ -728,6 +799,111 @@ app.get("/admin/db-status", requireAdminAuth, async (_req, res) => {
   } catch (err: any) {
     captureOperationalError("Database status check failed", err);
     res.status(503).json({ status: "error", error: err.message || "Database check failed" });
+  }
+});
+
+app.get("/admin/ops/status", requireAdminAuth, async (_req, res) => {
+  try {
+    const [database, operations] = await Promise.all([
+      buildDatabaseStatus(),
+      Promise.resolve(buildOperationalVisibility()),
+    ]);
+    const queue = await buildQueueStatus();
+    res.status(200).json({
+      status: database.status === "ok" && operations.status === "ok" && queue.status === "ok" ? "ok" : "attention",
+      database,
+      operations,
+      queue,
+    });
+  } catch (err: any) {
+    captureOperationalError("Operations status check failed", err);
+    res.status(503).json({ status: "error", error: err.message || "Operations status check failed" });
+  }
+});
+
+app.get("/admin/ops/events", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(listOperationalEvents(parsed.data.limit));
+});
+
+app.get("/admin/settlement/verification", requireAdminAuth, async (_req, res) => {
+  const proof = getLatestSettlementVerification();
+  if (!proof) {
+    return res.status(404).json({
+      status: "missing",
+      message: "No settlement verification proof has been run in this process",
+    });
+  }
+  res.status(200).json(proof);
+});
+
+app.get("/admin/queue/status", requireAdminAuth, async (_req, res) => {
+  try {
+    res.status(200).json(await buildQueueStatus());
+  } catch (err: any) {
+    captureOperationalError("Queue status check failed", err);
+    res.status(503).json({ status: "error", error: err.message || "Queue status check failed" });
+  }
+});
+
+app.get("/admin/queue/jobs", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await opsStore.listQueueJobs(parsed.data.limit));
+});
+
+app.get("/admin/abuse/signals", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await opsStore.listAbuseSignals(parsed.data.limit));
+});
+
+app.get("/admin/support/cases", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await opsStore.listSupportCases(parsed.data.limit));
+});
+
+app.post("/admin/support/cases", requireAdminAuth, logAdminAction("create_support_case"), async (req, res) => {
+  const parsed = supportCaseCreateSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid support case payload", details: formatZodError(parsed.error) });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const supportCase = await opsStore.createSupportCase({ ...parsed.data, createdBy: adminUser });
+  res.status(201).json(supportCase);
+});
+
+app.get("/admin/support/cases/:caseId/notes", requireAdminAuth, async (req, res) => {
+  res.status(200).json(await opsStore.listSupportNotes(req.params.caseId));
+});
+
+app.post("/admin/support/cases/:caseId/notes", requireAdminAuth, logAdminAction("add_support_note"), async (req, res) => {
+  const parsed = supportNoteCreateSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid support note payload", details: formatZodError(parsed.error) });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const note = await opsStore.addSupportNote(req.params.caseId, adminUser, parsed.data.body, parsed.data.actionType);
+  res.status(201).json(note);
+});
+
+app.post("/admin/settlement/verify", requireAdminAuth, logAdminAction("verify_settlement_integrations"), async (_req, res) => {
+  try {
+    const proof = await runSettlementVerification();
+    res.status(proof.status === "failed" ? 502 : 200).json(proof);
+  } catch (err: any) {
+    captureOperationalError("Settlement verification endpoint failed", err);
+    res.status(500).json({ status: "failed", error: err.message || "Settlement verification failed" });
   }
 });
 

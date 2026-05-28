@@ -10,6 +10,14 @@
    - `agentOrchestrator.ts` exists to coordinate discovery, execution, and settlement.
    - Paystack webhook server is implemented for Naira payment confirmation.
    - x402 payment facility methods now support create, settle, and status polling.
+3. Escrow core implementation
+   - First-class users, escrows, payout accounts, transactions, and escrow events exist.
+   - Buyer completion is now required before release requests.
+   - Manual Naira release approval and reconciliation tracking are implemented.
+4. Production hardening underway
+   - Operations status endpoints expose database, Sentry, alert, and recent warning/error state.
+   - Payment and operational warnings can be routed to Sentry and an operations alert webhook.
+   - `npm run smoke` provides deploy smoke checks for health, readiness, database, and operations status.
 
 ## Phase 1: Stabilize the current workflow
 
@@ -31,14 +39,17 @@
 
 ## Phase 3: Production readiness
 
-1. Finalize SAP mainnet / real endpoint integration.
+1. Run smoke checks after each deploy.
+   - configure `SMOKE_BASE_URL` and `SMOKE_ADMIN_API_KEY`.
+   - fail deployment promotion if health/readiness or operations checks fail.
+2. Finalize SAP mainnet / real endpoint integration.
    - replace placeholder SAP endpoint values with real RPC URLs.
    - ensure `sapAgent.ts` method signatures match the deployed environment.
-2. Finalize x402 production integration.
+3. Finalize x402 production integration.
    - confirm `createPaymentFacility`, `settlePayment`, and `getPaymentStatus` endpoints.
-3. Add observability.
-   - structured logging and request tracing.
-   - metrics or status output for scaling.
+4. Continue observability.
+   - keep Sentry and operations alert webhook configured.
+   - add metrics or status output for scaling.
 
 ## Phase 4: Scaling and automation
 

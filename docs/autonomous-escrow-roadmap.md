@@ -213,8 +213,8 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 87%
-Production financial-readiness: 75%
+MVP escrow-core readiness: 90%
+Production financial-readiness: 84%
 ```
 
 Legend:
@@ -228,17 +228,18 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
-| Phase 2 | WhatsApp bot bridge | 🟡 Mostly completed | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, and escrow commands exist |
-| Phase 3 | First-class users | 🟡 In progress | `users` table exists, WhatsApp numbers are first-class identities, and seller profile setup is now guided in WhatsApp |
-| Phase 4 | First-class escrows | 🟡 In progress | `escrows` table now exists separate from legacy `workflow_tasks` |
-| Phase 5 | Transaction state machine | 🟡 In progress | Canonical states are stored, release/dispute transitions are guarded, and payment review states are enforced |
+| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, and escrow commands now cover accept, status, complete, release, and dispute |
+| Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, and seller profile setup is now guided in WhatsApp |
+| Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |
+| Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
 | Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and Paystack-verified payout account are complete |
 | Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
 | Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
-| Phase 10 | Dispute workflow | 🟡 In progress | Dispute state exists from WhatsApp/admin; evidence capture and resolution outcomes are next |
-| Phase 11 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
-| Phase 12 | SAP/x402/USDC production settlement | 🔮 Future | SDK and config are partially wired; requires real credentials and live testing |
+| Phase 10 | Support and dispute workflow | 🟡 In progress | Dispute state exists and now auto-creates support cases; evidence capture and resolution outcomes are next |
+| Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, smoke checks, queue status, abuse signals, support queue, admin Ops tab, and scheduled CI smoke workflow now exist |
+| Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
+| Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
 
 ## What Is Completed So Far
 
@@ -265,7 +266,10 @@ The current system already has:
 - ✅ reconciliation filters for `REVIEW_REQUIRED`, `PENDING_RELEASE`, `RELEASED`, missing payout references, and Paystack amount mismatches
 - ✅ reconciliation CSV export for accounting and manual operations
 - ✅ admin needs-attention view for payment reviews, payout queue, missing payout references, and amount mismatches
-- ✅ Naira release policy: buyer request plus manual admin approval
+- ✅ Naira release policy: buyer completion confirmation, then release request, then manual admin approval
+- ✅ explicit `COMPLETED` state before any release request
+- ✅ buyer-only completion and release authorization checks
+- ✅ participant-only non-admin dispute checks
 - ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
 - ✅ seller invite/accept flow before payment initialization
 - ✅ Paystack bank/account verification for seller payout accounts
@@ -277,22 +281,41 @@ The current system already has:
 - ✅ Twilio webhook signature validation in the bot
 - ✅ WhatsApp private-DM escrow onboarding foundation
 - ✅ WhatsApp conversation sessions persisted in Postgres for Render restart recovery
-- ✅ WhatsApp commands: `accept SIV-...`, `status SIV-...`, `release SIV-...`, `dispute SIV-...`
+- ✅ WhatsApp commands: `accept SIV-...`, `status SIV-...`, `complete SIV-...`, `release SIV-...`, `dispute SIV-...`
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
 - ✅ Render deployment for backend and bot
 - ✅ documentation for WhatsApp escrow MVP flow
+- ✅ admin operations visibility endpoints for database, alert, Sentry, and recent operational-event status
+- ✅ operations alert webhook routing for payment and operational warnings
+- ✅ admin Operations tab for database, Sentry, alert, queue, abuse, support, event, and settlement-verification visibility
+- ✅ operator smoke-check script for live Render/backend health, readiness, database, and operations checks
+- ✅ scheduled/manual GitHub Actions production smoke workflow
+- ✅ SAP/x402 verification runner and admin endpoints that produce settlement proof JSON when live credentials or payment IDs are configured
+- ✅ durable production ops tables for retry queue jobs, abuse signals, support cases, and support notes
+- ✅ abuse-prevention risk scoring for escrow creation: velocity, self-dealing, high amount, and scam-keyword signals
+- ✅ high-risk escrow blocks and review signals with operator-visible abuse analytics
+- ✅ support workflow foundation: admin support cases, internal notes, and automatic case creation from disputes
+- ✅ queue resilience foundation: persistent queue status and job ledger for future retry workers/failover
 
 ## What Should Be Built Next
 
 The next major engineering work should not be dispute AI yet.
 
-The next work should be production hardening around deterministic settlement infrastructure:
+Sivan is now actively in production-hardening mode around deterministic settlement infrastructure:
 
-1. Add live Render smoke checks to CI or a small operator script.
-2. Add production x402/SAP settlement verification before expanding autonomous USDC release.
-3. Add alert routing in Sentry/Datadog for reconciliation and payout warnings.
+| Item | Status | Notes |
+| --- | --- | --- |
+| Smoke checks | ✅ Completed for operator script | `npm run smoke` checks public health/readiness and admin operational status when an admin key is supplied |
+| Monitoring/operational visibility | ✅ Completed for MVP | Admin operations endpoints expose database status, alert configuration, Sentry configuration, and recent operational events |
+| Alert routing | ✅ Completed for webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to `OPERATIONS_ALERT_WEBHOOK_URL` |
+| Queue resilience foundation | ✅ Completed for MVP | Durable queue job table, queue status endpoint, and Ops dashboard visibility exist; worker execution and dead-letter replay are next |
+| Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, abuse signal persistence, high-risk blocking, and operator analytics exist |
+| Support workflow foundation | ✅ Completed for MVP | Support cases and notes exist, disputes create cases, and support queue is visible in Ops |
+| x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
+| x402/SAP live proof | 🟡 Requires operator credentials/run | Needs real SAP/x402 credentials plus either `X402_VERIFY_PAYMENT_ID` or intentional `X402_VERIFY_CREATE_PAYMENT=true`; do not mark production settlement fully verified until a live proof artifact exists |
+| Dispute evidence and resolution | 🟡 Next escrow feature | Dispute state and support cases exist; evidence capture, admin resolution, refund/release outcomes, and user-facing history remain |
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
@@ -303,8 +326,8 @@ For the first MVP:
 ```text
 Payment funding: automated after Paystack verification.
 Work start: automated after funding.
-Naira payment release: buyer confirmation + manual admin approval.
-USDC/x402 release: autonomous after deterministic backend checks.
+Naira payment release: buyer completion confirmation + release request + manual admin approval.
+USDC/x402 release: buyer completion confirmation + release request + deterministic backend checks.
 Disputes: manual admin review.
 ```
 
@@ -371,16 +394,24 @@ This matters for:
 
 ## Recommendation Right Now
 
-Build the deterministic escrow core before adding more AI.
+Keep hardening the deterministic escrow core before adding more AI.
 
-The recommended immediate implementation order:
+Completed from the prior immediate implementation order:
 
-1. `users`
-2. `escrows`
-3. `transactions`
-4. state transition guard
-5. WhatsApp conversation state
-6. seller payout onboarding
-7. admin manual release approval
+1. ✅ `users`
+2. ✅ `escrows`
+3. ✅ `transactions`
+4. ✅ state transition guard
+5. ✅ WhatsApp conversation state
+6. ✅ seller payout onboarding
+7. ✅ admin manual release approval
+8. ✅ explicit buyer completion before release
+9. ✅ production-hardening visibility: monitoring, alerts, and smoke checks
 
-This will convert Sivan from a working payment-task prototype into a real escrow coordination product.
+Next production-hardening focus:
+
+1. 🟡 Run live smoke checks against the deployed Render services after every deploy and wire GitHub secrets.
+2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
+3. 🟡 Add a retry worker that claims queued jobs, retries with backoff, and dead-letters exhausted jobs.
+4. 🟡 Add dispute evidence capture and admin resolution outcomes.
+5. 🟡 Expand abuse analytics into malicious-user reputation and velocity dashboards.

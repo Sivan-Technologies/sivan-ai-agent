@@ -46,6 +46,7 @@ build/Release
 
 # Local database and machine files
 data/*.db
+data/settlement-verification-proof.json
 Microsoft/
 .DS_Store
 

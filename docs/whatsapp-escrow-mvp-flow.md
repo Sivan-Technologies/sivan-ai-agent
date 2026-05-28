@@ -412,18 +412,20 @@ The current code already has:
 - WhatsApp bot bridge
 - notification callback
 
-Next engineering steps:
+Current engineering status:
 
-1. Add first-class `users` table.
-2. Add first-class `escrows` table separate from task records.
-3. Add transaction state machine with the states listed above.
-4. Add private DM conversation state in the WhatsApp bot.
-5. Add seller onboarding and payout-account capture.
-6. Add Paystack bank/account resolution.
-7. Add `PENDING_RELEASE` admin approval flow.
-8. Add manual payout tracking before automated Paystack transfers.
-9. Add dispute state and admin evidence collection.
-10. Add audit log for every state transition.
+1. ✅ Add first-class `users` table.
+2. ✅ Add first-class `escrows` table separate from task records.
+3. ✅ Add transaction state machine with the states listed above.
+4. ✅ Add private DM conversation state in the WhatsApp bot.
+5. ✅ Add seller onboarding and payout-account capture.
+6. ✅ Add Paystack bank/account resolution.
+7. ✅ Add explicit buyer completion before release.
+8. ✅ Add `PENDING_RELEASE` admin approval flow.
+9. ✅ Add manual payout tracking before automated Paystack transfers.
+10. 🟡 Add dispute state and admin evidence collection.
+11. ✅ Add audit log for every state transition.
+12. 🟡 Continue production hardening: smoke checks, monitoring, alert routing, and live x402/SAP verification.
 
 ## Product Positioning
 

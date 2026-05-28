@@ -54,6 +54,20 @@ export const adminSettingsSchema = z.object({
   expectedVersion: z.coerce.number().int().positive(),
 });
 
+export const supportCaseCreateSchema = z.object({
+  subject: z.string().trim().min(3).max(240),
+  priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),
+  relatedEscrowId: z.string().trim().min(3).max(80).optional(),
+  relatedUser: z.string().trim().min(3).max(120).optional(),
+  source: z.string().trim().min(2).max(80).default("admin"),
+  note: z.string().trim().min(2).max(2000).optional(),
+});
+
+export const supportNoteCreateSchema = z.object({
+  body: z.string().trim().min(2).max(4000),
+  actionType: z.string().trim().min(2).max(80).optional(),
+});
+
 export const paystackWebhookSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
   event: z.string().trim().min(1).max(120),

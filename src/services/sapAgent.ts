@@ -130,6 +130,28 @@ export class SapAgent {
     ];
   }
 
+  public async verifyConnectivity(taskType = "content-creation", options: { registerAgent?: boolean } = {}) {
+    const startedAt = Date.now();
+    const tools = await this.discoverTools(taskType);
+    let registration: { attempted: boolean; agentPublicKey?: string } = { attempted: false };
+
+    if (options.registerAgent) {
+      const agentPublicKey = await this.registerAgent();
+      registration = { attempted: true, agentPublicKey };
+    }
+
+    return {
+      status: "ok" as const,
+      rpcUrl: this.rpcUrl,
+      taskType,
+      toolsDiscovered: tools.length,
+      toolIds: tools.map((tool) => tool.id),
+      registration,
+      latencyMs: Date.now() - startedAt,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   public async createEscrow(
     amount: number,
     currency: string,

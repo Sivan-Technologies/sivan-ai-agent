@@ -27,6 +27,13 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `X402_RPC_URL` - Legacy alias for `SYNAPSE_X402_FACILITATOR_URL`.
 - `X402_CLIENT_ID` - Optional x402 client identifier if your facilitator requires it.
 - `X402_CLIENT_SECRET` - Optional x402 secret. If blank or placeholder, the app uses `SYNAPSE_API_KEY`.
+- `SETTLEMENT_VERIFY_TASK_TYPE` - SAP discovery task type used by `npm run verify:settlement`.
+- `SETTLEMENT_PROOF_OUTPUT` - Optional JSON file path where settlement verification proof is written.
+- `SAP_VERIFY_REGISTER_AGENT` - Set `true` only when you want verification to attempt agent registration.
+- `X402_VERIFY_PAYMENT_ID` - Existing x402 payment ID to verify through status polling.
+- `X402_VERIFY_CREATE_PAYMENT` - Set `true` only when you want verification to create a tiny x402 probe payment facility.
+- `X402_VERIFY_AMOUNT` - Probe amount used when `X402_VERIFY_CREATE_PAYMENT=true`.
+- `X402_VERIFY_RECIPIENT` - Recipient used when `X402_VERIFY_CREATE_PAYMENT=true`; defaults to `SAP_AGENT_PUBLIC_KEY`.
 
 ### Paystack / Naira Bridge
 
@@ -46,9 +53,19 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or Render internal Postgres URL when `DATABASE_PROVIDER=postgres`.
 - `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
 - `SENTRY_DSN` - Optional Sentry DSN for production error and payment/webhook alerting.
+- `OPERATIONS_ALERT_WEBHOOK_URL` - Optional HTTPS endpoint that receives operational/payment warning events as JSON.
+- `OPERATIONS_ALERT_WEBHOOK_SECRET` - Optional shared secret sent as `x-sivan-alert-secret` to the operations alert webhook.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
 - `WEBHOOK_URL` - Public URL for webhook callbacks.
+- `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
+- `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
+- `SMOKE_REQUIRE_SETTLEMENT_PROOF` - Set `true` to make smoke checks require a previously run settlement verification proof.
+- `ABUSE_BLOCK_SCORE` - Risk score at or above which escrow creation is blocked. Defaults to `95`.
+- `ABUSE_REVIEW_SCORE` - Risk score at or above which an abuse signal is recorded for operator review. Defaults to `60`.
+- `ABUSE_ESCROW_VELOCITY_LIMIT` - Recent escrow count for a buyer before velocity risk is flagged. Defaults to `8`.
+- `ABUSE_HIGH_AMOUNT_NAIRA` - Naira amount threshold that adds high-amount risk. Defaults to `1000000`.
+- `ABUSE_HIGH_AMOUNT_USDC` - USDC amount threshold that adds high-amount risk. Defaults to `5000`.
 - `PORT` - HTTP port for the webhook server.
 - `AGENT_TASK_TYPE` - Default task type for the agent workflow.
 - `USER_PAYMENT_PREFERENCE` - `NAIRA` or `USDC` to route payments.
@@ -82,6 +99,13 @@ ACE_DATA_BASE_URL=https://api.acedata.cloud
 X402_RPC_URL=
 X402_CLIENT_ID=
 X402_CLIENT_SECRET=
+SETTLEMENT_VERIFY_TASK_TYPE=content-creation
+SETTLEMENT_PROOF_OUTPUT=./data/settlement-verification-proof.json
+SAP_VERIFY_REGISTER_AGENT=false
+X402_VERIFY_PAYMENT_ID=
+X402_VERIFY_CREATE_PAYMENT=false
+X402_VERIFY_AMOUNT=0.01
+X402_VERIFY_RECIPIENT=
 
 PAYSTACK_SECRET_KEY=your-paystack-secret-key
 PAYSTACK_PUBLIC_KEY=your-paystack-public-key
@@ -97,9 +121,19 @@ DATABASE_PROVIDER=sqlite
 DATABASE_URL=./data/sivan-escrow-agent.db
 POSTGRES_SSL=true
 SENTRY_DSN=
+OPERATIONS_ALERT_WEBHOOK_URL=
+OPERATIONS_ALERT_WEBHOOK_SECRET=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
 WEBHOOK_URL=https://yourapp.example.com/webhooks
+SMOKE_BASE_URL=https://yourapp.example.com
+SMOKE_ADMIN_API_KEY=
+SMOKE_REQUIRE_SETTLEMENT_PROOF=false
+ABUSE_BLOCK_SCORE=95
+ABUSE_REVIEW_SCORE=60
+ABUSE_ESCROW_VELOCITY_LIMIT=8
+ABUSE_HIGH_AMOUNT_NAIRA=1000000
+ABUSE_HIGH_AMOUNT_USDC=5000
 PORT=4000
 AGENT_TASK_TYPE=content-creation
 USER_PAYMENT_PREFERENCE=NAIRA

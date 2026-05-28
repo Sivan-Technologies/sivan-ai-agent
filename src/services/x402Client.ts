@@ -136,4 +136,67 @@ export class X402Client {
 
     return result;
   }
+
+  public async verifyConnectivity(options: {
+    paymentId?: string;
+    createProbe?: boolean;
+    amount?: number;
+    recipient?: string;
+  } = {}) {
+    const startedAt = Date.now();
+    const checkedAt = new Date().toISOString();
+
+    if (options.paymentId) {
+      const status = await this.getPaymentStatus(options.paymentId);
+      return {
+        status: "ok" as const,
+        mode: "status_probe" as const,
+        facilitatorUrl: this.baseUrl,
+        network: config.x402.network,
+        paymentId: status.paymentId,
+        paymentStatus: status.status,
+        transactionHash: status.transactionHash,
+        latencyMs: Date.now() - startedAt,
+        checkedAt,
+      };
+    }
+
+    if (options.createProbe) {
+      if (!options.recipient) {
+        throw new Error("X402 probe recipient is required when createProbe is enabled");
+      }
+
+      const facility = await this.createPaymentFacility(
+        options.amount || 0.01,
+        "USDC",
+        options.recipient,
+        {
+          purpose: "sivan-production-verification",
+          checkedAt,
+        }
+      );
+
+      return {
+        status: "ok" as const,
+        mode: "create_probe" as const,
+        facilitatorUrl: this.baseUrl,
+        network: config.x402.network,
+        paymentId: facility.paymentId,
+        paymentStatus: facility.status,
+        transactionHash: facility.transactionHash,
+        latencyMs: Date.now() - startedAt,
+        checkedAt,
+      };
+    }
+
+    return {
+      status: "skipped" as const,
+      mode: "configuration_only" as const,
+      facilitatorUrl: this.baseUrl,
+      network: config.x402.network,
+      reason: "Set X402_VERIFY_PAYMENT_ID or X402_VERIFY_CREATE_PAYMENT=true for live facilitator proof",
+      latencyMs: Date.now() - startedAt,
+      checkedAt,
+    };
+  }
 }

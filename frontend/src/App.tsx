@@ -95,7 +95,76 @@ type AuditRecord = {
   changedAt: string;
 };
 
-type Tab = "escrows" | "tasks" | "webhooks" | "fees" | "auth";
+type OperationalEvent = {
+  id: string;
+  level: "warning" | "error";
+  message: string;
+  context: Record<string, unknown>;
+  error?: string;
+  createdAt: string;
+};
+
+type OperationsStatus = {
+  status: string;
+  database: {
+    status: string;
+    provider: string;
+    configured: boolean;
+    settingsVersion?: number;
+    latencyMs?: number;
+  };
+  operations: {
+    status: string;
+    alertsConfigured: boolean;
+    sentryConfigured: boolean;
+    recentWarnings: number;
+    recentErrors: number;
+    recent: OperationalEvent[];
+  };
+};
+
+type SettlementProof = {
+  status: string;
+  checkedAt?: string;
+  sap?: { status?: string; toolsDiscovered?: number; latencyMs?: number; error?: string };
+  x402?: { status?: string; mode?: string; paymentStatus?: string; transactionHash?: string; error?: string };
+  warnings?: string[];
+  proofFile?: string;
+};
+
+type QueueStatus = {
+  status: string;
+  queued: number;
+  running: number;
+  failed: number;
+  dead: number;
+  succeeded: number;
+};
+
+type AbuseSignal = {
+  signalId: string;
+  subjectType: string;
+  subjectId: string;
+  category: string;
+  severity: string;
+  riskScore: number;
+  reason: string;
+  createdAt: string;
+};
+
+type SupportCase = {
+  caseId: string;
+  status: string;
+  priority: string;
+  subject: string;
+  relatedEscrowId?: string;
+  relatedUser?: string;
+  source: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type AuthSessionRecord = {
   sessionId: string;
   adminIdentifier: string;
@@ -104,6 +173,7 @@ type AuthSessionRecord = {
   ip?: string;
   status?: string;
 };
+
 type AuthStats = {
   period?: string;
   total_requests?: number;
@@ -114,6 +184,8 @@ type AuthStats = {
   unique_ips?: number;
   timestamp?: string;
 };
+
+type Tab = "escrows" | "tasks" | "webhooks" | "fees" | "ops" | "auth";
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -153,6 +225,12 @@ function App() {
   });
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
+  const [operationsStatus, setOperationsStatus] = useState<OperationsStatus | null>(null);
+  const [operationalEvents, setOperationalEvents] = useState<OperationalEvent[]>([]);
+  const [settlementProof, setSettlementProof] = useState<SettlementProof | null>(null);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
+  const [abuseSignals, setAbuseSignals] = useState<AbuseSignal[]>([]);
+  const [supportCases, setSupportCases] = useState<SupportCase[]>([]);
   const [feeSettings, setFeeSettings] = useState<FeeSettings | null>(null);
   const [feeFormData, setFeeFormData] = useState({
     nairaFeePercent: 0,
@@ -223,6 +301,12 @@ function App() {
     setAuthSessions([]);
     setAuthStats(null);
     setAuthError(null);
+    setOperationsStatus(null);
+    setOperationalEvents([]);
+    setSettlementProof(null);
+    setQueueStatus(null);
+    setAbuseSignals([]);
+    setSupportCases([]);
     setSelectedTask(null);
   };
 
@@ -376,12 +460,43 @@ function App() {
     setAuditHistory((await response.json()) || []);
   };
 
+  const loadOperations = async () => {
+    if (!adminKey) return;
+    const [statusResponse, eventsResponse, settlementResponse, queueResponse, abuseResponse, supportResponse] = await Promise.all([
+      fetch(`${apiBase}/admin/ops/status`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/ops/events?limit=50`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/settlement/verification`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/queue/status`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/abuse/signals?limit=25`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/support/cases?limit=25`, { headers: authHeaders() }),
+    ]);
+    if (!statusResponse.ok) throw new Error(await parseError(statusResponse, "Failed to load operations status"));
+    if (!eventsResponse.ok) throw new Error(await parseError(eventsResponse, "Failed to load operations events"));
+    if (!queueResponse.ok) throw new Error(await parseError(queueResponse, "Failed to load queue status"));
+    setOperationsStatus(await statusResponse.json());
+    setOperationalEvents((await eventsResponse.json()) || []);
+    setSettlementProof(settlementResponse.ok ? await settlementResponse.json() : null);
+    setQueueStatus(await queueResponse.json());
+    setAbuseSignals(abuseResponse.ok ? await abuseResponse.json() : []);
+    setSupportCases(supportResponse.ok ? await supportResponse.json() : []);
+  };
+
+  const runSettlementVerification = async () => {
+    const response = await fetch(`${apiBase}/admin/settlement/verify`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Settlement verification failed"));
+    setSettlementProof(await response.json());
+    await loadOperations();
+  };
+
   const refreshAll = async () => {
     setLoading(true);
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadReconciliation(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory()]);
+      await Promise.all([loadEscrows(), loadReconciliation(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -659,7 +774,7 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
+        {(["escrows", "tasks", "webhooks", "fees", "ops", "auth"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
             {tab === "escrows"
               ? "Escrows"
@@ -669,6 +784,8 @@ function App() {
               ? "Webhooks"
               : tab === "fees"
               ? "Fees"
+              : tab === "ops"
+              ? "Ops"
               : "Admin Auth"}
           </button>
         ))}
@@ -904,6 +1021,127 @@ function App() {
             ))}
             {webhooks.length === 0 && <p className="muted">No webhook events</p>}
           </div>
+        </section>
+      )}
+
+      {activeTab === "ops" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Operations Status</h2>
+              <span>{operationsStatus?.status || "unknown"}</span>
+            </div>
+            <div className="metrics-grid ops-metrics">
+              <div className={`metric-card ${operationsStatus?.database.status === "ok" ? "good" : "critical"}`}>
+                <span>Database</span>
+                <strong>{operationsStatus?.database.status || "-"}</strong>
+              </div>
+              <div className={`metric-card ${operationsStatus?.operations.sentryConfigured ? "good" : "watch"}`}>
+                <span>Sentry</span>
+                <strong>{operationsStatus?.operations.sentryConfigured ? "On" : "Off"}</strong>
+              </div>
+              <div className={`metric-card ${operationsStatus?.operations.alertsConfigured ? "good" : "watch"}`}>
+                <span>Alerts</span>
+                <strong>{operationsStatus?.operations.alertsConfigured ? "On" : "Off"}</strong>
+              </div>
+              <div className={`metric-card ${operationsStatus?.operations.recentErrors ? "critical" : "good"}`}>
+                <span>Recent errors</span>
+                <strong>{operationsStatus?.operations.recentErrors ?? 0}</strong>
+              </div>
+              <div className={`metric-card ${queueStatus?.dead || queueStatus?.failed ? "critical" : "good"}`}>
+                <span>Queue failures</span>
+                <strong>{(queueStatus?.dead || 0) + (queueStatus?.failed || 0)}</strong>
+              </div>
+              <div className={`metric-card ${abuseSignals.length ? "watch" : "good"}`}>
+                <span>Abuse signals</span>
+                <strong>{abuseSignals.length}</strong>
+              </div>
+              <div className={`metric-card ${supportCases.filter((item) => item.status === "open").length ? "watch" : "good"}`}>
+                <span>Open support</span>
+                <strong>{supportCases.filter((item) => item.status === "open").length}</strong>
+              </div>
+            </div>
+            <div className="detail-stack">
+              <div className="detail-row"><span>Provider</span><strong>{operationsStatus?.database.provider || "unknown"}</strong></div>
+              <div className="detail-row"><span>DB latency</span><strong>{operationsStatus?.database.latencyMs ?? "-"} ms</strong></div>
+              <div className="detail-row"><span>Settings version</span><strong>{operationsStatus?.database.settingsVersion || "-"}</strong></div>
+              <div className="detail-row"><span>Recent warnings</span><strong>{operationsStatus?.operations.recentWarnings ?? 0}</strong></div>
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>Settlement Verification</h2>
+              <span>{settlementProof?.status || "not run"}</span>
+            </div>
+            <div className="detail-stack">
+              <div className="detail-row"><span>SAP</span><strong>{settlementProof?.sap?.status || "unknown"}</strong></div>
+              <div className="detail-row"><span>x402</span><strong>{settlementProof?.x402?.status || "unknown"}</strong></div>
+              <div className="detail-row"><span>Last checked</span><strong>{formatTime(settlementProof?.checkedAt)}</strong></div>
+              {settlementProof?.warnings?.length ? <div className="detail-note critical-note">{settlementProof.warnings.join("; ")}</div> : null}
+            </div>
+            <button
+              className="button primary full ops-action"
+              onClick={async () => {
+                try {
+                  await runSettlementVerification();
+                } catch (err: any) {
+                  setError(err.message || "Settlement verification failed");
+                }
+              }}
+            >
+              Run settlement verification
+            </button>
+            <div className="section-head ops-subhead">
+              <h2>Abuse Signals</h2>
+              <span>{abuseSignals.length} records</span>
+            </div>
+            <div className="event-grid">
+              {abuseSignals.slice(0, 5).map((signal) => (
+                <div key={signal.signalId} className={`event-row ops-event ${signal.riskScore >= 70 ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{signal.category} · {signal.riskScore}</strong>
+                    <span>{signal.reason}</span>
+                  </div>
+                  <time>{formatTime(signal.createdAt)}</time>
+                </div>
+              ))}
+              {abuseSignals.length === 0 && <p className="muted">No abuse signals</p>}
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Support Queue</h2>
+              <span>{supportCases.length} cases</span>
+            </div>
+            <div className="event-grid">
+              {supportCases.map((supportCase) => (
+                <div key={supportCase.caseId} className={`event-row ops-event ${supportCase.priority === "urgent" || supportCase.priority === "high" ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{supportCase.subject}</strong>
+                    <span>{supportCase.status} · {supportCase.priority} · {supportCase.relatedEscrowId || supportCase.source}</span>
+                  </div>
+                  <time>{formatTime(supportCase.updatedAt)}</time>
+                </div>
+              ))}
+              {supportCases.length === 0 && <p className="muted">No support cases</p>}
+            </div>
+
+            <div className="section-head ops-subhead">
+              <h2>Recent Events</h2>
+              <span>{operationalEvents.length} records</span>
+            </div>
+            <div className="event-grid">
+              {operationalEvents.map((event) => (
+                <div key={event.id} className={`event-row ops-event ${event.level}`}>
+                  <div>
+                    <strong>{event.message}</strong>
+                    <span>{event.error || JSON.stringify(event.context)}</span>
+                  </div>
+                  <time>{formatTime(event.createdAt)}</time>
+                </div>
+              ))}
+              {operationalEvents.length === 0 && <p className="muted">No operational events</p>}
+            </div>
+          </aside>
         </section>
       )}
 

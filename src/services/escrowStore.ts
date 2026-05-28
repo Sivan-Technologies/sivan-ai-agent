@@ -697,7 +697,8 @@ export class EscrowStore {
   public async requestRelease(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
-    if (!["IN_PROGRESS", "FUNDED", "COMPLETED"].includes(escrow.status)) {
+    await this.assertBuyerActor(escrow, actor);
+    if (escrow.status !== "COMPLETED") {
       throw new Error(`Escrow cannot be released from ${escrow.status}`);
     }
 
@@ -725,6 +726,24 @@ export class EscrowStore {
       });
     }
 
+    return (await this.getEscrowById(escrowId))!;
+  }
+
+  public async completeEscrow(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) throw new Error("Escrow not found");
+    await this.assertBuyerActor(escrow, actor);
+    if (!["IN_PROGRESS", "FUNDED"].includes(escrow.status)) {
+      throw new Error(`Escrow cannot be completed from ${escrow.status}`);
+    }
+
+    await this.transitionEscrow(escrowId, "COMPLETED", {
+      actor,
+      actorRole: "buyer",
+      channel,
+      eventType: "buyer_completed",
+      reason: "Buyer confirmed work is complete",
+    });
     return (await this.getEscrowById(escrowId))!;
   }
 
@@ -785,6 +804,11 @@ export class EscrowStore {
   }
 
   public async markDisputed(escrowId: string, actor: string, channel: string, reason?: string): Promise<EscrowRecord> {
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) throw new Error("Escrow not found");
+    if (channel !== "admin") {
+      await this.assertParticipantActor(escrow, actor);
+    }
     await this.transitionEscrow(escrowId, "DISPUTED", {
       actor,
       actorRole: "participant",
@@ -793,6 +817,24 @@ export class EscrowStore {
       reason: reason || "Dispute opened",
     });
     return (await this.getEscrowById(escrowId))!;
+  }
+
+  private async assertBuyerActor(escrow: EscrowRecord, actor: string): Promise<void> {
+    const buyer = await this.getUserById(escrow.buyerUserId);
+    if (!buyer || buyer.whatsappNumber !== actor) {
+      throw new Error("Only the buyer can perform this escrow action");
+    }
+  }
+
+  private async assertParticipantActor(escrow: EscrowRecord, actor: string): Promise<void> {
+    const [buyer, seller] = await Promise.all([
+      this.getUserById(escrow.buyerUserId),
+      escrow.sellerUserId ? this.getUserById(escrow.sellerUserId) : Promise.resolve(null),
+    ]);
+    const allowed = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.sellerWhatsapp].filter(Boolean);
+    if (!allowed.includes(actor)) {
+      throw new Error("Only escrow participants can perform this escrow action");
+    }
   }
 
   private async transitionEscrow(
