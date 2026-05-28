@@ -215,7 +215,7 @@ Current estimate:
 ```text
 MVP escrow-core readiness: 90%
 Production financial-readiness: 86%
-Cross-repo production-readiness: 82%
+Cross-repo production-readiness: 84%
 ```
 
 Legend:
@@ -241,7 +241,7 @@ Legend:
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, smoke checks, queue status, abuse signals, support queue, admin Ops tab, and scheduled CI smoke workflow now exist |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced and build cleanly; remaining work is deploy-time env wiring, live smoke checks, and production incident drills |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced, build cleanly, and Telegram production docs/dependencies are pushed; remaining work is deploy-time env wiring, live smoke checks, and production incident drills |
 
 ## What Is Completed So Far
 
@@ -288,7 +288,7 @@ The current system already has:
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
-- ✅ Telegram admin auth repo pulled to latest `origin/main` and local build passes
+- ✅ Telegram admin auth repo pulled to latest `origin/main`, production docs/dependencies committed, pushed, and local build passes
 - ✅ WhatsApp bot repo checked against `origin/main` and local build passes
 - ✅ Admin dashboard keeps both production Ops visibility and Telegram Admin Auth session visibility after the latest cross-repo sync
 - ✅ Render deployment for backend and bot
@@ -320,7 +320,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, abuse signal persistence, high-risk blocking, and operator analytics exist |
 | Support workflow foundation | ✅ Completed for MVP | Support cases and notes exist, disputes create cases, and support queue is visible in Ops |
 | Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
-| Telegram admin auth sync | ✅ Pulled/build clean | Local repo is up to date with `origin/main`; uncommitted local edits remain and were preserved |
+| Telegram admin auth sync | ✅ Pushed/build clean | Local repo is up to date with `origin/main`; production README fixes and lockfile-consistent dependency metadata were pushed; unrelated local edits remain and were preserved |
 | WhatsApp bot sync | ✅ Build clean | Repo is not behind `origin/main`; uncommitted local edits remain and were preserved |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
 | x402/SAP live proof | 🟡 Requires operator credentials/run | Needs real SAP/x402 credentials plus either `X402_VERIFY_PAYMENT_ID` or intentional `X402_VERIFY_CREATE_PAYMENT=true`; do not mark production settlement fully verified until a live proof artifact exists |
