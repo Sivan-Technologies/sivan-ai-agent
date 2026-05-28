@@ -25,6 +25,9 @@ export class AbusePreventionService {
     currency: "NAIRA" | "USDC";
     purpose: string;
     channel: string;
+    requestIp?: string;
+    userAgent?: string;
+    deviceFingerprint?: string;
   }): Promise<AbuseDecision> {
     const reasons: string[] = [];
     let riskScore = 0;
@@ -64,6 +67,13 @@ export class AbusePreventionService {
     if (input.channel === "api") {
       riskScore += 10;
       reasons.push("Direct API-created escrow should be monitored");
+    }
+
+    if (input.deviceFingerprint) {
+      reasons.push("Device fingerprint captured for reputation tracking");
+    }
+    if (input.requestIp || input.userAgent) {
+      reasons.push("Request fingerprint metadata captured");
     }
 
     riskScore = Math.min(100, riskScore);

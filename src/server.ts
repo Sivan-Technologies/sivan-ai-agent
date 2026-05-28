@@ -138,6 +138,106 @@ async function buildStuckEscrowStatus(limit = 250) {
   };
 }
 
+async function buildAbuseAnalytics(limit = 500) {
+  const [signals, escrows] = await Promise.all([
+    opsStore.listAbuseSignals(limit),
+    escrowStore.listEscrows(limit),
+  ]);
+  const severityCounts = signals.reduce<Record<string, number>>((acc, signal) => {
+    acc[signal.severity] = (acc[signal.severity] || 0) + 1;
+    return acc;
+  }, {});
+  const categoryCounts = signals.reduce<Record<string, number>>((acc, signal) => {
+    acc[signal.category] = (acc[signal.category] || 0) + 1;
+    return acc;
+  }, {});
+  const subjectMap = new Map<string, { subjectType: string; subjectId: string; signals: number; maxRiskScore: number; lastSeenAt: string; reasons: string[] }>();
+  const fingerprintMap = new Map<string, { fingerprint: string; signals: number; maxRiskScore: number; lastSeenAt: string; subjects: string[]; sources: string[] }>();
+  for (const signal of signals) {
+    const key = `${signal.subjectType}:${signal.subjectId}`;
+    const current = subjectMap.get(key) || {
+      subjectType: signal.subjectType,
+      subjectId: signal.subjectId,
+      signals: 0,
+      maxRiskScore: 0,
+      lastSeenAt: signal.createdAt,
+      reasons: [],
+    };
+    current.signals += 1;
+    current.maxRiskScore = Math.max(current.maxRiskScore, signal.riskScore);
+    current.lastSeenAt = current.lastSeenAt > signal.createdAt ? current.lastSeenAt : signal.createdAt;
+    if (signal.reason && !current.reasons.includes(signal.reason)) current.reasons.push(signal.reason);
+    subjectMap.set(key, current);
+
+    try {
+      const metadata = signal.metadata ? JSON.parse(signal.metadata) : {};
+      const fingerprints = [
+        metadata.deviceFingerprint ? `device:${metadata.deviceFingerprint}` : "",
+        metadata.requestIp ? `ip:${metadata.requestIp}` : "",
+        metadata.userAgent ? `ua:${String(metadata.userAgent).slice(0, 120)}` : "",
+      ].filter(Boolean);
+      for (const fingerprint of fingerprints) {
+        const row = fingerprintMap.get(fingerprint) || {
+          fingerprint,
+          signals: 0,
+          maxRiskScore: 0,
+          lastSeenAt: signal.createdAt,
+          subjects: [],
+          sources: [],
+        };
+        row.signals += 1;
+        row.maxRiskScore = Math.max(row.maxRiskScore, signal.riskScore);
+        row.lastSeenAt = row.lastSeenAt > signal.createdAt ? row.lastSeenAt : signal.createdAt;
+        if (!row.subjects.includes(signal.subjectId)) row.subjects.push(signal.subjectId);
+        if (metadata.channel && !row.sources.includes(metadata.channel)) row.sources.push(metadata.channel);
+        fingerprintMap.set(fingerprint, row);
+      }
+    } catch {
+      // Ignore malformed historical metadata.
+    }
+  }
+
+  const buyerVelocity = new Map<string, { buyerUserId: string; escrows: number; active: number; disputed: number; reviewRequired: number; latestAt: string }>();
+  for (const escrow of escrows) {
+    const current = buyerVelocity.get(escrow.buyerUserId) || {
+      buyerUserId: escrow.buyerUserId,
+      escrows: 0,
+      active: 0,
+      disputed: 0,
+      reviewRequired: 0,
+      latestAt: escrow.updatedAt,
+    };
+    current.escrows += 1;
+    if (!["RELEASED", "FAILED", "CANCELLED"].includes(escrow.status)) current.active += 1;
+    if (escrow.status === "DISPUTED") current.disputed += 1;
+    if (escrow.status === "REVIEW_REQUIRED") current.reviewRequired += 1;
+    current.latestAt = current.latestAt > escrow.updatedAt ? current.latestAt : escrow.updatedAt;
+    buyerVelocity.set(escrow.buyerUserId, current);
+  }
+
+  return {
+    totals: {
+      signals: signals.length,
+      criticalSignals: signals.filter((signal) => signal.severity === "critical").length,
+      highSignals: signals.filter((signal) => signal.severity === "high").length,
+      monitoredEscrows: escrows.length,
+    },
+    severityCounts,
+    categoryCounts,
+    reputationWatchlist: Array.from(subjectMap.values())
+      .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
+      .slice(0, 25),
+    fingerprintWatchlist: Array.from(fingerprintMap.values())
+      .filter((row) => row.signals > 1 || row.maxRiskScore >= 60)
+      .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
+      .slice(0, 25),
+    velocityWatchlist: Array.from(buyerVelocity.values())
+      .filter((row) => row.escrows >= Number(process.env.ABUSE_ESCROW_VELOCITY_LIMIT || "8") || row.disputed > 0 || row.reviewRequired > 0)
+      .sort((a, b) => b.escrows - a.escrows || b.active - a.active)
+      .slice(0, 25),
+  };
+}
+
 function paystackEmailForWhatsapp(whatsappNumber: string) {
   const digits = whatsappNumber.replace(/\D/g, "");
   return `whatsapp_${digits || "user"}@sivan.local`;
@@ -411,7 +511,12 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     }
 
     const input = parsed.data;
-    const abuseDecision = await abusePrevention.evaluateEscrowCreate(input);
+    const abuseDecision = await abusePrevention.evaluateEscrowCreate({
+      ...input,
+      requestIp: req.ip,
+      userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+      deviceFingerprint: typeof req.headers["x-device-fingerprint"] === "string" ? req.headers["x-device-fingerprint"] : undefined,
+    });
     if (!abuseDecision.allowed) {
       capturePaymentWarning("Escrow creation blocked by abuse prevention", {
         buyerWhatsapp: input.buyerWhatsapp,
@@ -1041,6 +1146,14 @@ app.get("/admin/abuse/signals", requireAdminAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
   res.status(200).json(await opsStore.listAbuseSignals(parsed.data.limit));
+});
+
+app.get("/admin/abuse/analytics", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await buildAbuseAnalytics(parsed.data.limit));
 });
 
 app.get("/admin/support/cases", requireAdminAuth, async (req, res) => {

@@ -200,6 +200,12 @@ describe("Admin Settings API Integration", () => {
     expect(abuse.status).toBe(200);
     expect(Array.isArray(abuse.body)).toBe(true);
 
+    const abuseAnalytics = await request(app).get("/admin/abuse/analytics?limit=50").set(headers);
+    expect(abuseAnalytics.status).toBe(200);
+    expect(abuseAnalytics.body).toHaveProperty("totals");
+    expect(abuseAnalytics.body).toHaveProperty("reputationWatchlist");
+    expect(abuseAnalytics.body).toHaveProperty("velocityWatchlist");
+
     const support = await request(app).get("/admin/support/cases?limit=10").set(headers);
     expect(support.status).toBe(200);
     expect(Array.isArray(support.body)).toBe(true);

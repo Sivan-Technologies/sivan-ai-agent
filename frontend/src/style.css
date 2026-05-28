@@ -36,12 +36,22 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
 button {
   letter-spacing: 0;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(76, 201, 176, 0.82);
+  outline-offset: 2px;
 }
 
 .admin-shell {
@@ -665,7 +675,9 @@ button {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select,
+.field textarea {
   width: 100%;
   min-height: 42px;
   padding: 10px 12px;
@@ -676,9 +688,59 @@ button {
   outline: none;
 }
 
-.field input:focus {
+.field textarea {
+  resize: vertical;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(76, 201, 176, 0.12);
+}
+
+.compact-field {
+  margin-bottom: 12px;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.selectable-row {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selectable-row.selected {
+  border-color: rgba(76, 201, 176, 0.72);
+  background: rgba(76, 201, 176, 0.08);
+}
+
+.timeline-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.timeline-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 20px;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  background: var(--bg);
 }
 
 .preview-list {
@@ -769,12 +831,13 @@ button {
 
   .metrics-grid,
   .attention-grid,
-  .fee-grid {
+  .fee-grid,
+  .control-grid {
     grid-template-columns: 1fr;
   }
 
   .tabs {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 }

@@ -239,6 +239,7 @@ GET /admin/queue/jobs/:jobId
 POST /admin/queue/jobs/:jobId/retry
 POST /admin/queue/run
 GET /admin/abuse/signals
+GET /admin/abuse/analytics
 GET /admin/support/cases
 GET /admin/support/search
 POST /admin/support/cases
@@ -440,9 +441,10 @@ Current operator features:
 - operations status for database readiness, Sentry/alert configuration, and recent operational warnings/errors
 - settlement verification runner for SAP discovery and x402 status/probe proof
 - retry queue creation, manual worker run, exponential backoff, stale lock recovery, retry replay, and dead-letter visibility
-- abuse signals for suspicious escrow creation patterns
+- abuse signals, request/device fingerprint watch, reputation watchlist, and velocity dashboard for suspicious escrow creation patterns
 - support cases, assignment/status tracking, search, and internal notes for founder/operator support workflows
 - escrow event timelines with transactions and linked support cases
+- payout safety queue for pending releases, missing payout references, amount mismatches, and recovery jobs
 
 ## WhatsApp Bot
 
