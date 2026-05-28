@@ -568,6 +568,48 @@ button {
   gap: 16px;
 }
 
+.auth-surface {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 16px;
+}
+
+.auth-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0b1117;
+}
+
+.auth-card h3 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+}
+
+.button-group {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.button.small {
+  padding: 8px 12px;
+  min-width: 100px;
+  font-size: 0.86rem;
+}
+
+@media (max-width: 1040px) {
+  .auth-grid,
+  .fees-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 .audit-surface {
   grid-column: 1 / -1;
 }

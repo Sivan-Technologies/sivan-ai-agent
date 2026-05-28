@@ -95,7 +95,25 @@ type AuditRecord = {
   changedAt: string;
 };
 
-type Tab = "escrows" | "tasks" | "webhooks" | "fees";
+type Tab = "escrows" | "tasks" | "webhooks" | "fees" | "auth";
+type AuthSessionRecord = {
+  sessionId: string;
+  adminIdentifier: string;
+  createdAt: string;
+  expiresAt?: string;
+  ip?: string;
+  status?: string;
+};
+type AuthStats = {
+  period?: string;
+  total_requests?: number;
+  successful_verifications?: number;
+  failed_verifications?: number;
+  telegram_errors?: number;
+  unique_admins?: number;
+  unique_ips?: number;
+  timestamp?: string;
+};
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -155,6 +173,10 @@ function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [savingFees, setSavingFees] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [authSessions, setAuthSessions] = useState<AuthSessionRecord[]>([]);
+  const [authStats, setAuthStats] = useState<AuthStats | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const authHeaders = () => {
     const headers: any = { "Content-Type": "application/json" };
@@ -198,7 +220,104 @@ function App() {
     setWebhooks([]);
     setFeeSettings(null);
     setAuditHistory([]);
+    setAuthSessions([]);
+    setAuthStats(null);
+    setAuthError(null);
     setSelectedTask(null);
+  };
+
+  const isJwtToken = (value: string) => value.split(".").length === 3;
+
+  const decodeJwtPayload = (token: string) => {
+    try {
+      const encoded = token.split(".")[1];
+      const json = decodeURIComponent(
+        atob(encoded)
+          .split("")
+          .map((c) => `%${("00" + c.charCodeAt(0).toString(16)).slice(-2)}`)
+          .join("")
+      );
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  };
+
+  const requestTelegramToken = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(`${adminAuthBase}/auth/request-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-request-secret": (import.meta as any).env.VITE_ADMIN_REQUEST_SECRET || "",
+        },
+        body: JSON.stringify({ adminIdentifier: "frontend" }),
+      });
+      if (!resp.ok) throw new Error(await parseError(resp, "Failed to request session"));
+      alert("Token requested. Check Telegram for the 6-digit code.");
+    } catch (err: any) {
+      setError(err.message || "Failed to request token");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAuthServiceInfo = async () => {
+    if (!adminKey || !isJwtToken(adminKey)) {
+      setAuthSessions([]);
+      setAuthStats(null);
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const statsResponse = await fetch(`${adminAuthBase}/admin/stats`, {
+        headers: authHeaders(),
+      });
+      if (statsResponse.ok) {
+        setAuthStats(await statsResponse.json());
+      } else {
+        setAuthStats(null);
+      }
+
+      const sessionsResponse = await fetch(`${adminAuthBase}/admin/sessions`, {
+        headers: authHeaders(),
+      });
+      if (sessionsResponse.ok) {
+        const payload = await sessionsResponse.json();
+        setAuthSessions(payload.sessions || payload || []);
+      } else {
+        setAuthSessions([]);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Unable to load auth activity");
+      setAuthSessions([]);
+      setAuthStats(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const revokeAuthSession = async (sessionId: string) => {
+    if (!sessionId) return;
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const response = await fetch(`${adminAuthBase}/admin/revoke-session`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (!response.ok) throw new Error(await parseError(response, "Failed to revoke session"));
+      await loadAuthServiceInfo();
+    } catch (err: any) {
+      setAuthError(err.message || "Revoke session failed");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const loadTasks = async () => {
@@ -397,6 +516,12 @@ function App() {
     }
   }, [autoRefresh, adminKey]);
 
+  useEffect(() => {
+    if (activeTab === "auth") {
+      loadAuthServiceInfo();
+    }
+  }, [activeTab, adminKey]);
+
   if (!adminKey) {
     return (
       <main className="auth-screen">
@@ -408,22 +533,7 @@ function App() {
           <div style={{ marginBottom: 12 }}>
             <button
               className="button primary full"
-              onClick={async () => {
-                setLoading(true);
-                try {
-                  const resp = await fetch(`${adminAuthBase}/auth/request-session`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "x-admin-request-secret": (import.meta as any).env.VITE_ADMIN_REQUEST_SECRET || "" },
-                    body: JSON.stringify({ adminIdentifier: "frontend" }),
-                  });
-                  if (!resp.ok) throw new Error("Failed to request session");
-                  alert("Token requested. Check Telegram for the 6-digit code.");
-                } catch (err: any) {
-                  setError(err.message || "Failed to request token");
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              onClick={requestTelegramToken}
             >Request token via Telegram</button>
           </div>
 
@@ -549,9 +659,17 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "tasks", "webhooks", "fees"] as Tab[]).map((tab) => (
+        {(["escrows", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
-            {tab === "escrows" ? "Escrows" : tab === "tasks" ? "Tasks" : tab === "webhooks" ? "Webhooks" : "Fees"}
+            {tab === "escrows"
+              ? "Escrows"
+              : tab === "tasks"
+              ? "Tasks"
+              : tab === "webhooks"
+              ? "Webhooks"
+              : tab === "fees"
+              ? "Fees"
+              : "Admin Auth"}
           </button>
         ))}
       </nav>
@@ -881,6 +999,108 @@ function App() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === "auth" && (
+        <section className="surface auth-surface">
+          <div className="section-head">
+            <h2>Admin Auth</h2>
+            <span>Telegram session and activity</span>
+          </div>
+          <div className="auth-grid">
+            <div className="surface auth-card">
+              <h3>Authentication Status</h3>
+              <div className="detail-row"><span>Backend auth base</span><strong>{adminAuthBase.replace(/^https?:\/\//, "")}</strong></div>
+              <div className="detail-row"><span>Logged in</span><strong>{adminKey ? "Yes" : "No"}</strong></div>
+              <div className="detail-row"><span>Auth method</span><strong>{adminKey ? (isJwtToken(adminKey) ? "Telegram JWT" : "Legacy static key") : "Not authenticated"}</strong></div>
+              {adminKey && isJwtToken(adminKey) ? (
+                (() => {
+                  const payload = decodeJwtPayload(adminKey);
+                  return payload ? (
+                    <>
+                      <div className="detail-row"><span>Admin</span><strong>{payload.adminIdentifier || payload.sub || "admin"}</strong></div>
+                      <div className="detail-row"><span>Expires</span><strong>{payload.exp ? new Date(payload.exp * 1000).toLocaleString() : "unknown"}</strong></div>
+                    </>
+                  ) : null;
+                })()
+              ) : null}
+              <div className="button-group">
+                <button className="button primary full" onClick={requestTelegramToken} disabled={loading}>
+                  Request Telegram token
+                </button>
+                <button className="button secondary full" onClick={clearAdminKey}>
+                  Logout / Clear session
+                </button>
+              </div>
+            </div>
+
+            <div className="surface auth-card">
+              <h3>Activity & metrics</h3>
+              {authError && <div className="error-banner">{authError}</div>}
+              {!adminKey ? (
+                <p className="muted">Sign in with Telegram first to view activity.</p>
+              ) : !isJwtToken(adminKey) ? (
+                <p className="muted">Admin metrics require a Telegram JWT. Legacy admin key mode has limited visibility.</p>
+              ) : authLoading ? (
+                <p className="muted">Loading session activity…</p>
+              ) : (
+                <>
+                  <button className="button secondary full" onClick={loadAuthServiceInfo} disabled={authLoading}>
+                    Refresh auth activity
+                  </button>
+                  {authStats ? (
+                    <div className="preview-list" style={{ marginTop: 16 }}>
+                      <div className="preview-row"><span>Total requests</span><strong>{authStats.total_requests ?? "-"}</strong></div>
+                      <div className="preview-row"><span>Successful verifications</span><strong>{authStats.successful_verifications ?? "-"}</strong></div>
+                      <div className="preview-row"><span>Failed verifications</span><strong>{authStats.failed_verifications ?? "-"}</strong></div>
+                      <div className="preview-row"><span>Telegram errors</span><strong>{authStats.telegram_errors ?? "-"}</strong></div>
+                      <div className="preview-row"><span>Unique admins</span><strong>{authStats.unique_admins ?? "-"}</strong></div>
+                      <div className="preview-row"><span>Unique IPs</span><strong>{authStats.unique_ips ?? "-"}</strong></div>
+                    </div>
+                  ) : (
+                    <p className="muted">No auth metrics available yet.</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="surface auth-card">
+            <h3>Active Sessions</h3>
+            {authSessions.length === 0 ? (
+              <p className="muted">No active Telegram auth sessions to display.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Admin</th>
+                      <th>Created</th>
+                      <th>Expires</th>
+                      <th>IP</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {authSessions.map((session) => (
+                      <tr key={session.sessionId}>
+                        <td>{session.adminIdentifier}</td>
+                        <td>{formatTime(session.createdAt)}</td>
+                        <td>{session.expiresAt ? formatTime(session.expiresAt) : "unknown"}</td>
+                        <td>{session.ip || "-"}</td>
+                        <td>
+                          <button className="button small" onClick={() => revokeAuthSession(session.sessionId)} disabled={authLoading}>
+                            Revoke
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </section>
       )}
