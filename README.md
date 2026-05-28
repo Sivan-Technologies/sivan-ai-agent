@@ -253,6 +253,7 @@ NODE_ENV=production
 PORT=4000
 DATABASE_PROVIDER=sqlite
 DATABASE_URL=/tmp/sivan-escrow-agent.db
+POSTGRES_DATABASE_URL=
 
 ADMIN_API_KEY=change-me
 CORE_API_SECRET=change-me
@@ -291,8 +292,11 @@ For Render Postgres production, use the internal Render database URL:
 ```env
 DATABASE_PROVIDER=postgres
 DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
+POSTGRES_DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
 POSTGRES_SSL=true
 ```
+
+`POSTGRES_DATABASE_URL` is supported as a production fallback for Render. If `DATABASE_PROVIDER=postgres` and `DATABASE_URL` is blank or still a placeholder, the backend uses `POSTGRES_DATABASE_URL`.
 
 SAP wallet variables are still required for full SAP/on-chain production use:
 

@@ -19,6 +19,13 @@ function envValue(key: string, fallback = "") {
   return looksPlaceholder ? fallback : value;
 }
 
+const databaseProvider = envValue("DATABASE_PROVIDER", "sqlite");
+const defaultDatabaseUrl = path.resolve(process.cwd(), "data", "sivan-escrow-agent.db");
+const databaseUrl =
+  databaseProvider === "postgres"
+    ? envValue("DATABASE_URL", envValue("POSTGRES_DATABASE_URL", defaultDatabaseUrl))
+    : envValue("DATABASE_URL", defaultDatabaseUrl);
+
 export const config = {
   synapse: {
     apiKey: envValue("SYNAPSE_API_KEY"),
@@ -61,8 +68,8 @@ export const config = {
   app: {
     env: envValue("NODE_ENV", "development"),
     logLevel: envValue("LOG_LEVEL", "info"),
-    databaseProvider: envValue("DATABASE_PROVIDER", "sqlite"),
-    databaseUrl: envValue("DATABASE_URL", path.resolve(process.cwd(), "data", "sivan-escrow-agent.db")),
+    databaseProvider,
+    databaseUrl,
     webhookUrl: envValue("WEBHOOK_URL"),
     notificationUrl: envValue("NOTIFICATION_URL"),
     notificationSecret: envValue("NOTIFICATION_SECRET"),

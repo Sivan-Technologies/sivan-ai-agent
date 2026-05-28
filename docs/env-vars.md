@@ -51,6 +51,7 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `LOG_LEVEL` - `info`, `debug`, `warn`, or `error`.
 - `DATABASE_PROVIDER` - Storage provider. Use `sqlite` locally or `postgres` on Render.
 - `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or Render internal Postgres URL when `DATABASE_PROVIDER=postgres`.
+- `POSTGRES_DATABASE_URL` - Optional Render internal Postgres URL fallback used when `DATABASE_PROVIDER=postgres` and `DATABASE_URL` is blank or still a placeholder.
 - `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
 - `SENTRY_DSN` - Optional Sentry DSN for production error and payment/webhook alerting.
 - `OPERATIONS_ALERT_WEBHOOK_URL` - Optional HTTPS endpoint that receives operational/payment warning events as JSON.
@@ -119,6 +120,7 @@ NODE_ENV=development
 LOG_LEVEL=debug
 DATABASE_PROVIDER=sqlite
 DATABASE_URL=./data/sivan-escrow-agent.db
+POSTGRES_DATABASE_URL=
 POSTGRES_SSL=true
 SENTRY_DSN=
 OPERATIONS_ALERT_WEBHOOK_URL=
@@ -149,6 +151,7 @@ For Render production, set the backend service to use the internal database URL:
 ```env
 DATABASE_PROVIDER=postgres
 DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
+POSTGRES_DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
 POSTGRES_SSL=true
 ```
 

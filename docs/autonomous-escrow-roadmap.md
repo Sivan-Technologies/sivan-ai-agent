@@ -214,7 +214,8 @@ Current estimate:
 
 ```text
 MVP escrow-core readiness: 90%
-Production financial-readiness: 84%
+Production financial-readiness: 86%
+Cross-repo production-readiness: 82%
 ```
 
 Legend:
@@ -240,6 +241,7 @@ Legend:
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, smoke checks, queue status, abuse signals, support queue, admin Ops tab, and scheduled CI smoke workflow now exist |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced and build cleanly; remaining work is deploy-time env wiring, live smoke checks, and production incident drills |
 
 ## What Is Completed So Far
 
@@ -250,6 +252,7 @@ The current system already has:
 - ✅ protected admin endpoints with `ADMIN_API_KEY`
 - ✅ request validation with Zod
 - ✅ Postgres-backed storage support
+- ✅ production Postgres fallback: when `DATABASE_PROVIDER=postgres`, backend can use `POSTGRES_DATABASE_URL` if `DATABASE_URL` is blank or still a placeholder
 - ✅ first-class `users`, `escrows`, `transactions`, `payout_accounts`, and `escrow_events`
 - ✅ legacy `workflow_tasks` retained as agent-task history
 - ✅ Paystack transfer-only checkout configuration
@@ -285,6 +288,9 @@ The current system already has:
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
+- ✅ Telegram admin auth repo pulled to latest `origin/main` and local build passes
+- ✅ WhatsApp bot repo checked against `origin/main` and local build passes
+- ✅ Admin dashboard keeps both production Ops visibility and Telegram Admin Auth session visibility after the latest cross-repo sync
 - ✅ Render deployment for backend and bot
 - ✅ documentation for WhatsApp escrow MVP flow
 - ✅ admin operations visibility endpoints for database, alert, Sentry, and recent operational-event status
@@ -313,6 +319,9 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Queue resilience foundation | ✅ Completed for MVP | Durable queue job table, queue status endpoint, and Ops dashboard visibility exist; worker execution and dead-letter replay are next |
 | Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, abuse signal persistence, high-risk blocking, and operator analytics exist |
 | Support workflow foundation | ✅ Completed for MVP | Support cases and notes exist, disputes create cases, and support queue is visible in Ops |
+| Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
+| Telegram admin auth sync | ✅ Pulled/build clean | Local repo is up to date with `origin/main`; uncommitted local edits remain and were preserved |
+| WhatsApp bot sync | ✅ Build clean | Repo is not behind `origin/main`; uncommitted local edits remain and were preserved |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
 | x402/SAP live proof | 🟡 Requires operator credentials/run | Needs real SAP/x402 credentials plus either `X402_VERIFY_PAYMENT_ID` or intentional `X402_VERIFY_CREATE_PAYMENT=true`; do not mark production settlement fully verified until a live proof artifact exists |
 | Dispute evidence and resolution | 🟡 Next escrow feature | Dispute state and support cases exist; evidence capture, admin resolution, refund/release outcomes, and user-facing history remain |
