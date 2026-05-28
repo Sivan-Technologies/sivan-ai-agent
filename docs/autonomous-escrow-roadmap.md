@@ -237,8 +237,15 @@ Legend:
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and Paystack-verified payout account are complete |
 | Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
 | Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
-| Phase 10 | Support and dispute workflow | 🟡 In progress | Dispute state exists and now auto-creates support cases; evidence capture and resolution outcomes are next |
-| Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, smoke checks, queue status, abuse signals, support queue, admin Ops tab, and scheduled CI smoke workflow now exist |
+| Phase 10 | Support and dispute workflow | ✅ Support Ops MVP / 🟡 dispute resolution next | Admin Support tab now provides inbox, status tracking, internal notes, operator assignment, search, and dispute-linked support cases; evidence capture and final dispute outcomes are next |
+| Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
+| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Sentry hooks, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
+| Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
+| Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, admin/API auth gates, CORS, rate limiting, HTTPS deploy assumptions, and Postgres config guidance exist; real secret rotation/backups/IP controls are deployment tasks |
+| Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, velocity dashboard, and operator analytics |
+| Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
+| Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
+| Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, operator actions, release history, payment history, dispute history, and linked support cases |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
 | Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced, build cleanly, and Telegram production docs/dependencies are pushed; remaining work is deploy-time env wiring, live smoke checks, and production incident drills |
@@ -296,14 +303,19 @@ The current system already has:
 - ✅ admin operations visibility endpoints for database, alert, Sentry, and recent operational-event status
 - ✅ operations alert webhook routing for payment and operational warnings
 - ✅ admin Operations tab for database, Sentry, alert, queue, abuse, support, event, and settlement-verification visibility
-- ✅ operator smoke-check script for live Render/backend health, readiness, database, and operations checks
+- ✅ operator smoke-check script for live Render/backend health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
 - ✅ scheduled/manual GitHub Actions production smoke workflow
 - ✅ SAP/x402 verification runner and admin endpoints that produce settlement proof JSON when live credentials or payment IDs are configured
 - ✅ durable production ops tables for retry queue jobs, abuse signals, support cases, and support notes
 - ✅ abuse-prevention risk scoring for escrow creation: velocity, self-dealing, high amount, and scam-keyword signals
 - ✅ high-risk escrow blocks and review signals with operator-visible abuse analytics
-- ✅ support workflow foundation: admin support cases, internal notes, and automatic case creation from disputes
-- ✅ queue resilience foundation: persistent queue status and job ledger for future retry workers/failover
+- ✅ admin Risk tab for abuse reputation watchlist, request/device fingerprint watch, velocity outliers, and recent signals
+- ✅ support workflow foundation: Admin Support tab, support inbox, assignments, status updates, search, internal notes, and automatic case creation from disputes
+- ✅ queue resilience foundation: persistent queue status, job ledger, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
+- ✅ Paystack webhook recovery jobs are enqueued automatically when webhook processing fails after a valid reference is present
+- ✅ Admin Payout Safety tab and payout safety review queue exist before autonomous payout automation
+- ✅ Admin Audit tab and escrow event explorer endpoint link timeline events, transactions, and related support cases
+- ✅ production runbook for payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund, and queue recovery
 
 ## What Should Be Built Next
 
@@ -313,12 +325,15 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Smoke checks | ✅ Completed for operator script | `npm run smoke` checks public health/readiness and admin operational status when an admin key is supplied |
+| Smoke checks | ✅ Completed for operator script | `npm run smoke` checks public health/readiness plus admin database, operations, queue, webhook, reconciliation, support, and abuse surfaces when an admin key is supplied |
 | Monitoring/operational visibility | ✅ Completed for MVP | Admin operations endpoints expose database status, alert configuration, Sentry configuration, and recent operational events |
 | Alert routing | ✅ Completed for webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to `OPERATIONS_ALERT_WEBHOOK_URL` |
-| Queue resilience foundation | ✅ Completed for MVP | Durable queue job table, queue status endpoint, and Ops dashboard visibility exist; worker execution and dead-letter replay are next |
-| Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, abuse signal persistence, high-risk blocking, and operator analytics exist |
-| Support workflow foundation | ✅ Completed for MVP | Support cases and notes exist, disputes create cases, and support queue is visible in Ops |
+| Queue resilience foundation | ✅ Completed for MVP | Durable queue jobs, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility exist |
+| Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, request/device fingerprint metadata, abuse signal persistence, high-risk blocking, reputation watchlist, velocity dashboard, and operator analytics exist |
+| Support workflow foundation | ✅ Completed for MVP | Admin Support tab, cases, notes, assignment/status updates, search, dispute case creation, and support queue visibility exist |
+| Transaction recovery procedures | ✅ Completed for MVP | Operator runbook and admin recovery endpoints cover payment re-check, webhook recovery jobs, payout review jobs, support linking, and queue replay |
+| Payout safety layer | ✅ Completed for manual-payout MVP | Manual release approval still gates Naira payouts; Admin Payout Safety tab, payout review jobs, recovery queue, and reconciliation views prevent blind autonomous retries |
+| Audit/event explorer | ✅ Completed for MVP | Admin Audit tab plus `/admin/escrows/:escrowId/events` expose escrow timeline, transactions, and linked support cases |
 | Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
 | Telegram admin auth sync | ✅ Pushed/build clean | Local repo is up to date with `origin/main`; production README fixes and lockfile-consistent dependency metadata were pushed; unrelated local edits remain and were preserved |
 | WhatsApp bot sync | ✅ Build clean | Repo is not behind `origin/main`; uncommitted local edits remain and were preserved |
@@ -416,11 +431,19 @@ Completed from the prior immediate implementation order:
 7. ✅ admin manual release approval
 8. ✅ explicit buyer completion before release
 9. ✅ production-hardening visibility: monitoring, alerts, and smoke checks
+10. ✅ retry worker system: queue claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
+11. ✅ live smoke testing surface: health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
+12. ✅ production environment hardening foundation: env docs, secret placeholders, admin/API auth gates, rate limiting, CORS, and HTTPS deploy assumptions
+13. ✅ abuse prevention expansion for MVP: velocity checks, self-dealing checks, high-amount checks, scam keyword scoring, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, velocity dashboard, and operator visibility
+14. ✅ transaction recovery procedures: payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund, and queue recovery runbook
+15. ✅ support operations workflow: Admin Support tab, support inbox, status tracking, internal notes, assignment, search, and dispute-linked support cases
+16. ✅ payout automation safety foundation: Admin Payout Safety tab, manual payout gate, payout review jobs, reconciliation views, recovery jobs, duplicate-risk prevention by operator review, and no blind autonomous retry
+17. ✅ audit/event explorer: Admin Audit tab and escrow timeline endpoint with events, transactions, operator actions, release history, payment history, dispute history, and linked support cases
 
 Next production-hardening focus:
 
 1. 🟡 Run live smoke checks against the deployed Render services after every deploy and wire GitHub secrets.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
-3. 🟡 Add a retry worker that claims queued jobs, retries with backoff, and dead-letters exhausted jobs.
+3. 🟡 Add deploy-time incident drills for queue replay, webhook recovery, and payout failure recovery.
 4. 🟡 Add dispute evidence capture and admin resolution outcomes.
-5. 🟡 Expand abuse analytics into malicious-user reputation and velocity dashboards.
+5. 🟡 Add stronger fraud controls beyond MVP: cross-device graphing, persistent malicious-user reputation actions, and automated abuse trend alerts.

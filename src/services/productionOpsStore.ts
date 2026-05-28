@@ -24,6 +24,12 @@ export interface QueueJobRecord {
   updatedAt: string;
 }
 
+export interface QueueJobFailureOptions {
+  error: string;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+}
+
 export interface AbuseSignalRecord {
   signalId: string;
   subjectType: string;
@@ -253,6 +259,185 @@ export class ProductionOpsStore {
     return job;
   }
 
+  public async getQueueJob(jobId: string): Promise<QueueJobRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`SELECT * FROM queue_jobs WHERE job_id = @jobId`).get({ jobId });
+      return row ? this.mapJob(row) : null;
+    }
+    const result = await this.pool!.query(`SELECT * FROM queue_jobs WHERE job_id = $1`, [jobId]);
+    return result.rows[0] ? this.mapJob(result.rows[0]) : null;
+  }
+
+  public async claimNextQueueJob(workerId = "worker", lockTimeoutSeconds = 300): Promise<QueueJobRecord | null> {
+    await this.initializeSchema();
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const staleBeforeIso = new Date(now.getTime() - lockTimeoutSeconds * 1000).toISOString();
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE queue_jobs
+        SET status = 'failed',
+            run_after = @nowIso,
+            last_error = COALESCE(last_error, 'Recovered stale running job'),
+            locked_at = NULL,
+            updated_at = @nowIso
+        WHERE status = 'running' AND locked_at < @staleBeforeIso
+      `).run({ nowIso, staleBeforeIso });
+
+      const row = this.sqlite!.prepare(`
+        SELECT * FROM queue_jobs
+        WHERE status IN ('queued', 'failed') AND run_after <= @nowIso
+        ORDER BY run_after ASC, created_at ASC
+        LIMIT 1
+      `).get({ nowIso }) as any;
+      if (!row) return null;
+
+      this.sqlite!.prepare(`
+        UPDATE queue_jobs
+        SET status = 'running',
+            attempts = attempts + 1,
+            locked_at = @nowIso,
+            last_error = NULL,
+            updated_at = @nowIso
+        WHERE job_id = @jobId
+      `).run({ jobId: row.job_id, nowIso });
+
+      return this.getQueueJob(row.job_id);
+    }
+
+    await this.pool!.query(
+      `UPDATE queue_jobs
+       SET status = 'failed',
+           run_after = $1,
+           last_error = COALESCE(last_error, 'Recovered stale running job'),
+           locked_at = NULL,
+           updated_at = $1
+       WHERE status = 'running' AND locked_at < $2`,
+      [nowIso, staleBeforeIso]
+    );
+
+    const client = await this.pool!.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `SELECT * FROM queue_jobs
+         WHERE status IN ('queued', 'failed') AND run_after <= $1
+         ORDER BY run_after ASC, created_at ASC
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED`,
+        [nowIso]
+      );
+      if (!result.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const jobId = result.rows[0].job_id;
+      const updated = await client.query(
+        `UPDATE queue_jobs
+         SET status = 'running',
+             attempts = attempts + 1,
+             locked_at = $1,
+             last_error = NULL,
+             updated_at = $1
+         WHERE job_id = $2
+         RETURNING *`,
+        [nowIso, jobId]
+      );
+      await client.query("COMMIT");
+      return this.mapJob(updated.rows[0]);
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async markQueueJobSucceeded(jobId: string) {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE queue_jobs
+        SET status = 'succeeded', locked_at = NULL, last_error = NULL, updated_at = @now
+        WHERE job_id = @jobId
+      `).run({ jobId, now });
+    } else {
+      await this.pool!.query(
+        `UPDATE queue_jobs SET status = 'succeeded', locked_at = NULL, last_error = NULL, updated_at = $1 WHERE job_id = $2`,
+        [now, jobId]
+      );
+    }
+    return this.getQueueJob(jobId);
+  }
+
+  public async markQueueJobFailed(jobId: string, options: QueueJobFailureOptions) {
+    await this.initializeSchema();
+    const job = await this.getQueueJob(jobId);
+    if (!job) throw new Error("Queue job not found");
+
+    const now = new Date();
+    const baseDelayMs = options.baseDelayMs || 30_000;
+    const maxDelayMs = options.maxDelayMs || 30 * 60_000;
+    const delayMs = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, Math.max(0, job.attempts - 1)));
+    const nextStatus: QueueJobStatus = job.attempts >= job.maxAttempts ? "dead" : "failed";
+    const runAfter = nextStatus === "dead" ? now.toISOString() : new Date(now.getTime() + delayMs).toISOString();
+    const error = options.error.slice(0, 2000);
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE queue_jobs
+        SET status = @nextStatus,
+            run_after = @runAfter,
+            locked_at = NULL,
+            last_error = @error,
+            updated_at = @updatedAt
+        WHERE job_id = @jobId
+      `).run({ jobId, nextStatus, runAfter, error, updatedAt: now.toISOString() });
+    } else {
+      await this.pool!.query(
+        `UPDATE queue_jobs
+         SET status = $1, run_after = $2, locked_at = NULL, last_error = $3, updated_at = $4
+         WHERE job_id = $5`,
+        [nextStatus, runAfter, error, now.toISOString(), jobId]
+      );
+    }
+    return this.getQueueJob(jobId);
+  }
+
+  public async retryQueueJob(jobId: string, options: { resetAttempts?: boolean } = {}) {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE queue_jobs
+        SET status = 'queued',
+            attempts = CASE WHEN @resetAttempts THEN 0 ELSE attempts END,
+            run_after = @now,
+            locked_at = NULL,
+            last_error = NULL,
+            updated_at = @now
+        WHERE job_id = @jobId
+      `).run({ jobId, now, resetAttempts: options.resetAttempts ? 1 : 0 });
+    } else {
+      await this.pool!.query(
+        `UPDATE queue_jobs
+         SET status = 'queued',
+             attempts = CASE WHEN $1 THEN 0 ELSE attempts END,
+             run_after = $2,
+             locked_at = NULL,
+             last_error = NULL,
+             updated_at = $2
+         WHERE job_id = $3`,
+        [Boolean(options.resetAttempts), now, jobId]
+      );
+    }
+    return this.getQueueJob(jobId);
+  }
+
   public async listQueueJobs(limit = 100): Promise<QueueJobRecord[]> {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
@@ -367,6 +552,76 @@ export class ProductionOpsStore {
     }
     const result = await this.pool!.query(`SELECT * FROM support_cases ORDER BY updated_at DESC LIMIT $1`, [limit]);
     return result.rows.map((row) => this.mapCase(row));
+  }
+
+  public async searchSupportCases(query: string, limit = 100): Promise<SupportCaseRecord[]> {
+    await this.initializeSchema();
+    const pattern = `%${query.toLowerCase()}%`;
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`
+        SELECT * FROM support_cases
+        WHERE lower(subject) LIKE @pattern
+           OR lower(COALESCE(related_escrow_id, '')) LIKE @pattern
+           OR lower(COALESCE(related_user, '')) LIKE @pattern
+           OR lower(COALESCE(assigned_to, '')) LIKE @pattern
+        ORDER BY updated_at DESC
+        LIMIT @limit
+      `).all({ pattern, limit }).map((row) => this.mapCase(row));
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM support_cases
+       WHERE lower(subject) LIKE $1
+          OR lower(COALESCE(related_escrow_id, '')) LIKE $1
+          OR lower(COALESCE(related_user, '')) LIKE $1
+          OR lower(COALESCE(assigned_to, '')) LIKE $1
+       ORDER BY updated_at DESC
+       LIMIT $2`,
+      [pattern, limit]
+    );
+    return result.rows.map((row) => this.mapCase(row));
+  }
+
+  public async updateSupportCase(
+    caseId: string,
+    updates: Partial<Pick<SupportCaseRecord, "status" | "priority" | "assignedTo">>
+  ): Promise<SupportCaseRecord | null> {
+    await this.initializeSchema();
+    const currentRows = this.provider === "sqlite"
+      ? this.sqlite!.prepare(`SELECT * FROM support_cases WHERE case_id = @caseId`).all({ caseId })
+      : (await this.pool!.query(`SELECT * FROM support_cases WHERE case_id = $1`, [caseId])).rows;
+    if (!currentRows[0]) return null;
+
+    const current = this.mapCase(currentRows[0]);
+    const next = {
+      caseId,
+      status: updates.status || current.status,
+      priority: updates.priority || current.priority,
+      assignedTo: updates.assignedTo === undefined ? current.assignedTo || null : updates.assignedTo || null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE support_cases
+        SET status = @status,
+            priority = @priority,
+            assigned_to = @assignedTo,
+            updated_at = @updatedAt
+        WHERE case_id = @caseId
+      `).run(next);
+    } else {
+      await this.pool!.query(
+        `UPDATE support_cases
+         SET status = $1, priority = $2, assigned_to = $3, updated_at = $4
+         WHERE case_id = $5`,
+        [next.status, next.priority, next.assignedTo, next.updatedAt, next.caseId]
+      );
+    }
+
+    const rows = this.provider === "sqlite"
+      ? this.sqlite!.prepare(`SELECT * FROM support_cases WHERE case_id = @caseId`).all({ caseId })
+      : (await this.pool!.query(`SELECT * FROM support_cases WHERE case_id = $1`, [caseId])).rows;
+    return rows[0] ? this.mapCase(rows[0]) : null;
   }
 
   public async listSupportNotes(caseId: string): Promise<SupportNoteRecord[]> {

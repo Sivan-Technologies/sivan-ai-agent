@@ -62,17 +62,20 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
 - `SMOKE_REQUIRE_SETTLEMENT_PROOF` - Set `true` to make smoke checks require a previously run settlement verification proof.
+- `QUEUE_WORKER_ENABLED` - Set `true` to run the background retry worker inside the API process. Keep `false` if you prefer manual `/admin/queue/run` execution or a separate worker process.
+- `QUEUE_WORKER_INTERVAL_MS` - Background retry worker polling interval. Defaults to `15000`.
+- `QUEUE_WORKER_BATCH_SIZE` - Maximum jobs processed per background worker tick. Defaults to `5`.
+- `QUEUE_LOCK_TIMEOUT_SECONDS` - Time before a stuck `running` queue job can be recovered. Defaults to `300`.
+- `QUEUE_RETRY_BASE_DELAY_MS` - Initial retry backoff delay. Defaults to `30000`.
+- `QUEUE_RETRY_MAX_DELAY_MS` - Maximum retry backoff delay. Defaults to `1800000`.
+- `STUCK_ESCROW_ALERT_MINUTES` - Escrow age threshold used by operations status for stuck active escrows. Defaults to `1440`.
 - `ABUSE_BLOCK_SCORE` - Risk score at or above which escrow creation is blocked. Defaults to `95`.
 - `ABUSE_REVIEW_SCORE` - Risk score at or above which an abuse signal is recorded for operator review. Defaults to `60`.
 - `ABUSE_ESCROW_VELOCITY_LIMIT` - Recent escrow count for a buyer before velocity risk is flagged. Defaults to `8`.
 - `ABUSE_HIGH_AMOUNT_NAIRA` - Naira amount threshold that adds high-amount risk. Defaults to `1000000`.
 - `ABUSE_HIGH_AMOUNT_USDC` - USDC amount threshold that adds high-amount risk. Defaults to `5000`.
 - `PORT` - HTTP port for the webhook server.
-- `AGENT_TASK_TYPE` - Default task type for the agent workflow.
-- `USER_PAYMENT_PREFERENCE` - `NAIRA` or `USDC` to route payments.
-- `USER_EMAIL` - Buyer email for Paystack transaction initialization.
-- `PAYMENT_AMOUNT` - Numeric payment amount.
-- `TASK_INSTRUCTIONS` - AI instructions for the agent task.
+- `AGENT_TASK_TYPE`, `USER_PAYMENT_PREFERENCE`, `USER_EMAIL`, `PAYMENT_AMOUNT`, and `TASK_INSTRUCTIONS` - Optional local demo runner values only. Leave these blank/commented in production because real escrow data must come from API/WhatsApp/admin input.
 
 ## Recommended secrets management
 

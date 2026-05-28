@@ -121,6 +121,12 @@ type OperationsStatus = {
     recentErrors: number;
     recent: OperationalEvent[];
   };
+  stuckEscrows?: {
+    status: string;
+    thresholdMinutes: number;
+    count: number;
+    samples: Array<{ escrowId: string; status: string; currency: string; updatedAt: string; ageMinutes: number; paymentReference?: string | null }>;
+  };
 };
 
 type SettlementProof = {
@@ -141,6 +147,19 @@ type QueueStatus = {
   succeeded: number;
 };
 
+type QueueJob = {
+  jobId: string;
+  jobType: string;
+  status: string;
+  payload: string;
+  attempts: number;
+  maxAttempts: number;
+  runAfter: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type AbuseSignal = {
   signalId: string;
   subjectType: string;
@@ -152,6 +171,20 @@ type AbuseSignal = {
   createdAt: string;
 };
 
+type AbuseAnalytics = {
+  totals: {
+    signals: number;
+    criticalSignals: number;
+    highSignals: number;
+    monitoredEscrows: number;
+  };
+  severityCounts: Record<string, number>;
+  categoryCounts: Record<string, number>;
+  reputationWatchlist: Array<{ subjectType: string; subjectId: string; signals: number; maxRiskScore: number; lastSeenAt: string; reasons: string[] }>;
+  fingerprintWatchlist: Array<{ fingerprint: string; signals: number; maxRiskScore: number; lastSeenAt: string; subjects: string[]; sources: string[] }>;
+  velocityWatchlist: Array<{ buyerUserId: string; escrows: number; active: number; disputed: number; reviewRequired: number; latestAt: string }>;
+};
+
 type SupportCase = {
   caseId: string;
   status: string;
@@ -161,8 +194,25 @@ type SupportCase = {
   relatedUser?: string;
   source: string;
   createdBy: string;
+  assignedTo?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type SupportNote = {
+  noteId: string;
+  caseId: string;
+  author: string;
+  body: string;
+  actionType?: string;
+  createdAt: string;
+};
+
+type EscrowTimeline = {
+  escrowId: string;
+  events: Array<{ eventId: string; eventType: string; actor: string; actorRole: string; channel: string; previousStatus?: string; nextStatus?: string; reason?: string; metadata?: string; createdAt: string }>;
+  transactions: Array<{ transactionId: string; provider: string; transactionType: string; status: string; reference?: string; amount: number; currency: string; createdAt: string; updatedAt: string }>;
+  supportCases: SupportCase[];
 };
 
 type AuthSessionRecord = {
@@ -185,7 +235,7 @@ type AuthStats = {
   timestamp?: string;
 };
 
-type Tab = "escrows" | "tasks" | "webhooks" | "fees" | "ops" | "auth";
+type Tab = "escrows" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -229,8 +279,17 @@ function App() {
   const [operationalEvents, setOperationalEvents] = useState<OperationalEvent[]>([]);
   const [settlementProof, setSettlementProof] = useState<SettlementProof | null>(null);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
+  const [queueJobs, setQueueJobs] = useState<QueueJob[]>([]);
   const [abuseSignals, setAbuseSignals] = useState<AbuseSignal[]>([]);
+  const [abuseAnalytics, setAbuseAnalytics] = useState<AbuseAnalytics | null>(null);
   const [supportCases, setSupportCases] = useState<SupportCase[]>([]);
+  const [selectedSupportCase, setSelectedSupportCase] = useState<SupportCase | null>(null);
+  const [supportNotes, setSupportNotes] = useState<SupportNote[]>([]);
+  const [supportSearch, setSupportSearch] = useState("");
+  const [supportNoteDraft, setSupportNoteDraft] = useState("");
+  const [timeline, setTimeline] = useState<EscrowTimeline | null>(null);
+  const [timelineEscrowId, setTimelineEscrowId] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
   const [feeSettings, setFeeSettings] = useState<FeeSettings | null>(null);
   const [feeFormData, setFeeFormData] = useState({
     nairaFeePercent: 0,
@@ -305,8 +364,13 @@ function App() {
     setOperationalEvents([]);
     setSettlementProof(null);
     setQueueStatus(null);
+    setQueueJobs([]);
     setAbuseSignals([]);
+    setAbuseAnalytics(null);
     setSupportCases([]);
+    setSelectedSupportCase(null);
+    setSupportNotes([]);
+    setTimeline(null);
     setSelectedTask(null);
   };
 
@@ -462,13 +526,15 @@ function App() {
 
   const loadOperations = async () => {
     if (!adminKey) return;
-    const [statusResponse, eventsResponse, settlementResponse, queueResponse, abuseResponse, supportResponse] = await Promise.all([
+    const [statusResponse, eventsResponse, settlementResponse, queueResponse, queueJobsResponse, abuseResponse, abuseAnalyticsResponse, supportResponse] = await Promise.all([
       fetch(`${apiBase}/admin/ops/status`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/ops/events?limit=50`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/settlement/verification`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/queue/status`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/abuse/signals?limit=25`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/support/cases?limit=25`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/queue/jobs?limit=50`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/abuse/signals?limit=100`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/abuse/analytics?limit=500`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/support/cases?limit=100`, { headers: authHeaders() }),
     ]);
     if (!statusResponse.ok) throw new Error(await parseError(statusResponse, "Failed to load operations status"));
     if (!eventsResponse.ok) throw new Error(await parseError(eventsResponse, "Failed to load operations events"));
@@ -477,7 +543,9 @@ function App() {
     setOperationalEvents((await eventsResponse.json()) || []);
     setSettlementProof(settlementResponse.ok ? await settlementResponse.json() : null);
     setQueueStatus(await queueResponse.json());
+    setQueueJobs(queueJobsResponse.ok ? await queueJobsResponse.json() : []);
     setAbuseSignals(abuseResponse.ok ? await abuseResponse.json() : []);
+    setAbuseAnalytics(abuseAnalyticsResponse.ok ? await abuseAnalyticsResponse.json() : null);
     setSupportCases(supportResponse.ok ? await supportResponse.json() : []);
   };
 
@@ -584,6 +652,82 @@ function App() {
     if (body?.escrow) setSelectedEscrow(body.escrow);
   };
 
+  const enqueuePayoutReview = async (escrowId: string, reason = "operator_payout_safety_review") => {
+    const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/payout-review`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ reason }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to enqueue payout review"));
+    await loadOperations();
+  };
+
+  const runQueueWorker = async () => {
+    const response = await fetch(`${apiBase}/admin/queue/run`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ limit: 10 }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to run queue worker"));
+    await loadOperations();
+  };
+
+  const retryQueueJob = async (jobId: string) => {
+    const response = await fetch(`${apiBase}/admin/queue/jobs/${jobId}/retry`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ resetAttempts: false }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to retry queue job"));
+    await loadOperations();
+  };
+
+  const loadSupportNotes = async (caseId: string) => {
+    const response = await fetch(`${apiBase}/admin/support/cases/${caseId}/notes`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load support notes"));
+    setSupportNotes((await response.json()) || []);
+  };
+
+  const selectSupportCase = async (supportCase: SupportCase) => {
+    setSelectedSupportCase(supportCase);
+    setSupportNoteDraft("");
+    await loadSupportNotes(supportCase.caseId);
+  };
+
+  const updateSupportCase = async (caseId: string, updates: Record<string, string>) => {
+    const response = await fetch(`${apiBase}/admin/support/cases/${caseId}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify(updates),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to update support case"));
+    const updated = await response.json();
+    setSelectedSupportCase(updated);
+    await Promise.all([loadOperations(), loadSupportNotes(caseId)]);
+  };
+
+  const addSupportNote = async () => {
+    if (!selectedSupportCase || !supportNoteDraft.trim()) return;
+    const response = await fetch(`${apiBase}/admin/support/cases/${selectedSupportCase.caseId}/notes`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ body: supportNoteDraft.trim(), actionType: "operator_note" }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to add support note"));
+    setSupportNoteDraft("");
+    await loadSupportNotes(selectedSupportCase.caseId);
+  };
+
+  const loadEscrowTimeline = async (escrowId: string) => {
+    const id = escrowId.trim();
+    if (!id) return;
+    const response = await fetch(`${apiBase}/admin/escrows/${id}/events?limit=100`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load escrow timeline"));
+    setTimeline(await response.json());
+    setTimelineEscrowId(id);
+    setActiveTab("audit");
+  };
+
   const downloadReconciliationCsv = async () => {
     const response = await fetch(`${apiBase}/admin/reconciliation.csv?limit=250`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to export reconciliation CSV"));
@@ -621,6 +765,35 @@ function App() {
     const failed = escrows.filter((escrow) => /failed|disputed|review_required/i.test(escrow.status)).length;
     return { active, pending, settled, failed };
   }, [escrows]);
+
+  const filteredSupportCases = useMemo(() => {
+    const query = supportSearch.trim().toLowerCase();
+    if (!query) return supportCases;
+    return supportCases.filter((supportCase) =>
+      [
+        supportCase.caseId,
+        supportCase.subject,
+        supportCase.status,
+        supportCase.priority,
+        supportCase.relatedEscrowId,
+        supportCase.relatedUser,
+        supportCase.assignedTo,
+        supportCase.source,
+      ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
+    );
+  }, [supportCases, supportSearch]);
+
+  const payoutSafetyRows = useMemo(() => {
+    return reconciliationRows.filter((row) =>
+      row.status === "PENDING_RELEASE" ||
+      row.status === "REVIEW_REQUIRED" ||
+      (row.status === "RELEASED" && !row.payoutReference) ||
+      row.flags.includes("payment_amount_mismatch") ||
+      row.flags.includes("missing_payout_reference")
+    );
+  }, [reconciliationRows]);
+
+  const deadOrFailedJobs = useMemo(() => queueJobs.filter((job) => job.status === "failed" || job.status === "dead"), [queueJobs]);
 
   useEffect(() => {
     if (!adminKey) return;
@@ -774,10 +947,18 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "tasks", "webhooks", "fees", "ops", "auth"] as Tab[]).map((tab) => (
+        {(["escrows", "support", "payout", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
             {tab === "escrows"
               ? "Escrows"
+              : tab === "support"
+              ? "Support"
+              : tab === "payout"
+              ? "Payout Safety"
+              : tab === "risk"
+              ? "Risk"
+              : tab === "audit"
+              ? "Audit"
               : tab === "tasks"
               ? "Tasks"
               : tab === "webhooks"
@@ -905,6 +1086,31 @@ function App() {
                   Re-check Paystack payment
                 </button>
                 <button
+                  className="button secondary full"
+                  onClick={async () => {
+                    try {
+                      await loadEscrowTimeline(selectedEscrow.escrowId);
+                    } catch (err: any) {
+                      setError(err.message || "Timeline load failed");
+                    }
+                  }}
+                >
+                  Open event timeline
+                </button>
+                <button
+                  className="button secondary full"
+                  disabled={["RELEASED", "CANCELLED", "FAILED"].includes(selectedEscrow.status)}
+                  onClick={async () => {
+                    try {
+                      await enqueuePayoutReview(selectedEscrow.escrowId, "operator_requested_from_escrow_detail");
+                    } catch (err: any) {
+                      setError(err.message || "Payout review failed");
+                    }
+                  }}
+                >
+                  Queue payout safety review
+                </button>
+                <button
                   className="button primary full"
                   disabled={selectedEscrow.status !== "PENDING_RELEASE"}
                   onClick={async () => {
@@ -1021,6 +1227,412 @@ function App() {
             ))}
             {webhooks.length === 0 && <p className="muted">No webhook events</p>}
           </div>
+        </section>
+      )}
+
+      {activeTab === "support" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Support Inbox</h2>
+              <span>{filteredSupportCases.length} of {supportCases.length} cases</span>
+            </div>
+            <label className="field compact-field">
+              <span>Search cases</span>
+              <input
+                type="search"
+                value={supportSearch}
+                onChange={(event) => setSupportSearch(event.target.value)}
+                placeholder="Escrow ID, user, assignee, status"
+                autoComplete="off"
+              />
+            </label>
+            <div className="event-grid">
+              {filteredSupportCases.map((supportCase) => (
+                <button
+                  key={supportCase.caseId}
+                  className={`event-row selectable-row ops-event ${supportCase.priority === "urgent" || supportCase.priority === "high" ? "error" : "warning"} ${selectedSupportCase?.caseId === supportCase.caseId ? "selected" : ""}`}
+                  onClick={async () => {
+                    try {
+                      await selectSupportCase(supportCase);
+                    } catch (err: any) {
+                      setError(err.message || "Support case load failed");
+                    }
+                  }}
+                >
+                  <div>
+                    <strong>{supportCase.subject}</strong>
+                    <span>{supportCase.status} · {supportCase.priority} · assigned {supportCase.assignedTo || "unassigned"}</span>
+                    <span>{supportCase.relatedEscrowId || supportCase.relatedUser || supportCase.source}</span>
+                  </div>
+                  <time>{formatTime(supportCase.updatedAt)}</time>
+                </button>
+              ))}
+              {filteredSupportCases.length === 0 && <p className="muted">No support cases match this search</p>}
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Case Workflow</h2>
+              <span>{selectedSupportCase ? compactId(selectedSupportCase.caseId, 14) : "none"}</span>
+            </div>
+            {selectedSupportCase ? (
+              <div className="detail-stack">
+                <div className="detail-row"><span>Status</span><strong>{selectedSupportCase.status}</strong></div>
+                <div className="detail-row"><span>Priority</span><strong>{selectedSupportCase.priority}</strong></div>
+                <div className="detail-row"><span>Assigned</span><strong>{selectedSupportCase.assignedTo || "unassigned"}</strong></div>
+                <div className="detail-row"><span>Linked escrow</span><strong>{selectedSupportCase.relatedEscrowId || "none"}</strong></div>
+                <div className="control-grid">
+                  <label className="field">
+                    <span>Status</span>
+                    <select
+                      value={selectedSupportCase.status}
+                      onChange={async (event) => {
+                        try {
+                          await updateSupportCase(selectedSupportCase.caseId, { status: event.target.value });
+                        } catch (err: any) {
+                          setError(err.message || "Status update failed");
+                        }
+                      }}
+                    >
+                      <option value="open">Open</option>
+                      <option value="pending">Pending</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Priority</span>
+                    <select
+                      value={selectedSupportCase.priority}
+                      onChange={async (event) => {
+                        try {
+                          await updateSupportCase(selectedSupportCase.caseId, { priority: event.target.value });
+                        } catch (err: any) {
+                          setError(err.message || "Priority update failed");
+                        }
+                      }}
+                    >
+                      <option value="low">Low</option>
+                      <option value="normal">Normal</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="field">
+                  <span>Assign operator</span>
+                  <input
+                    type="text"
+                    defaultValue={selectedSupportCase.assignedTo || ""}
+                    placeholder="operator name"
+                    autoComplete="name"
+                    onBlur={async (event) => {
+                      const assignedTo = event.target.value.trim();
+                      if (assignedTo !== (selectedSupportCase.assignedTo || "")) {
+                        try {
+                          await updateSupportCase(selectedSupportCase.caseId, { assignedTo });
+                        } catch (err: any) {
+                          setError(err.message || "Assignment failed");
+                        }
+                      }
+                    }}
+                  />
+                </label>
+                {selectedSupportCase.relatedEscrowId && (
+                  <button className="button secondary full" onClick={() => loadEscrowTimeline(selectedSupportCase.relatedEscrowId!)}>
+                    Open linked escrow timeline
+                  </button>
+                )}
+                <label className="field">
+                  <span>Internal note</span>
+                  <textarea value={supportNoteDraft} onChange={(event) => setSupportNoteDraft(event.target.value)} rows={4} />
+                </label>
+                <button
+                  className="button primary full"
+                  disabled={!supportNoteDraft.trim()}
+                  onClick={async () => {
+                    try {
+                      await addSupportNote();
+                    } catch (err: any) {
+                      setError(err.message || "Note failed");
+                    }
+                  }}
+                >
+                  Add internal note
+                </button>
+                <div className="section-head ops-subhead">
+                  <h2>Notes</h2>
+                  <span>{supportNotes.length}</span>
+                </div>
+                <div className="event-grid">
+                  {supportNotes.map((note) => (
+                    <div key={note.noteId} className="event-row">
+                      <div>
+                        <strong>{note.actionType || "note"} · {note.author}</strong>
+                        <span>{note.body}</span>
+                      </div>
+                      <time>{formatTime(note.createdAt)}</time>
+                    </div>
+                  ))}
+                  {supportNotes.length === 0 && <p className="muted">No notes recorded</p>}
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Select a support case.</p>
+            )}
+          </aside>
+        </section>
+      )}
+
+      {activeTab === "payout" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Payout Safety Queue</h2>
+              <span>{payoutSafetyRows.length} records</span>
+            </div>
+            <div className="metrics-grid ops-metrics">
+              <div className="metric-card watch"><span>Awaiting payout</span><strong>{reconciliationSummary.releasesAwaitingPayout}</strong></div>
+              <div className="metric-card critical"><span>Missing refs</span><strong>{reconciliationSummary.releasedMissingPayoutReference}</strong></div>
+              <div className="metric-card critical"><span>Amount mismatch</span><strong>{reconciliationSummary.paystackAmountMismatches}</strong></div>
+              <div className="metric-card watch"><span>Review jobs</span><strong>{queueJobs.filter((job) => job.jobType === "payout_review" && !["succeeded", "dead"].includes(job.status)).length}</strong></div>
+            </div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Escrow</th>
+                    <th>Status</th>
+                    <th>Expected</th>
+                    <th>Received</th>
+                    <th>Payout ref</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payoutSafetyRows.map((row) => (
+                    <tr key={row.escrowId}>
+                      <td><strong>{row.escrowId}</strong><small>{row.purpose}</small></td>
+                      <td><span className={`status ${statusTone(row.status)}`}>{row.status}</span></td>
+                      <td>{money.format(row.expectedAmount)} {row.currency}</td>
+                      <td>{row.receivedAmount === null ? "pending" : `${money.format(row.receivedAmount)} ${row.currency}`}</td>
+                      <td>{row.payoutReference || "missing"}</td>
+                      <td>
+                        <button
+                          className="button small"
+                          disabled={actionBusy}
+                          onClick={async () => {
+                            setActionBusy(true);
+                            try {
+                              await enqueuePayoutReview(row.escrowId, "operator_requested_from_payout_safety");
+                            } catch (err: any) {
+                              setError(err.message || "Payout review failed");
+                            } finally {
+                              setActionBusy(false);
+                            }
+                          }}
+                        >
+                          Review
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {payoutSafetyRows.length === 0 && <tr><td colSpan={6} className="empty-cell">No payout exceptions</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Recovery Jobs</h2>
+              <span>{deadOrFailedJobs.length} failed/dead</span>
+            </div>
+            <button
+              className="button primary full"
+              onClick={async () => {
+                try {
+                  await runQueueWorker();
+                } catch (err: any) {
+                  setError(err.message || "Queue run failed");
+                }
+              }}
+            >
+              Run retry worker
+            </button>
+            <div className="event-grid ops-subhead">
+              {deadOrFailedJobs.map((job) => (
+                <div key={job.jobId} className={`event-row ops-event ${job.status === "dead" ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{job.jobType} · {job.status}</strong>
+                    <span>{job.lastError || job.payload}</span>
+                    <span>{job.attempts}/{job.maxAttempts} attempts · next {formatTime(job.runAfter)}</span>
+                  </div>
+                  <button className="button small" onClick={() => retryQueueJob(job.jobId)}>Retry</button>
+                </div>
+              ))}
+              {deadOrFailedJobs.length === 0 && <p className="muted">No failed queue jobs</p>}
+            </div>
+          </aside>
+        </section>
+      )}
+
+      {activeTab === "risk" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Abuse Analytics</h2>
+              <span>{abuseAnalytics?.totals.signals ?? 0} signals</span>
+            </div>
+            <div className="metrics-grid ops-metrics">
+              <div className="metric-card critical"><span>Critical</span><strong>{abuseAnalytics?.totals.criticalSignals ?? 0}</strong></div>
+              <div className="metric-card watch"><span>High risk</span><strong>{abuseAnalytics?.totals.highSignals ?? 0}</strong></div>
+              <div className="metric-card"><span>Monitored escrows</span><strong>{abuseAnalytics?.totals.monitoredEscrows ?? 0}</strong></div>
+              <div className="metric-card watch"><span>Fingerprints</span><strong>{abuseAnalytics?.fingerprintWatchlist.length ?? 0}</strong></div>
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>Reputation Watchlist</h2>
+              <span>{abuseAnalytics?.reputationWatchlist.length ?? 0}</span>
+            </div>
+            <div className="event-grid">
+              {abuseAnalytics?.reputationWatchlist.map((item) => (
+                <div key={`${item.subjectType}:${item.subjectId}`} className={`event-row ops-event ${item.maxRiskScore >= 90 ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{item.subjectId} · score {item.maxRiskScore}</strong>
+                    <span>{item.signals} signals · {item.reasons.slice(0, 2).join("; ")}</span>
+                  </div>
+                  <time>{formatTime(item.lastSeenAt)}</time>
+                </div>
+              ))}
+              {!abuseAnalytics?.reputationWatchlist.length && <p className="muted">No reputation watch records</p>}
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Velocity Dashboard</h2>
+              <span>{abuseAnalytics?.velocityWatchlist.length ?? 0} users</span>
+            </div>
+            <div className="event-grid">
+              {abuseAnalytics?.velocityWatchlist.map((item) => (
+                <div key={item.buyerUserId} className="event-row ops-event warning">
+                  <div>
+                    <strong>{compactId(item.buyerUserId, 18)}</strong>
+                    <span>{item.escrows} escrows · {item.active} active · {item.disputed} disputed · {item.reviewRequired} review</span>
+                  </div>
+                  <time>{formatTime(item.latestAt)}</time>
+                </div>
+              ))}
+              {!abuseAnalytics?.velocityWatchlist.length && <p className="muted">No velocity outliers</p>}
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>Fingerprint Watch</h2>
+              <span>{abuseAnalytics?.fingerprintWatchlist.length ?? 0}</span>
+            </div>
+            <div className="event-grid">
+              {abuseAnalytics?.fingerprintWatchlist.map((item) => (
+                <div key={item.fingerprint} className={`event-row ops-event ${item.maxRiskScore >= 90 ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{compactId(item.fingerprint, 34)}</strong>
+                    <span>{item.signals} signals · score {item.maxRiskScore} · {item.subjects.length} subjects</span>
+                  </div>
+                  <time>{formatTime(item.lastSeenAt)}</time>
+                </div>
+              ))}
+              {!abuseAnalytics?.fingerprintWatchlist.length && <p className="muted">No repeated device/account fingerprints</p>}
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>Recent Signals</h2>
+              <span>{abuseSignals.length}</span>
+            </div>
+            <div className="event-grid">
+              {abuseSignals.slice(0, 10).map((signal) => (
+                <div key={signal.signalId} className={`event-row ops-event ${signal.riskScore >= 70 ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{signal.category} · {signal.riskScore}</strong>
+                    <span>{signal.reason}</span>
+                  </div>
+                  <time>{formatTime(signal.createdAt)}</time>
+                </div>
+              ))}
+              {abuseSignals.length === 0 && <p className="muted">No abuse signals</p>}
+            </div>
+          </aside>
+        </section>
+      )}
+
+      {activeTab === "audit" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Escrow Event Explorer</h2>
+              <span>{timeline?.escrowId || "select escrow"}</span>
+            </div>
+            <label className="field compact-field">
+              <span>Escrow ID</span>
+              <input value={timelineEscrowId} onChange={(event) => setTimelineEscrowId(event.target.value)} placeholder="SIV-..." autoComplete="off" />
+            </label>
+            <button
+              className="button primary"
+              onClick={async () => {
+                try {
+                  await loadEscrowTimeline(timelineEscrowId || selectedEscrow?.escrowId || "");
+                } catch (err: any) {
+                  setError(err.message || "Timeline load failed");
+                }
+              }}
+            >
+              Load timeline
+            </button>
+            <div className="timeline-list">
+              {timeline?.events.map((event) => (
+                <div key={event.eventId} className="timeline-item">
+                  <div className="timeline-dot" />
+                  <div className="event-row">
+                    <div>
+                      <strong>{event.eventType}</strong>
+                      <span>{event.previousStatus || "-"} → {event.nextStatus || "-"} · {event.actorRole} · {event.channel}</span>
+                      <span>{event.reason || event.actor}</span>
+                    </div>
+                    <time>{formatTime(event.createdAt)}</time>
+                  </div>
+                </div>
+              ))}
+              {timeline && timeline.events.length === 0 && <p className="muted">No events recorded for this escrow</p>}
+              {!timeline && <p className="muted">Load an escrow to inspect payment, release, dispute, and operator action history.</p>}
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Linked Records</h2>
+              <span>{timeline?.transactions.length || 0} payments</span>
+            </div>
+            <div className="event-grid">
+              {timeline?.transactions.map((transaction) => (
+                <div key={transaction.transactionId} className={`event-row ops-event ${statusTone(transaction.status) === "critical" ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{transaction.transactionType} · {transaction.status}</strong>
+                    <span>{transaction.provider} · {transaction.reference || "no reference"}</span>
+                    <span>{money.format(transaction.amount)} {transaction.currency}</span>
+                  </div>
+                  <time>{formatTime(transaction.updatedAt || transaction.createdAt)}</time>
+                </div>
+              ))}
+              {timeline?.supportCases.map((supportCase) => (
+                <div key={supportCase.caseId} className="event-row ops-event warning">
+                  <div>
+                    <strong>{supportCase.subject}</strong>
+                    <span>{supportCase.status} · {supportCase.priority} · assigned {supportCase.assignedTo || "unassigned"}</span>
+                  </div>
+                  <time>{formatTime(supportCase.updatedAt)}</time>
+                </div>
+              ))}
+              {timeline && timeline.transactions.length === 0 && timeline.supportCases.length === 0 && <p className="muted">No linked transactions or support cases</p>}
+            </div>
+          </aside>
         </section>
       )}
 

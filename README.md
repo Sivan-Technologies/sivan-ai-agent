@@ -222,7 +222,9 @@ GET /admin/webhooks
 GET /admin/db-status
 GET /admin/escrows
 GET /admin/escrows/:escrowId
+GET /admin/escrows/:escrowId/events
 POST /admin/escrows/:escrowId/recheck-payment
+POST /admin/escrows/:escrowId/payout-review
 POST /admin/escrows/:escrowId/approve-release
 GET /admin/reconciliation
 GET /admin/reconciliation.csv
@@ -232,9 +234,16 @@ GET /admin/settlement/verification
 POST /admin/settlement/verify
 GET /admin/queue/status
 GET /admin/queue/jobs
+POST /admin/queue/jobs
+GET /admin/queue/jobs/:jobId
+POST /admin/queue/jobs/:jobId/retry
+POST /admin/queue/run
 GET /admin/abuse/signals
+GET /admin/abuse/analytics
 GET /admin/support/cases
+GET /admin/support/search
 POST /admin/support/cases
+PATCH /admin/support/cases/:caseId
 GET /admin/support/cases/:caseId/notes
 POST /admin/support/cases/:caseId/notes
 GET /admin/settings
@@ -368,6 +377,17 @@ Run smoke checks against a local or deployed backend:
 SMOKE_BASE_URL=https://sivan-escrow-agent.onrender.com SMOKE_ADMIN_API_KEY=$ADMIN_API_KEY npm run smoke
 ```
 
+Run the retry worker manually for immediate recovery:
+
+```bash
+curl -X POST "$API_BASE_URL/admin/queue/run" \
+  -H "x-admin-key: $ADMIN_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"limit":10}'
+```
+
+For background retry processing, set `QUEUE_WORKER_ENABLED=true` and tune `QUEUE_WORKER_INTERVAL_MS`, `QUEUE_WORKER_BATCH_SIZE`, `QUEUE_RETRY_BASE_DELAY_MS`, and `QUEUE_RETRY_MAX_DELAY_MS`.
+
 Run SAP/x402 production verification and write a proof JSON:
 
 ```bash
@@ -375,6 +395,12 @@ SETTLEMENT_PROOF_OUTPUT=./data/settlement-verification-proof.json npm run verify
 ```
 
 For x402 live proof, set `X402_VERIFY_PAYMENT_ID` to an existing payment ID. Only set `X402_VERIFY_CREATE_PAYMENT=true` when you intentionally want the verifier to create a tiny payment facility.
+
+Operational recovery playbooks are in:
+
+```text
+docs/production-runbooks.md
+```
 
 Start production build:
 
@@ -414,9 +440,11 @@ Current operator features:
 - Paystack payment re-check button for escrow recovery when a webhook was missed or delayed
 - operations status for database readiness, Sentry/alert configuration, and recent operational warnings/errors
 - settlement verification runner for SAP discovery and x402 status/probe proof
-- queue status for retry/dead-letter visibility
-- abuse signals for suspicious escrow creation patterns
-- support cases and internal notes for founder/operator support workflows
+- retry queue creation, manual worker run, exponential backoff, stale lock recovery, retry replay, and dead-letter visibility
+- abuse signals, request/device fingerprint watch, reputation watchlist, and velocity dashboard for suspicious escrow creation patterns
+- support cases, assignment/status tracking, search, and internal notes for founder/operator support workflows
+- escrow event timelines with transactions and linked support cases
+- payout safety queue for pending releases, missing payout references, amount mismatches, and recovery jobs
 
 ## WhatsApp Bot
 

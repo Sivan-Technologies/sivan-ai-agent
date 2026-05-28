@@ -6,6 +6,8 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-admin-settings.db");
 process.env.ADMIN_API_KEY = "test-admin-key";
 process.env.DATABASE_URL = TEST_DB_PATH;
+process.env.DATABASE_PROVIDER = "sqlite";
+process.env.NOTIFICATION_URL = "";
 
 if (fs.existsSync(TEST_DB_PATH)) {
   fs.unlinkSync(TEST_DB_PATH);
@@ -165,9 +167,44 @@ describe("Admin Settings API Integration", () => {
       dead: expect.any(Number),
     });
 
+    const job = await request(app)
+      .post("/admin/queue/jobs")
+      .set(headers)
+      .send({
+        jobType: "whatsapp_notification",
+        payload: { to: "whatsapp:+2348000000000", message: "Smoke notification" },
+        maxAttempts: 2,
+      });
+    expect(job.status).toBe(201);
+    expect(job.body).toHaveProperty("jobId");
+
+    const jobDetail = await request(app).get(`/admin/queue/jobs/${job.body.jobId}`).set(headers);
+    expect(jobDetail.status).toBe(200);
+    expect(jobDetail.body.status).toBe("queued");
+
+    const retried = await request(app)
+      .post(`/admin/queue/jobs/${job.body.jobId}/retry`)
+      .set(headers)
+      .send({ resetAttempts: true });
+    expect(retried.status).toBe(200);
+    expect(retried.body.status).toBe("queued");
+
+    const run = await request(app)
+      .post("/admin/queue/run")
+      .set(headers)
+      .send({ limit: 5 });
+    expect(run.status).toBe(200);
+    expect(run.body.result.processed).toBeGreaterThanOrEqual(1);
+
     const abuse = await request(app).get("/admin/abuse/signals?limit=10").set(headers);
     expect(abuse.status).toBe(200);
     expect(Array.isArray(abuse.body)).toBe(true);
+
+    const abuseAnalytics = await request(app).get("/admin/abuse/analytics?limit=50").set(headers);
+    expect(abuseAnalytics.status).toBe(200);
+    expect(abuseAnalytics.body).toHaveProperty("totals");
+    expect(abuseAnalytics.body).toHaveProperty("reputationWatchlist");
+    expect(abuseAnalytics.body).toHaveProperty("velocityWatchlist");
 
     const support = await request(app).get("/admin/support/cases?limit=10").set(headers);
     expect(support.status).toBe(200);
@@ -186,6 +223,17 @@ describe("Admin Settings API Integration", () => {
       .send({ body: "Follow-up note", actionType: "follow_up" });
     expect(note.status).toBe(201);
     expect(note.body).toHaveProperty("noteId");
+
+    const updated = await request(app)
+      .patch(`/admin/support/cases/${created.body.caseId}`)
+      .set(headers)
+      .send({ status: "pending", assignedTo: "ops", note: "Assigned to operations" });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ status: "pending", assignedTo: "ops" });
+
+    const search = await request(app).get("/admin/support/search?q=Buyer").set(headers);
+    expect(search.status).toBe(200);
+    expect(Array.isArray(search.body)).toBe(true);
   });
 
   it("should expose protected escrow ledger", async () => {
