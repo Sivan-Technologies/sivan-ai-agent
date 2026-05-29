@@ -47,6 +47,7 @@ export const disputeEvidenceSchema = z.object({
   summary: z.string().trim().min(3).max(2000),
   uri: z.string().trim().url().max(1000).optional(),
   submittedBy: z.string().trim().min(2).max(120).optional(),
+  notifyParticipants: z.coerce.boolean().default(false),
 });
 
 export const disputeResolutionSchema = z.object({
@@ -93,6 +94,14 @@ export const supportCaseUpdateSchema = z.object({
 export const supportSearchSchema = z.object({
   q: z.string().trim().min(2).max(120),
   limit: z.coerce.number().int().min(1).max(250).default(50),
+});
+
+export const abuseActionSchema = z.object({
+  subjectType: z.enum(["user", "device", "ip", "user_agent", "escrow_create", "other"]).default("user"),
+  subjectId: z.string().trim().min(2).max(240),
+  action: z.enum(["watch", "warn", "limit", "block", "clear"]),
+  reason: z.string().trim().min(3).max(2000),
+  expiresAt: z.string().datetime().optional(),
 });
 
 export const queueJobCreateSchema = z.object({

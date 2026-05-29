@@ -243,6 +243,8 @@ POST /admin/queue/jobs/:jobId/retry
 POST /admin/queue/run
 GET /admin/abuse/signals
 GET /admin/abuse/analytics
+GET /admin/abuse/actions
+POST /admin/abuse/actions
 GET /admin/support/cases
 GET /admin/support/search
 POST /admin/support/cases
@@ -403,6 +405,7 @@ Operational recovery playbooks are in:
 
 ```text
 docs/production-runbooks.md
+docs/incident-drills.md
 ```
 
 Start production build:
@@ -445,10 +448,12 @@ Current operator features:
 - settlement verification runner for SAP discovery and x402 status/probe proof
 - retry queue creation, manual worker run, exponential backoff, stale lock recovery, retry replay, and dead-letter visibility
 - abuse signals, request/device fingerprint watch, reputation watchlist, and velocity dashboard for suspicious escrow creation patterns
+- persistent abuse actions for watch/limit/block/clear reputation decisions
 - support cases, assignment/status tracking, search, and internal notes for founder/operator support workflows
 - dispute desk for evidence capture, manual resolution outcomes, support notes, and escrow timelines
 - escrow event timelines with transactions and linked support cases
 - payout safety queue for pending releases, missing payout references, amount mismatches, and recovery jobs
+- deploy-time incident drills for queue replay, webhook recovery, and payout failure recovery
 
 ## WhatsApp Bot
 

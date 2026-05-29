@@ -247,9 +247,12 @@ Legend:
 | Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
 | Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, operator actions, release history, payment history, dispute history, and linked support cases |
 | Phase 11H | Dispute evidence and resolution | ✅ Completed for manual-resolution MVP | Admin Disputes tab lists open disputes, captures evidence records, links support cases, records manual outcomes, writes release/refund/cancel events, and closes related support cases |
+| Phase 11I | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` validates queue replay, webhook recovery readiness, and payout failure review paths after deploys, with execute mode for controlled recovery job creation |
+| Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
+| Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed analytics, and trend thresholds emit operational alerts |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced, build cleanly, and Telegram production docs/dependencies are pushed; remaining work is deploy-time env wiring, live smoke checks, and production incident drills |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced and build cleanly; remaining work is Render/Vercel env verification, live smoke checks, and recurring incident drill execution |
 
 ## What Is Completed So Far
 
@@ -313,6 +316,9 @@ The current system already has:
 - ✅ admin Risk tab for abuse reputation watchlist, request/device fingerprint watch, velocity outliers, and recent signals
 - ✅ support workflow foundation: Admin Support tab, support inbox, assignments, status updates, search, internal notes, and automatic case creation from disputes
 - ✅ dispute desk foundation: Admin Disputes tab, evidence capture, manual resolution outcomes, release/refund/cancel event history, and related support-case closure
+- ✅ user-facing dispute history API plus optional participant WhatsApp notifications for dispute evidence and resolution updates
+- ✅ deploy-time incident drill script and runbook for queue replay, webhook recovery, and payout failure recovery
+- ✅ persistent abuse actions for watch/warn/limit/block/clear reputation controls and automated abuse trend alerts
 - ✅ queue resilience foundation: persistent queue status, job ledger, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
 - ✅ Paystack webhook recovery jobs are enqueued automatically when webhook processing fails after a valid reference is present
 - ✅ Admin Payout Safety tab and payout safety review queue exist before autonomous payout automation
@@ -341,7 +347,10 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | WhatsApp bot sync | ✅ Build clean | Repo is not behind `origin/main`; uncommitted local edits remain and were preserved |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
 | x402/SAP live proof | 🟡 Requires operator credentials/run | Needs real SAP/x402 credentials plus either `X402_VERIFY_PAYMENT_ID` or intentional `X402_VERIFY_CREATE_PAYMENT=true`; do not mark production settlement fully verified until a live proof artifact exists |
-| Dispute evidence and resolution | ✅ Completed for manual-resolution MVP / 🟡 user-facing history next | Dispute state, support cases, evidence capture, admin resolution, refund/release/cancel outcomes, and audit history exist; user-facing dispute history remains |
+| Dispute evidence and resolution | ✅ Completed for API/manual-resolution MVP | Dispute state, support cases, evidence capture, admin resolution, refund/release/cancel outcomes, audit history, and participant-visible dispute history API exist |
+| User-facing dispute history and notifications | ✅ Completed for API/notification MVP | `/api/escrows/:escrowId/dispute-history` exposes participant-visible dispute history, and admin dispute evidence/resolution actions can notify participants |
+| Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` supports read-only and controlled execute-mode drills for queue replay, webhook recovery, and payout failure recovery |
+| Stronger fraud controls beyond MVP | ✅ Completed for operator-action MVP | Persistent abuse actions, active-action risk scoring, fingerprint watch analytics, and automated abuse trend alerts now exist; cross-device graph visualization remains future work |
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
@@ -448,6 +457,6 @@ Next production-hardening focus:
 
 1. 🟡 Run live smoke checks against the deployed Render services after every deploy and wire GitHub secrets.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
-3. 🟡 Add deploy-time incident drills for queue replay, webhook recovery, and payout failure recovery.
-4. 🟡 Add user-facing dispute history and participant notifications for dispute evidence/resolution updates.
-5. 🟡 Add stronger fraud controls beyond MVP: cross-device graphing, persistent malicious-user reputation actions, and automated abuse trend alerts.
+3. 🟡 Run deploy-time incident drills after each Render deploy and store the drill result in the release notes.
+4. 🟡 Add richer user-facing dispute UI in WhatsApp/admin portal once participant screens exist.
+5. 🟡 Add cross-device graph visualization and automated reputation action suggestions after enough production abuse data exists.

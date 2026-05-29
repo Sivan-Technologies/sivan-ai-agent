@@ -42,6 +42,17 @@ export interface AbuseSignalRecord {
   createdAt: string;
 }
 
+export interface AbuseActionRecord {
+  actionId: string;
+  subjectType: string;
+  subjectId: string;
+  action: "watch" | "warn" | "limit" | "block" | "clear";
+  reason: string;
+  createdBy: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
 export interface SupportCaseRecord {
   caseId: string;
   status: SupportCaseStatus;
@@ -128,6 +139,17 @@ export class ProductionOpsStore {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS abuse_actions (
+        action_id TEXT PRIMARY KEY,
+        subject_type TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        expires_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS support_cases (
         case_id TEXT PRIMARY KEY,
         status TEXT NOT NULL,
@@ -153,6 +175,7 @@ export class ProductionOpsStore {
 
       CREATE INDEX IF NOT EXISTS idx_queue_jobs_status_run_after ON queue_jobs(status, run_after);
       CREATE INDEX IF NOT EXISTS idx_abuse_signals_created_at ON abuse_signals(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_abuse_actions_subject ON abuse_actions(subject_type, subject_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_support_cases_status ON support_cases(status);
       CREATE INDEX IF NOT EXISTS idx_support_notes_case_id ON support_notes(case_id);
     `;
@@ -198,6 +221,19 @@ export class ProductionOpsStore {
       riskScore: Number(row.risk_score),
       reason: row.reason,
       metadata: row.metadata || undefined,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapAction(row: any): AbuseActionRecord {
+    return {
+      actionId: row.action_id,
+      subjectType: row.subject_type,
+      subjectId: row.subject_id,
+      action: row.action,
+      reason: row.reason,
+      createdBy: row.created_by,
+      expiresAt: row.expires_at || undefined,
       createdAt: row.created_at,
     };
   }
@@ -483,6 +519,33 @@ export class ProductionOpsStore {
     }
     const result = await this.pool!.query(`SELECT * FROM abuse_signals ORDER BY created_at DESC LIMIT $1`, [limit]);
     return result.rows.map((row) => this.mapSignal(row));
+  }
+
+  public async recordAbuseAction(input: Omit<AbuseActionRecord, "actionId" | "createdAt">): Promise<AbuseActionRecord> {
+    await this.initializeSchema();
+    const action: AbuseActionRecord = { ...input, actionId: id("abuse-action"), createdAt: new Date().toISOString() };
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO abuse_actions (action_id, subject_type, subject_id, action, reason, created_by, expires_at, created_at)
+        VALUES (@actionId, @subjectType, @subjectId, @action, @reason, @createdBy, @expiresAt, @createdAt)
+      `).run({ ...action, expiresAt: action.expiresAt || null });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO abuse_actions (action_id, subject_type, subject_id, action, reason, created_by, expires_at, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [action.actionId, action.subjectType, action.subjectId, action.action, action.reason, action.createdBy, action.expiresAt || null, action.createdAt]
+      );
+    }
+    return action;
+  }
+
+  public async listAbuseActions(limit = 100): Promise<AbuseActionRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM abuse_actions ORDER BY created_at DESC LIMIT @limit`).all({ limit }).map((row) => this.mapAction(row));
+    }
+    const result = await this.pool!.query(`SELECT * FROM abuse_actions ORDER BY created_at DESC LIMIT $1`, [limit]);
+    return result.rows.map((row) => this.mapAction(row));
   }
 
   public async createSupportCase(input: {

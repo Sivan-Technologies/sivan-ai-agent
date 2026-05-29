@@ -206,6 +206,17 @@ describe("Admin Settings API Integration", () => {
     expect(abuseAnalytics.body).toHaveProperty("reputationWatchlist");
     expect(abuseAnalytics.body).toHaveProperty("velocityWatchlist");
 
+    const abuseAction = await request(app)
+      .post("/admin/abuse/actions")
+      .set(headers)
+      .send({ subjectType: "user", subjectId: "whatsapp:+2348000000000", action: "watch", reason: "test watch action" });
+    expect(abuseAction.status).toBe(201);
+    expect(abuseAction.body).toMatchObject({ action: "watch", subjectId: "whatsapp:+2348000000000" });
+
+    const abuseActions = await request(app).get("/admin/abuse/actions?limit=10").set(headers);
+    expect(abuseActions.status).toBe(200);
+    expect(Array.isArray(abuseActions.body)).toBe(true);
+
     const support = await request(app).get("/admin/support/cases?limit=10").set(headers);
     expect(support.status).toBe(200);
     expect(Array.isArray(support.body)).toBe(true);

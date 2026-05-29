@@ -177,9 +177,11 @@ type AbuseAnalytics = {
     criticalSignals: number;
     highSignals: number;
     monitoredEscrows: number;
+    activeActions: number;
   };
   severityCounts: Record<string, number>;
   categoryCounts: Record<string, number>;
+  actions: Array<{ actionId: string; subjectType: string; subjectId: string; action: string; reason: string; createdBy: string; expiresAt?: string; createdAt: string }>;
   reputationWatchlist: Array<{ subjectType: string; subjectId: string; signals: number; maxRiskScore: number; lastSeenAt: string; reasons: string[] }>;
   fingerprintWatchlist: Array<{ fingerprint: string; signals: number; maxRiskScore: number; lastSeenAt: string; subjects: string[]; sources: string[] }>;
   velocityWatchlist: Array<{ buyerUserId: string; escrows: number; active: number; disputed: number; reviewRequired: number; latestAt: string }>;
@@ -787,6 +789,18 @@ function App() {
     setResolutionDraft({ outcome: "release_to_seller", reason: "", reference: "" });
     setSelectedDispute(null);
     await Promise.all([loadDisputes(), loadEscrows(), loadReconciliation(), loadOperations()]);
+  };
+
+  const recordAbuseAction = async (subjectType: string, subjectId: string, action: string) => {
+    const reason = window.prompt(`Reason for ${action} on ${subjectId}:`);
+    if (!reason) return;
+    const response = await fetch(`${apiBase}/admin/abuse/actions`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ subjectType, subjectId, action, reason }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to record abuse action"));
+    await loadOperations();
   };
 
   const downloadReconciliationCsv = async () => {
@@ -1694,7 +1708,7 @@ function App() {
               <div className="metric-card critical"><span>Critical</span><strong>{abuseAnalytics?.totals.criticalSignals ?? 0}</strong></div>
               <div className="metric-card watch"><span>High risk</span><strong>{abuseAnalytics?.totals.highSignals ?? 0}</strong></div>
               <div className="metric-card"><span>Monitored escrows</span><strong>{abuseAnalytics?.totals.monitoredEscrows ?? 0}</strong></div>
-              <div className="metric-card watch"><span>Fingerprints</span><strong>{abuseAnalytics?.fingerprintWatchlist.length ?? 0}</strong></div>
+              <div className="metric-card watch"><span>Active actions</span><strong>{abuseAnalytics?.totals.activeActions ?? 0}</strong></div>
             </div>
             <div className="section-head ops-subhead">
               <h2>Reputation Watchlist</h2>
@@ -1707,6 +1721,8 @@ function App() {
                     <strong>{item.subjectId} · score {item.maxRiskScore}</strong>
                     <span>{item.signals} signals · {item.reasons.slice(0, 2).join("; ")}</span>
                   </div>
+                  <button className="button small" onClick={() => recordAbuseAction("user", item.subjectId, "watch")}>Watch</button>
+                  <button className="button small" onClick={() => recordAbuseAction("user", item.subjectId, "block")}>Block</button>
                   <time>{formatTime(item.lastSeenAt)}</time>
                 </div>
               ))}
@@ -1749,19 +1765,19 @@ function App() {
             </div>
             <div className="section-head ops-subhead">
               <h2>Recent Signals</h2>
-              <span>{abuseSignals.length}</span>
+              <span>{abuseAnalytics?.actions.length ?? 0} actions</span>
             </div>
             <div className="event-grid">
-              {abuseSignals.slice(0, 10).map((signal) => (
-                <div key={signal.signalId} className={`event-row ops-event ${signal.riskScore >= 70 ? "error" : "warning"}`}>
+              {abuseAnalytics?.actions.slice(0, 8).map((action) => (
+                <div key={action.actionId} className={`event-row ops-event ${action.action === "block" ? "error" : "warning"}`}>
                   <div>
-                    <strong>{signal.category} · {signal.riskScore}</strong>
-                    <span>{signal.reason}</span>
+                    <strong>{action.action} · {action.subjectId}</strong>
+                    <span>{action.reason} · by {action.createdBy}</span>
                   </div>
-                  <time>{formatTime(signal.createdAt)}</time>
+                  <time>{formatTime(action.createdAt)}</time>
                 </div>
               ))}
-              {abuseSignals.length === 0 && <p className="muted">No abuse signals</p>}
+              {!abuseAnalytics?.actions.length && <p className="muted">No persistent abuse actions</p>}
             </div>
           </aside>
         </section>

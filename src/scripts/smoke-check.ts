@@ -44,6 +44,9 @@ async function main() {
           check("reconciliation summary", "/admin/reconciliation?limit=25", headers),
           check("support cases", "/admin/support/cases?limit=10", headers),
           check("abuse signals", "/admin/abuse/signals?limit=10", headers),
+          check("abuse analytics", "/admin/abuse/analytics?limit=50", headers),
+          check("abuse actions", "/admin/abuse/actions?limit=10", headers),
+          check("disputes", "/admin/disputes?limit=10", headers),
           check("recent operational events", "/admin/ops/events?limit=10", headers),
           ...(requireSettlementProof ? [check("latest settlement verification", "/admin/settlement/verification", headers)] : []),
         ]
