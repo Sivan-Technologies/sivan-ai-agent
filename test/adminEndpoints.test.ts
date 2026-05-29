@@ -143,6 +143,25 @@ describe("Admin Settings API Integration", () => {
     expect(Array.isArray(events.body)).toBe(true);
   });
 
+  it("should expose protected disaster recovery readiness without secrets", async () => {
+    const unauthorized = await request(app).get("/admin/dr/status");
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get("/admin/dr/status")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("backup");
+    expect(res.body).toHaveProperty("restore");
+    expect(res.body).toHaveProperty("rollback");
+    expect(res.body).toHaveProperty("outage");
+    expect(res.body.backup).toHaveProperty("configured");
+    expect(res.body.restore).toHaveProperty("fresh");
+    expect(res.body).not.toHaveProperty("databaseUrl");
+    expect(JSON.stringify(res.body)).not.toContain("postgresql://");
+  });
+
   it("should protect settlement verification proof endpoints", async () => {
     const unauthorized = await request(app).get("/admin/settlement/verification");
     expect(unauthorized.status).toBe(401);

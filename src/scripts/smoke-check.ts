@@ -37,6 +37,7 @@ async function main() {
     ...(adminKey
       ? [
           check("admin db status", "/admin/db-status", headers),
+          check("disaster recovery status", "/admin/dr/status", headers),
           check("operations status", "/admin/ops/status", headers),
           check("queue status", "/admin/queue/status", headers),
           check("recent queue jobs", "/admin/queue/jobs?limit=10", headers),

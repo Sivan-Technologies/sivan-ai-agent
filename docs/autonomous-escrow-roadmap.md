@@ -213,9 +213,9 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 90%
-Production financial-readiness: 86%
-Cross-repo production-readiness: 84%
+MVP escrow-core readiness: 92%
+Production financial-readiness: 89%
+Cross-repo production-readiness: 87%
 ```
 
 Legend:
@@ -241,7 +241,7 @@ Legend:
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Sentry hooks, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
-| Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, admin/API auth gates, CORS, rate limiting, HTTPS deploy assumptions, and Postgres config guidance exist; real secret rotation/backups/IP controls are deployment tasks |
+| Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, admin/API auth gates, CORS, rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, velocity dashboard, and operator analytics |
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
 | Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
@@ -250,9 +250,10 @@ Legend:
 | Phase 11I | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` validates queue replay, webhook recovery readiness, and payout failure review paths after deploys, with execute mode for controlled recovery job creation |
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
 | Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed analytics, and trend thresholds emit operational alerts |
+| Phase 11L | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | Admin DR status, `npm run dr:check`, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; production still needs provider backup proof and a recorded restore drill |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced and build cleanly; remaining work is Render/Vercel env verification, live smoke checks, and recurring incident drill execution |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced and build cleanly; remaining work is Render/Vercel env verification, live smoke checks, recurring incident drills, and recurring DR restore drills |
 
 ## What Is Completed So Far
 
@@ -318,6 +319,7 @@ The current system already has:
 - ✅ dispute desk foundation: Admin Disputes tab, evidence capture, manual resolution outcomes, release/refund/cancel event history, and related support-case closure
 - ✅ user-facing dispute history API plus optional participant WhatsApp notifications for dispute evidence and resolution updates
 - ✅ deploy-time incident drill script and runbook for queue replay, webhook recovery, and payout failure recovery
+- ✅ backup/disaster recovery status endpoint, admin Ops visibility, `npm run dr:check`, env documentation, and restore/rollback/outage runbook
 - ✅ persistent abuse actions for watch/warn/limit/block/clear reputation controls and automated abuse trend alerts
 - ✅ queue resilience foundation: persistent queue status, job ledger, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
 - ✅ Paystack webhook recovery jobs are enqueued automatically when webhook processing fails after a valid reference is present
@@ -350,12 +352,14 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Dispute evidence and resolution | ✅ Completed for API/manual-resolution MVP | Dispute state, support cases, evidence capture, admin resolution, refund/release/cancel outcomes, audit history, and participant-visible dispute history API exist |
 | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | `/api/escrows/:escrowId/dispute-history` exposes participant-visible dispute history, and admin dispute evidence/resolution actions can notify participants |
 | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` supports read-only and controlled execute-mode drills for queue replay, webhook recovery, and payout failure recovery |
+| Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | `/admin/dr/status`, Admin Ops DR visibility, `npm run dr:check`, and `docs/disaster-recovery.md` exist; next step is enabling provider backups, performing a staging restore, and recording proof in release notes |
 | Stronger fraud controls beyond MVP | ✅ Completed for operator-action MVP | Persistent abuse actions, active-action risk scoring, fingerprint watch analytics, and automated abuse trend alerts now exist; cross-device graph visualization remains future work |
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
-##databse recommendation strong advice or must
-do not use render free monthly database to scale strongly use another long time database
+## Database recommendation
+
+Do not rely on a free/local database for production scale. Use managed Postgres with backups, restore testing, retention, monitoring, and a rollback plan before real money volume increases.
 ## Recommended MVP Release Policy
 
 For the first MVP:
@@ -452,11 +456,13 @@ Completed from the prior immediate implementation order:
 15. ✅ support operations workflow: Admin Support tab, support inbox, status tracking, internal notes, assignment, search, and dispute-linked support cases
 16. ✅ payout automation safety foundation: Admin Payout Safety tab, manual payout gate, payout review jobs, reconciliation views, recovery jobs, duplicate-risk prevention by operator review, and no blind autonomous retry
 17. ✅ audit/event explorer: Admin Audit tab and escrow timeline endpoint with events, transactions, operator actions, release history, payment history, dispute history, and linked support cases
+18. ✅ backup and disaster recovery foundation: Admin Ops DR status, `npm run dr:check`, backup env contract, restore-test tracking, rollback/outage procedure, and release-note template
 
 Next production-hardening focus:
 
 1. 🟡 Run live smoke checks against the deployed Render services after every deploy and wire GitHub secrets.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. 🟡 Run deploy-time incident drills after each Render deploy and store the drill result in the release notes.
-4. 🟡 Add richer user-facing dispute UI in WhatsApp/admin portal once participant screens exist.
-5. 🟡 Add cross-device graph visualization and automated reputation action suggestions after enough production abuse data exists.
+4. 🟡 Run the first live database restore drill on a staging database, update `BACKUP_LAST_RESTORE_TEST_AT`, and store proof in release notes.
+5. 🟡 Add richer user-facing dispute UI in WhatsApp/admin portal once participant screens exist.
+6. 🟡 Add cross-device graph visualization and automated reputation action suggestions after enough production abuse data exists.

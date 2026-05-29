@@ -62,6 +62,19 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
 - `SMOKE_REQUIRE_SETTLEMENT_PROOF` - Set `true` to make smoke checks require a previously run settlement verification proof.
+- `BACKUP_PROVIDER` - Human-readable backup provider label shown in admin DR status, for example `managed-postgres`.
+- `BACKUP_RETENTION_DAYS` - Number of days production database backups are retained. Use the real managed database retention, not an aspirational value.
+- `BACKUP_POLICY_URL` - Optional private runbook/provider URL proving where backup policy is documented.
+- `BACKUP_RESTORE_RUNBOOK_URL` - Runbook path or URL for restore testing. Defaults to `docs/disaster-recovery.md`.
+- `BACKUP_RESTORE_TEST_MAX_AGE_DAYS` - Maximum age before the last restore drill is considered stale. Defaults to `30`.
+- `BACKUP_LAST_RESTORE_TEST_AT` - ISO timestamp for the last successful restore drill.
+- `BACKUP_LAST_RESTORE_TEST_STATUS` - Last restore drill result, for example `passed`, `failed`, or `not_recorded`.
+- `ROLLBACK_RELEASE_URL` - Optional release/deploy URL used by operators to rollback backend/frontend/bot deploys.
+- `OUTAGE_STATUS_PAGE_URL` - Optional public/internal status page URL for outage communication.
+- `OUTAGE_CONTACTS` - Comma-separated on-call/operator contacts for production incidents.
+- `DR_BASE_URL` - Base URL used by `npm run dr:check`; falls back to `SMOKE_BASE_URL`.
+- `DR_ADMIN_API_KEY` - Admin key used by `npm run dr:check`; falls back to `SMOKE_ADMIN_API_KEY` or `ADMIN_API_KEY`.
+- `DR_REQUIRE_FRESH_RESTORE` - Set `true` to fail DR checks unless the restore drill timestamp is fresh.
 - `QUEUE_WORKER_ENABLED` - Set `true` to run the background retry worker inside the API process. Keep `false` if you prefer manual `/admin/queue/run` execution or a separate worker process.
 - `QUEUE_WORKER_INTERVAL_MS` - Background retry worker polling interval. Defaults to `15000`.
 - `QUEUE_WORKER_BATCH_SIZE` - Maximum jobs processed per background worker tick. Defaults to `5`.

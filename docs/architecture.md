@@ -63,7 +63,7 @@
 - Public request bodies and webhook payloads are validated with Zod schemas before workflow code runs.
 - Paystack `charge.success` processing uses an atomic workflow status claim so duplicate webhook delivery cannot double-run Naira execution.
 - Payment/webhook anomalies are routed through monitoring helpers and can be reported to Sentry when `SENTRY_DSN` is configured.
-- Operations status endpoints expose database readiness, Sentry/alert configuration, and recent operational warnings/errors.
+- Operations status endpoints expose database readiness, backup/disaster recovery posture, Sentry/alert configuration, and recent operational warnings/errors.
 - Payment and operational warnings can be forwarded to an operations alert webhook through `OPERATIONS_ALERT_WEBHOOK_URL`.
 - Escrow release requires explicit buyer completion before release request; non-admin disputes require buyer/seller participation.
 
@@ -78,7 +78,7 @@
    - **Paystack webhook persistence and tracker:** 100% (webhook receiver, transaction-reference matching, transaction verification, and `WorkflowStore` persistence implemented)
    - **Project rename + docs (branding, GTM):** 100% (README/CHANGELOG updates and WhatsApp GTM doc added)
    - **Escrow state machine:** 90% (buyer completion and authorization checks now gate release; dispute evidence/resolution is still next)
-   - **Operations visibility:** 85% (admin operations endpoints, Sentry/alert hooks, and smoke-check script exist; external dashboards still need setup)
+   - **Operations visibility:** 90% (admin operations endpoints, DR status, Sentry/alert hooks, smoke checks, and DR checks exist; external dashboards and live restore proof still need setup)
 
 - **Partially complete (work in progress):**
    - **x402 Payment Facility integration:** 90% — client and flows implemented; needs live end-to-end verification with x402 credentials and settlement monitoring.
@@ -88,7 +88,7 @@
    - **Demo frontend/runner:** 10% (a `run-demo.ts` CLI script exists; an interactive UI or public webhook demo is not implemented)
    - **Admin dashboard:** 10% (basic query endpoints added to `server.ts`; UI and RBAC missing)
    - **On-chain SAP escrow (production-ready):** 40% (create/release/status methods exist in `SapAgent`; additional integration tests and security review required)
-   - **CI / Tests / Monitoring:** 60% (basic unit tests, supertest checks, Sentry hooks, operations endpoints, and a smoke-check script exist; CI wiring and external dashboards still need setup)
+   - **CI / Tests / Monitoring:** 72% (unit tests, supertest checks, Sentry hooks, operations endpoints, smoke checks, incident drills, and DR checks exist; external dashboards and release-gated secrets still need setup)
 
 ## What remains (actionable items)
 
@@ -131,5 +131,4 @@ If you want, I can:
 - Add unit tests for the core services and a minimal GitHub Actions CI pipeline.
 
 Which should I do next? (I suggest starting with the end-to-end demo + ngrok guide so we can validate payment paths.)
-
 
