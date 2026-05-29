@@ -26,6 +26,7 @@ import {
   escrowCreateSchema,
   formatZodError,
   limitQuerySchema,
+  participantDisputeEvidenceSchema,
   paystackWebhookSchema,
   payoutAccountSchema,
   supportCaseCreateSchema,
@@ -268,6 +269,41 @@ async function buildAbuseAnalytics(limit = 500) {
     buyerVelocity.set(escrow.buyerUserId, current);
   }
 
+  const reputationWatchlist = Array.from(subjectMap.values())
+    .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
+    .slice(0, 25);
+  const fingerprintWatchlist = Array.from(fingerprintMap.values())
+    .filter((row) => row.signals > 1 || row.maxRiskScore >= 60)
+    .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
+    .slice(0, 25);
+  const activeActionTargets = new Set(actions
+    .filter((action) => !action.expiresAt || new Date(action.expiresAt).getTime() > Date.now())
+    .map((action) => `${action.subjectType}:${action.subjectId}`));
+  const suggestedActions = [
+    ...reputationWatchlist
+      .filter((item) => !activeActionTargets.has(`${item.subjectType}:${item.subjectId}`))
+      .filter((item) => item.maxRiskScore >= 70 || item.signals >= 3)
+      .map((item) => ({
+        subjectType: item.subjectType,
+        subjectId: item.subjectId,
+        suggestedAction: item.maxRiskScore >= 95 ? "block" : item.maxRiskScore >= 85 ? "limit" : "watch",
+        confidence: Math.min(100, item.maxRiskScore + Math.min(item.signals, 10)),
+        reason: `${item.signals} abuse signals; max risk ${item.maxRiskScore}`,
+        evidence: item.reasons.slice(0, 5),
+      })),
+    ...fingerprintWatchlist
+      .filter((item) => !activeActionTargets.has(`device:${item.fingerprint}`))
+      .filter((item) => item.subjects.length >= 2 || item.maxRiskScore >= 80)
+      .map((item) => ({
+        subjectType: "device",
+        subjectId: item.fingerprint,
+        suggestedAction: item.maxRiskScore >= 90 ? "limit" : "watch",
+        confidence: Math.min(100, item.maxRiskScore + item.subjects.length),
+        reason: `${item.signals} signals across ${item.subjects.length} linked subjects`,
+        evidence: item.subjects.slice(0, 10),
+      })),
+  ].sort((a, b) => b.confidence - a.confidence).slice(0, 25);
+
   const analytics = {
     totals: {
       signals: signals.length,
@@ -275,21 +311,18 @@ async function buildAbuseAnalytics(limit = 500) {
       highSignals: signals.filter((signal) => signal.severity === "high").length,
       monitoredEscrows: escrows.length,
       activeActions: actions.filter((action) => !action.expiresAt || new Date(action.expiresAt).getTime() > Date.now()).length,
+      suggestedActions: suggestedActions.length,
     },
     severityCounts,
     categoryCounts,
     actions: actions.slice(0, 50),
-    reputationWatchlist: Array.from(subjectMap.values())
-      .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
-      .slice(0, 25),
-    fingerprintWatchlist: Array.from(fingerprintMap.values())
-      .filter((row) => row.signals > 1 || row.maxRiskScore >= 60)
-      .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
-      .slice(0, 25),
+    reputationWatchlist,
+    fingerprintWatchlist,
     velocityWatchlist: Array.from(buyerVelocity.values())
       .filter((row) => row.escrows >= Number(process.env.ABUSE_ESCROW_VELOCITY_LIMIT || "8") || row.disputed > 0 || row.reviewRequired > 0)
       .sort((a, b) => b.escrows - a.escrows || b.active - a.active)
       .slice(0, 25),
+    suggestedActions,
   };
   const alertThreshold = Number(process.env.ABUSE_TREND_ALERT_MIN_SIGNALS || "5");
   const now = Date.now();
@@ -406,6 +439,62 @@ async function notifyEscrowParticipants(escrow: EscrowRecord, message: string) {
   ]);
   const targets = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.sellerWhatsapp].filter(Boolean) as string[];
   await Promise.all(Array.from(new Set(targets)).map((target) => notifyWhatsAppBot(target, message)));
+}
+
+async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: string): Promise<"buyer" | "seller" | null> {
+  const [buyer, seller] = await Promise.all([
+    escrowStore.getUserById(escrow.buyerUserId),
+    escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
+  ]);
+  if (buyer?.whatsappNumber === actorWhatsapp) return "buyer";
+  if (seller?.whatsappNumber === actorWhatsapp || escrow.sellerWhatsapp === actorWhatsapp) return "seller";
+  return null;
+}
+
+async function recordDisputeEvidence(input: {
+  escrow: EscrowRecord;
+  actor: string;
+  actorRole: string;
+  channel: string;
+  evidence: {
+    evidenceType: string;
+    source: string;
+    summary: string;
+    uri?: string;
+    submittedBy?: string;
+    notifyParticipants?: boolean;
+  };
+}) {
+  const { escrow, actor, actorRole, channel, evidence } = input;
+  await escrowStore.addEvent({
+    escrowId: escrow.escrowId,
+    actor,
+    actorRole,
+    channel,
+    previousStatus: escrow.status,
+    nextStatus: escrow.status,
+    eventType: "dispute_evidence_recorded",
+    reason: evidence.summary,
+    metadata: JSON.stringify({
+      evidenceType: evidence.evidenceType,
+      uri: evidence.uri || null,
+      recordedBy: actor,
+      submittedBy: evidence.submittedBy || actor,
+    }),
+  });
+  const supportCases = await opsStore.searchSupportCases(escrow.escrowId, 1);
+  if (supportCases[0]) {
+    await opsStore.addSupportNote(
+      supportCases[0].caseId,
+      actor,
+      `${evidence.evidenceType}: ${evidence.summary}${evidence.uri ? ` (${evidence.uri})` : ""}`,
+      "dispute_evidence"
+    );
+  }
+  if (evidence.notifyParticipants) {
+    await notifyEscrowParticipants(escrow, `Dispute update for ${escrow.escrowId}: ${evidence.summary}`);
+  }
+  return buildEscrowDetail(escrow.escrowId);
 }
 
 async function buildReconciliationRows(limit = 250) {
@@ -872,6 +961,28 @@ app.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) 
   }
 });
 
+app.post("/api/escrows/:escrowId/dispute/evidence", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantDisputeEvidenceSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid dispute evidence payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (escrow.status !== "DISPUTED") {
+    return res.status(400).json({ error: `Evidence can only be added while escrow is DISPUTED, current status is ${escrow.status}` });
+  }
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  if (!role) return res.status(403).json({ error: "Only escrow participants can submit dispute evidence" });
+  const detail = await recordDisputeEvidence({
+    escrow,
+    actor: parsed.data.actorWhatsapp,
+    actorRole: role,
+    channel: "whatsapp_dm",
+    evidence: { ...parsed.data, source: parsed.data.source || role },
+  });
+  res.status(201).json(detail);
+});
+
 app.post("/webhooks/paystack", async (req, res) => {
   try {
     const signature = req.headers["x-paystack-signature"] as string;
@@ -1161,34 +1272,14 @@ app.post("/admin/escrows/:escrowId/dispute/evidence", requireAdminAuth, logAdmin
   }
   const adminUser = (req as any).adminUser || "unknown";
   const evidence = parsed.data;
-  await escrowStore.addEvent({
-    escrowId: escrow.escrowId,
+  const detail = await recordDisputeEvidence({
+    escrow,
     actor: evidence.submittedBy || adminUser,
     actorRole: evidence.source,
     channel: "admin",
-    previousStatus: escrow.status,
-    nextStatus: escrow.status,
-    eventType: "dispute_evidence_recorded",
-    reason: evidence.summary,
-    metadata: JSON.stringify({
-      evidenceType: evidence.evidenceType,
-      uri: evidence.uri || null,
-      recordedBy: adminUser,
-    }),
+    evidence,
   });
-  const supportCases = await opsStore.searchSupportCases(escrow.escrowId, 1);
-  if (supportCases[0]) {
-    await opsStore.addSupportNote(
-      supportCases[0].caseId,
-      adminUser,
-      `${evidence.evidenceType}: ${evidence.summary}${evidence.uri ? ` (${evidence.uri})` : ""}`,
-      "dispute_evidence"
-    );
-  }
-  if (evidence.notifyParticipants) {
-    await notifyEscrowParticipants(escrow, `Dispute update for ${escrow.escrowId}: ${evidence.summary}`);
-  }
-  res.status(201).json(await buildEscrowDetail(escrow.escrowId));
+  res.status(201).json(detail);
 });
 
 app.post("/admin/escrows/:escrowId/dispute/resolve", requireAdminAuth, logAdminAction("resolve_dispute"), async (req, res) => {

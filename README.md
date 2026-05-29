@@ -229,6 +229,7 @@ POST /admin/escrows/:escrowId/approve-release
 GET /admin/disputes
 POST /admin/escrows/:escrowId/dispute/evidence
 POST /admin/escrows/:escrowId/dispute/resolve
+POST /api/escrows/:escrowId/dispute/evidence
 GET /admin/reconciliation
 GET /admin/reconciliation.csv
 GET /admin/dr/status

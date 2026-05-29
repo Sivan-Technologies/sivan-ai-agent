@@ -5,6 +5,7 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-admin-settings.db");
 process.env.ADMIN_API_KEY = "test-admin-key";
+process.env.CORE_API_SECRET = "test-core-key";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
@@ -224,6 +225,7 @@ describe("Admin Settings API Integration", () => {
     expect(abuseAnalytics.body).toHaveProperty("totals");
     expect(abuseAnalytics.body).toHaveProperty("reputationWatchlist");
     expect(abuseAnalytics.body).toHaveProperty("velocityWatchlist");
+    expect(abuseAnalytics.body).toHaveProperty("suggestedActions");
 
     const abuseAction = await request(app)
       .post("/admin/abuse/actions")
@@ -268,6 +270,51 @@ describe("Admin Settings API Integration", () => {
     const search = await request(app).get("/admin/support/search?q=Buyer").set(headers);
     expect(search.status).toBe(200);
     expect(Array.isArray(search.body)).toBe(true);
+  });
+
+  it("should allow escrow participants to submit dispute evidence through the core API", async () => {
+    const created = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        buyerWhatsapp: "whatsapp:+2348000000001",
+        sellerWhatsapp: "whatsapp:+2348000000002",
+        amount: 10000,
+        currency: "NAIRA",
+        purpose: "dispute evidence test",
+        channel: "whatsapp_dm",
+      });
+    expect(created.status).toBe(201);
+    const escrowId = created.body.escrow.escrowId;
+
+    const disputed = await request(app)
+      .post(`/api/escrows/${escrowId}/dispute`)
+      .set("x-core-api-key", "test-core-key")
+      .send({ actorWhatsapp: "whatsapp:+2348000000001", reason: "Testing participant evidence" });
+    expect(disputed.status).toBe(200);
+    expect(disputed.body.status).toBe("DISPUTED");
+
+    const evidence = await request(app)
+      .post(`/api/escrows/${escrowId}/dispute/evidence`)
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        actorWhatsapp: "whatsapp:+2348000000001",
+        evidenceType: "message",
+        summary: "Buyer submitted private WhatsApp evidence",
+        notifyParticipants: false,
+      });
+    expect(evidence.status).toBe(201);
+    expect(evidence.body.events.some((event: any) => event.eventType === "dispute_evidence_recorded")).toBe(true);
+
+    const outsider = await request(app)
+      .post(`/api/escrows/${escrowId}/dispute/evidence`)
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        actorWhatsapp: "whatsapp:+2348000000999",
+        evidenceType: "message",
+        summary: "Outsider evidence should fail",
+      });
+    expect(outsider.status).toBe(403);
   });
 
   it("should expose protected escrow ledger", async () => {

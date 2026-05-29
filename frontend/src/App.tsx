@@ -208,6 +208,7 @@ type AbuseAnalytics = {
     highSignals: number;
     monitoredEscrows: number;
     activeActions: number;
+    suggestedActions?: number;
   };
   severityCounts: Record<string, number>;
   categoryCounts: Record<string, number>;
@@ -215,6 +216,7 @@ type AbuseAnalytics = {
   reputationWatchlist: Array<{ subjectType: string; subjectId: string; signals: number; maxRiskScore: number; lastSeenAt: string; reasons: string[] }>;
   fingerprintWatchlist: Array<{ fingerprint: string; signals: number; maxRiskScore: number; lastSeenAt: string; subjects: string[]; sources: string[] }>;
   velocityWatchlist: Array<{ buyerUserId: string; escrows: number; active: number; disputed: number; reviewRequired: number; latestAt: string }>;
+  suggestedActions?: Array<{ subjectType: string; subjectId: string; suggestedAction: string; confidence: number; reason: string; evidence: string[] }>;
 };
 
 type SupportCase = {
@@ -1744,6 +1746,23 @@ function App() {
               <div className="metric-card watch"><span>High risk</span><strong>{abuseAnalytics?.totals.highSignals ?? 0}</strong></div>
               <div className="metric-card"><span>Monitored escrows</span><strong>{abuseAnalytics?.totals.monitoredEscrows ?? 0}</strong></div>
               <div className="metric-card watch"><span>Active actions</span><strong>{abuseAnalytics?.totals.activeActions ?? 0}</strong></div>
+              <div className="metric-card watch"><span>Suggestions</span><strong>{abuseAnalytics?.totals.suggestedActions ?? 0}</strong></div>
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>Suggested Actions</h2>
+              <span>{abuseAnalytics?.suggestedActions?.length ?? 0}</span>
+            </div>
+            <div className="event-grid">
+              {abuseAnalytics?.suggestedActions?.map((item) => (
+                <div key={`${item.subjectType}:${item.subjectId}:${item.suggestedAction}`} className={`event-row ops-event ${item.suggestedAction === "block" ? "error" : "warning"}`}>
+                  <div>
+                    <strong>{item.suggestedAction} · {compactId(item.subjectId, 34)}</strong>
+                    <span>{item.confidence}% confidence · {item.reason}</span>
+                  </div>
+                  <button className="button small" onClick={() => recordAbuseAction(item.subjectType, item.subjectId, item.suggestedAction)}>Apply</button>
+                </div>
+              ))}
+              {!abuseAnalytics?.suggestedActions?.length && <p className="muted">No reputation action suggestions</p>}
             </div>
             <div className="section-head ops-subhead">
               <h2>Reputation Watchlist</h2>
@@ -1783,7 +1802,7 @@ function App() {
               {!abuseAnalytics?.velocityWatchlist.length && <p className="muted">No velocity outliers</p>}
             </div>
             <div className="section-head ops-subhead">
-              <h2>Fingerprint Watch</h2>
+              <h2>Cross-Device Graph</h2>
               <span>{abuseAnalytics?.fingerprintWatchlist.length ?? 0}</span>
             </div>
             <div className="event-grid">

@@ -213,9 +213,9 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 92%
-Production financial-readiness: 89%
-Cross-repo production-readiness: 87%
+MVP escrow-core readiness: 93%
+Production financial-readiness: 90%
+Cross-repo production-readiness: 88%
 ```
 
 Legend:
@@ -242,14 +242,14 @@ Legend:
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Sentry hooks, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
 | Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, admin/API auth gates, CORS, rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
-| Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, velocity dashboard, and operator analytics |
+| Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, and operator analytics |
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
 | Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
 | Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, operator actions, release history, payment history, dispute history, and linked support cases |
-| Phase 11H | Dispute evidence and resolution | ✅ Completed for manual-resolution MVP | Admin Disputes tab lists open disputes, captures evidence records, links support cases, records manual outcomes, writes release/refund/cancel events, and closes related support cases |
+| Phase 11H | Dispute evidence and resolution | ✅ Completed for manual-resolution MVP | Admin Disputes tab lists open disputes, captures evidence records, links support cases, records manual outcomes, writes release/refund/cancel events, closes related support cases, and accepts participant evidence from WhatsApp/private API |
 | Phase 11I | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` validates queue replay, webhook recovery readiness, and payout failure review paths after deploys, with execute mode for controlled recovery job creation |
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
-| Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed analytics, and trend thresholds emit operational alerts |
+| Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed cross-device graph analytics, trend thresholds emit operational alerts, and suggested reputation actions are surfaced for operators |
 | Phase 11L | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | Admin DR status, `npm run dr:check`, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; production still needs provider backup proof and a recorded restore drill |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
@@ -317,10 +317,10 @@ The current system already has:
 - ✅ admin Risk tab for abuse reputation watchlist, request/device fingerprint watch, velocity outliers, and recent signals
 - ✅ support workflow foundation: Admin Support tab, support inbox, assignments, status updates, search, internal notes, and automatic case creation from disputes
 - ✅ dispute desk foundation: Admin Disputes tab, evidence capture, manual resolution outcomes, release/refund/cancel event history, and related support-case closure
-- ✅ user-facing dispute history API plus optional participant WhatsApp notifications for dispute evidence and resolution updates
+- ✅ user-facing dispute history API, participant WhatsApp evidence submission, plus optional participant WhatsApp notifications for dispute evidence and resolution updates
 - ✅ deploy-time incident drill script and runbook for queue replay, webhook recovery, and payout failure recovery
 - ✅ backup/disaster recovery status endpoint, admin Ops visibility, `npm run dr:check`, env documentation, and restore/rollback/outage runbook
-- ✅ persistent abuse actions for watch/warn/limit/block/clear reputation controls and automated abuse trend alerts
+- ✅ persistent abuse actions for watch/warn/limit/block/clear reputation controls, cross-device graph visibility, suggested reputation actions, and automated abuse trend alerts
 - ✅ queue resilience foundation: persistent queue status, job ledger, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
 - ✅ Paystack webhook recovery jobs are enqueued automatically when webhook processing fails after a valid reference is present
 - ✅ Admin Payout Safety tab and payout safety review queue exist before autonomous payout automation
@@ -353,7 +353,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | `/api/escrows/:escrowId/dispute-history` exposes participant-visible dispute history, and admin dispute evidence/resolution actions can notify participants |
 | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` supports read-only and controlled execute-mode drills for queue replay, webhook recovery, and payout failure recovery |
 | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | `/admin/dr/status`, Admin Ops DR visibility, `npm run dr:check`, and `docs/disaster-recovery.md` exist; next step is enabling provider backups, performing a staging restore, and recording proof in release notes |
-| Stronger fraud controls beyond MVP | ✅ Completed for operator-action MVP | Persistent abuse actions, active-action risk scoring, fingerprint watch analytics, and automated abuse trend alerts now exist; cross-device graph visualization remains future work |
+| Stronger fraud controls beyond MVP | ✅ Completed for operator-action MVP | Persistent abuse actions, active-action risk scoring, cross-device graph visibility, fingerprint watch analytics, automated reputation action suggestions, and automated abuse trend alerts now exist; deeper graph investigation UI remains future work |
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
@@ -464,5 +464,5 @@ Next production-hardening focus:
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. 🟡 Run deploy-time incident drills after each Render deploy and store the drill result in the release notes.
 4. 🟡 Run the first live database restore drill on a staging database, update `BACKUP_LAST_RESTORE_TEST_AT`, and store proof in release notes.
-5. 🟡 Add richer user-facing dispute UI in WhatsApp/admin portal once participant screens exist.
-6. 🟡 Add cross-device graph visualization and automated reputation action suggestions after enough production abuse data exists.
+5. ✅ Add richer user-facing dispute evidence flow in WhatsApp/private API; richer participant screens remain future portal work.
+6. ✅ Add cross-device graph visibility and automated reputation action suggestions; deeper graph investigation UI remains future work.
