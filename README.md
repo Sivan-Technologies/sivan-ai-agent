@@ -231,6 +231,7 @@ POST /admin/escrows/:escrowId/dispute/evidence
 POST /admin/escrows/:escrowId/dispute/resolve
 GET /admin/reconciliation
 GET /admin/reconciliation.csv
+GET /admin/dr/status
 GET /admin/ops/status
 GET /admin/ops/events
 GET /admin/settlement/verification
@@ -382,6 +383,12 @@ Run smoke checks against a local or deployed backend:
 SMOKE_BASE_URL=https://sivan-escrow-agent.onrender.com SMOKE_ADMIN_API_KEY=$ADMIN_API_KEY npm run smoke
 ```
 
+Run backup/disaster-recovery checks after deploys:
+
+```bash
+DR_BASE_URL=https://sivan-escrow-agent.onrender.com DR_ADMIN_API_KEY=$ADMIN_API_KEY npm run dr:check
+```
+
 Run the retry worker manually for immediate recovery:
 
 ```bash
@@ -406,6 +413,7 @@ Operational recovery playbooks are in:
 ```text
 docs/production-runbooks.md
 docs/incident-drills.md
+docs/disaster-recovery.md
 ```
 
 Start production build:

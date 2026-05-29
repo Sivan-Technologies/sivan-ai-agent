@@ -129,6 +129,36 @@ type OperationsStatus = {
   };
 };
 
+type DisasterRecoveryStatus = {
+  status: string;
+  checkedAt: string;
+  backup: {
+    provider: string;
+    configured: boolean;
+    retentionDays: number;
+    policyUrlConfigured: boolean;
+    restoreRunbookConfigured: boolean;
+  };
+  restore: {
+    lastTestAt?: string | null;
+    lastStatus: string;
+    maxAgeDays: number;
+    fresh: boolean;
+  };
+  rollback: {
+    configured: boolean;
+    releaseUrlConfigured: boolean;
+    renderServiceConfigured: boolean;
+    vercelProjectConfigured: boolean;
+  };
+  outage: {
+    configured: boolean;
+    statusPageConfigured: boolean;
+    contactsConfigured: boolean;
+  };
+  runbook: string;
+};
+
 type SettlementProof = {
   status: string;
   checkedAt?: string;
@@ -288,6 +318,7 @@ function App() {
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatus | null>(null);
+  const [disasterRecoveryStatus, setDisasterRecoveryStatus] = useState<DisasterRecoveryStatus | null>(null);
   const [operationalEvents, setOperationalEvents] = useState<OperationalEvent[]>([]);
   const [settlementProof, setSettlementProof] = useState<SettlementProof | null>(null);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
@@ -377,6 +408,7 @@ function App() {
     setAuthStats(null);
     setAuthError(null);
     setOperationsStatus(null);
+    setDisasterRecoveryStatus(null);
     setOperationalEvents([]);
     setSettlementProof(null);
     setQueueStatus(null);
@@ -555,8 +587,9 @@ function App() {
 
   const loadOperations = async () => {
     if (!adminKey) return;
-    const [statusResponse, eventsResponse, settlementResponse, queueResponse, queueJobsResponse, abuseResponse, abuseAnalyticsResponse, supportResponse] = await Promise.all([
+    const [statusResponse, drResponse, eventsResponse, settlementResponse, queueResponse, queueJobsResponse, abuseResponse, abuseAnalyticsResponse, supportResponse] = await Promise.all([
       fetch(`${apiBase}/admin/ops/status`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/dr/status`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/ops/events?limit=50`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/settlement/verification`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/queue/status`, { headers: authHeaders() }),
@@ -566,9 +599,11 @@ function App() {
       fetch(`${apiBase}/admin/support/cases?limit=100`, { headers: authHeaders() }),
     ]);
     if (!statusResponse.ok) throw new Error(await parseError(statusResponse, "Failed to load operations status"));
+    if (!drResponse.ok) throw new Error(await parseError(drResponse, "Failed to load disaster recovery status"));
     if (!eventsResponse.ok) throw new Error(await parseError(eventsResponse, "Failed to load operations events"));
     if (!queueResponse.ok) throw new Error(await parseError(queueResponse, "Failed to load queue status"));
     setOperationsStatus(await statusResponse.json());
+    setDisasterRecoveryStatus(await drResponse.json());
     setOperationalEvents((await eventsResponse.json()) || []);
     setSettlementProof(settlementResponse.ok ? await settlementResponse.json() : null);
     setQueueStatus(await queueResponse.json());
@@ -1892,12 +1927,29 @@ function App() {
                 <span>Open support</span>
                 <strong>{supportCases.filter((item) => item.status === "open").length}</strong>
               </div>
+              <div className={`metric-card ${disasterRecoveryStatus?.status === "ok" ? "good" : "watch"}`}>
+                <span>Backup / DR</span>
+                <strong>{disasterRecoveryStatus?.status || "unknown"}</strong>
+              </div>
             </div>
             <div className="detail-stack">
               <div className="detail-row"><span>Provider</span><strong>{operationsStatus?.database.provider || "unknown"}</strong></div>
               <div className="detail-row"><span>DB latency</span><strong>{operationsStatus?.database.latencyMs ?? "-"} ms</strong></div>
               <div className="detail-row"><span>Settings version</span><strong>{operationsStatus?.database.settingsVersion || "-"}</strong></div>
               <div className="detail-row"><span>Recent warnings</span><strong>{operationsStatus?.operations.recentWarnings ?? 0}</strong></div>
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>Backup and Recovery</h2>
+              <span>{disasterRecoveryStatus?.backup.provider || "not configured"}</span>
+            </div>
+            <div className="detail-stack">
+              <div className="detail-row"><span>Database backups</span><strong>{disasterRecoveryStatus?.backup.configured ? "Configured" : "Needs setup"}</strong></div>
+              <div className="detail-row"><span>Retention</span><strong>{disasterRecoveryStatus?.backup.retentionDays ?? 0} days</strong></div>
+              <div className="detail-row"><span>Restore drill</span><strong>{disasterRecoveryStatus?.restore.fresh ? "Fresh" : disasterRecoveryStatus?.restore.lastStatus || "not recorded"}</strong></div>
+              <div className="detail-row"><span>Last restore test</span><strong>{formatTime(disasterRecoveryStatus?.restore.lastTestAt || undefined)}</strong></div>
+              <div className="detail-row"><span>Rollback plan</span><strong>{disasterRecoveryStatus?.rollback.configured ? "Configured" : "Needs setup"}</strong></div>
+              <div className="detail-row"><span>Outage procedure</span><strong>{disasterRecoveryStatus?.outage.configured ? "Configured" : "Needs contacts"}</strong></div>
+              {disasterRecoveryStatus?.status !== "ok" ? <div className="detail-note critical-note">Run `npm run dr:check` after deploys and record restore-test proof in release notes.</div> : null}
             </div>
             <div className="section-head ops-subhead">
               <h2>Settlement Verification</h2>

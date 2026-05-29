@@ -15,9 +15,10 @@
    - Buyer completion is now required before release requests.
    - Manual Naira release approval and reconciliation tracking are implemented.
 4. Production hardening underway
-   - Operations status endpoints expose database, Sentry, alert, and recent warning/error state.
+   - Operations status endpoints expose database, disaster recovery, Sentry, alert, and recent warning/error state.
    - Payment and operational warnings can be routed to Sentry and an operations alert webhook.
-   - `npm run smoke` provides deploy smoke checks for health, readiness, database, and operations status.
+   - `npm run smoke` provides deploy smoke checks for health, readiness, database, disaster recovery, and operations status.
+   - `npm run dr:check` validates backup, restore-test freshness, rollback, and outage-readiness configuration after deploys.
 
 ## Phase 1: Stabilize the current workflow
 
@@ -42,12 +43,16 @@
 1. Run smoke checks after each deploy.
    - configure `SMOKE_BASE_URL` and `SMOKE_ADMIN_API_KEY`.
    - fail deployment promotion if health/readiness or operations checks fail.
-2. Finalize SAP mainnet / real endpoint integration.
+2. Run disaster-recovery checks and restore drills.
+   - configure `BACKUP_*`, `ROLLBACK_RELEASE_URL`, and `OUTAGE_CONTACTS`.
+   - restore production backup into staging at least every 30 days.
+   - record smoke, incident drill, and DR check results in release notes.
+3. Finalize SAP mainnet / real endpoint integration.
    - replace placeholder SAP endpoint values with real RPC URLs.
    - ensure `sapAgent.ts` method signatures match the deployed environment.
-3. Finalize x402 production integration.
+4. Finalize x402 production integration.
    - confirm `createPaymentFacility`, `settlePayment`, and `getPaymentStatus` endpoints.
-4. Continue observability.
+5. Continue observability.
    - keep Sentry and operations alert webhook configured.
    - add metrics or status output for scaling.
 

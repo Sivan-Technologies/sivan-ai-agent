@@ -108,6 +108,54 @@ async function buildDatabaseStatus() {
   };
 }
 
+async function buildDisasterRecoveryStatus() {
+  const database = await buildDatabaseStatus();
+  const provider = process.env.BACKUP_PROVIDER || (config.app.databaseProvider === "postgres" ? "managed-postgres" : "local-sqlite");
+  const retentionDays = Number(process.env.BACKUP_RETENTION_DAYS || (config.app.databaseProvider === "postgres" ? "7" : "0"));
+  const restoreMaxAgeDays = Number(process.env.BACKUP_RESTORE_TEST_MAX_AGE_DAYS || "30");
+  const lastRestoreTestAt = process.env.BACKUP_LAST_RESTORE_TEST_AT || "";
+  const lastRestoreTestStatus = process.env.BACKUP_LAST_RESTORE_TEST_STATUS || "not_recorded";
+  const lastRestoreTime = lastRestoreTestAt ? new Date(lastRestoreTestAt).getTime() : 0;
+  const restoreTestFresh = Boolean(lastRestoreTime && Date.now() - lastRestoreTime <= restoreMaxAgeDays * 24 * 60 * 60 * 1000);
+  const backupConfigured = config.app.databaseProvider === "postgres" && retentionDays > 0;
+  const rollbackConfigured = Boolean(process.env.ROLLBACK_RELEASE_URL || process.env.RENDER_SERVICE_ID || process.env.VERCEL_PROJECT_ID);
+  const outageConfigured = Boolean(process.env.OUTAGE_STATUS_PAGE_URL || process.env.OUTAGE_CONTACTS);
+  const productionNeedsAttention =
+    process.env.NODE_ENV === "production" &&
+    (!backupConfigured || !restoreTestFresh || !rollbackConfigured || !outageConfigured);
+
+  return {
+    status: productionNeedsAttention ? "attention" : "ok",
+    checkedAt: new Date().toISOString(),
+    database,
+    backup: {
+      provider,
+      configured: backupConfigured,
+      retentionDays,
+      policyUrlConfigured: Boolean(process.env.BACKUP_POLICY_URL),
+      restoreRunbookConfigured: Boolean(process.env.BACKUP_RESTORE_RUNBOOK_URL),
+    },
+    restore: {
+      lastTestAt: lastRestoreTestAt || null,
+      lastStatus: lastRestoreTestStatus,
+      maxAgeDays: restoreMaxAgeDays,
+      fresh: restoreTestFresh,
+    },
+    rollback: {
+      configured: rollbackConfigured,
+      releaseUrlConfigured: Boolean(process.env.ROLLBACK_RELEASE_URL),
+      renderServiceConfigured: Boolean(process.env.RENDER_SERVICE_ID),
+      vercelProjectConfigured: Boolean(process.env.VERCEL_PROJECT_ID),
+    },
+    outage: {
+      configured: outageConfigured,
+      statusPageConfigured: Boolean(process.env.OUTAGE_STATUS_PAGE_URL),
+      contactsConfigured: Boolean(process.env.OUTAGE_CONTACTS),
+    },
+    runbook: process.env.BACKUP_RESTORE_RUNBOOK_URL || "docs/disaster-recovery.md",
+  };
+}
+
 async function buildQueueStatus() {
   const status = await opsStore.queueStatus();
   return {
@@ -1194,6 +1242,15 @@ app.get("/admin/db-status", requireAdminAuth, async (_req, res) => {
   } catch (err: any) {
     captureOperationalError("Database status check failed", err);
     res.status(503).json({ status: "error", error: err.message || "Database check failed" });
+  }
+});
+
+app.get("/admin/dr/status", requireAdminAuth, async (_req, res) => {
+  try {
+    res.status(200).json(await buildDisasterRecoveryStatus());
+  } catch (err: any) {
+    captureOperationalError("Disaster recovery status check failed", err);
+    res.status(503).json({ status: "error", error: err.message || "Disaster recovery check failed" });
   }
 });
 
