@@ -215,6 +215,16 @@ type EscrowTimeline = {
   supportCases: SupportCase[];
 };
 
+type DisputeRow = {
+  escrow: EscrowRecord;
+  openedAt: string;
+  evidenceCount: number;
+  latestEventAt: string;
+  supportCases: SupportCase[];
+  transactions: Array<{ transactionId: string; provider: string; transactionType: string; status: string; reference?: string; amount: number; currency: string; createdAt: string; updatedAt: string }>;
+  events: EscrowTimeline["events"];
+};
+
 type AuthSessionRecord = {
   sessionId: string;
   adminIdentifier: string;
@@ -235,7 +245,7 @@ type AuthStats = {
   timestamp?: string;
 };
 
-type Tab = "escrows" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
+type Tab = "escrows" | "disputes" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -289,6 +299,10 @@ function App() {
   const [supportNoteDraft, setSupportNoteDraft] = useState("");
   const [timeline, setTimeline] = useState<EscrowTimeline | null>(null);
   const [timelineEscrowId, setTimelineEscrowId] = useState("");
+  const [disputes, setDisputes] = useState<DisputeRow[]>([]);
+  const [selectedDispute, setSelectedDispute] = useState<DisputeRow | null>(null);
+  const [evidenceDraft, setEvidenceDraft] = useState({ evidenceType: "other", source: "admin", summary: "", uri: "" });
+  const [resolutionDraft, setResolutionDraft] = useState({ outcome: "release_to_seller", reason: "", reference: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [feeSettings, setFeeSettings] = useState<FeeSettings | null>(null);
   const [feeFormData, setFeeFormData] = useState({
@@ -371,6 +385,8 @@ function App() {
     setSelectedSupportCase(null);
     setSupportNotes([]);
     setTimeline(null);
+    setDisputes([]);
+    setSelectedDispute(null);
     setSelectedTask(null);
   };
 
@@ -503,6 +519,17 @@ function App() {
     setWebhooks((await response.json()) || []);
   };
 
+  const loadDisputes = async () => {
+    if (!adminKey) return;
+    const response = await fetch(`${apiBase}/admin/disputes?limit=100`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load disputes"));
+    const rows = (await response.json()) || [];
+    setDisputes(rows);
+    if (selectedDispute) {
+      setSelectedDispute(rows.find((row: DisputeRow) => row.escrow.escrowId === selectedDispute.escrow.escrowId) || null);
+    }
+  };
+
   const loadFeeSettings = async () => {
     if (!adminKey) return;
     const response = await fetch(`${apiBase}/admin/settings`, { headers: authHeaders() });
@@ -564,7 +591,7 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadReconciliation(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
+      await Promise.all([loadEscrows(), loadReconciliation(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -726,6 +753,40 @@ function App() {
     setTimeline(await response.json());
     setTimelineEscrowId(id);
     setActiveTab("audit");
+  };
+
+  const recordDisputeEvidence = async () => {
+    if (!selectedDispute || !evidenceDraft.summary.trim()) return;
+    const response = await fetch(`${apiBase}/admin/escrows/${selectedDispute.escrow.escrowId}/dispute/evidence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        evidenceType: evidenceDraft.evidenceType,
+        source: evidenceDraft.source,
+        summary: evidenceDraft.summary.trim(),
+        uri: evidenceDraft.uri.trim() || undefined,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to record dispute evidence"));
+    setEvidenceDraft({ evidenceType: "other", source: "admin", summary: "", uri: "" });
+    await Promise.all([loadDisputes(), loadOperations()]);
+  };
+
+  const resolveDispute = async () => {
+    if (!selectedDispute || !resolutionDraft.reason.trim()) return;
+    const response = await fetch(`${apiBase}/admin/escrows/${selectedDispute.escrow.escrowId}/dispute/resolve`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        outcome: resolutionDraft.outcome,
+        reason: resolutionDraft.reason.trim(),
+        reference: resolutionDraft.reference.trim() || undefined,
+      }),
+    });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to resolve dispute"));
+    setResolutionDraft({ outcome: "release_to_seller", reason: "", reference: "" });
+    setSelectedDispute(null);
+    await Promise.all([loadDisputes(), loadEscrows(), loadReconciliation(), loadOperations()]);
   };
 
   const downloadReconciliationCsv = async () => {
@@ -947,10 +1008,12 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "support", "payout", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
+        {(["escrows", "disputes", "support", "payout", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
             {tab === "escrows"
               ? "Escrows"
+              : tab === "disputes"
+              ? "Disputes"
               : tab === "support"
               ? "Support"
               : tab === "payout"
@@ -1227,6 +1290,147 @@ function App() {
             ))}
             {webhooks.length === 0 && <p className="muted">No webhook events</p>}
           </div>
+        </section>
+      )}
+
+      {activeTab === "disputes" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Dispute Desk</h2>
+              <span>{disputes.length} open</span>
+            </div>
+            <div className="event-grid">
+              {disputes.map((row) => (
+                <button
+                  key={row.escrow.escrowId}
+                  className={`event-row selectable-row ops-event error ${selectedDispute?.escrow.escrowId === row.escrow.escrowId ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelectedDispute(row);
+                    setSelectedEscrow(row.escrow);
+                    setTimelineEscrowId(row.escrow.escrowId);
+                  }}
+                >
+                  <div>
+                    <strong>{row.escrow.escrowId} · {money.format(row.escrow.amount)} {row.escrow.currency}</strong>
+                    <span>{row.escrow.purpose}</span>
+                    <span>{row.evidenceCount} evidence records · {row.supportCases.length} support cases</span>
+                  </div>
+                  <time>{formatTime(row.openedAt)}</time>
+                </button>
+              ))}
+              {disputes.length === 0 && <p className="muted">No open disputes</p>}
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Manual Resolution</h2>
+              <span>{selectedDispute ? selectedDispute.escrow.escrowId : "none"}</span>
+            </div>
+            {selectedDispute ? (
+              <div className="detail-stack">
+                <div className="detail-row"><span>Status</span><strong>{selectedDispute.escrow.status}</strong></div>
+                <div className="detail-row"><span>Payment reference</span><strong>{selectedDispute.escrow.paymentReference || "none"}</strong></div>
+                <div className="detail-row"><span>Received</span><strong>{selectedDispute.escrow.receivedAmount === undefined ? "not verified" : `${money.format(selectedDispute.escrow.receivedAmount)} ${selectedDispute.escrow.currency}`}</strong></div>
+                <div className="detail-row"><span>Latest event</span><strong>{formatTime(selectedDispute.latestEventAt)}</strong></div>
+
+                <div className="section-head ops-subhead">
+                  <h2>Evidence Capture</h2>
+                  <span>{selectedDispute.evidenceCount} records</span>
+                </div>
+                <div className="control-grid">
+                  <label className="field">
+                    <span>Type</span>
+                    <select value={evidenceDraft.evidenceType} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, evidenceType: event.target.value })}>
+                      <option value="message">Message</option>
+                      <option value="payment_proof">Payment proof</option>
+                      <option value="delivery_proof">Delivery proof</option>
+                      <option value="identity">Identity</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Source</span>
+                    <select value={evidenceDraft.source} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, source: event.target.value })}>
+                      <option value="buyer">Buyer</option>
+                      <option value="seller">Seller</option>
+                      <option value="admin">Admin</option>
+                      <option value="support">Support</option>
+                      <option value="payment_provider">Payment provider</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="field">
+                  <span>Evidence summary</span>
+                  <textarea rows={4} value={evidenceDraft.summary} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, summary: event.target.value })} />
+                </label>
+                <label className="field">
+                  <span>Evidence URL</span>
+                  <input type="url" value={evidenceDraft.uri} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, uri: event.target.value })} placeholder="https://..." autoComplete="url" />
+                </label>
+                <button
+                  className="button secondary full"
+                  disabled={!evidenceDraft.summary.trim() || actionBusy}
+                  onClick={async () => {
+                    setActionBusy(true);
+                    try {
+                      await recordDisputeEvidence();
+                    } catch (err: any) {
+                      setError(err.message || "Evidence capture failed");
+                    } finally {
+                      setActionBusy(false);
+                    }
+                  }}
+                >
+                  Record evidence
+                </button>
+
+                <div className="section-head ops-subhead">
+                  <h2>Resolution Outcome</h2>
+                  <span>manual</span>
+                </div>
+                <label className="field">
+                  <span>Outcome</span>
+                  <select value={resolutionDraft.outcome} onChange={(event) => setResolutionDraft({ ...resolutionDraft, outcome: event.target.value })}>
+                    <option value="release_to_seller">Release to seller</option>
+                    <option value="refund_buyer">Refund buyer</option>
+                    <option value="cancel_no_funds">Cancel, no funds received</option>
+                    <option value="no_action_close">Close with no action</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Reference</span>
+                  <input value={resolutionDraft.reference} onChange={(event) => setResolutionDraft({ ...resolutionDraft, reference: event.target.value })} placeholder="Payout/refund/reference ID" autoComplete="off" />
+                </label>
+                <label className="field">
+                  <span>Resolution reason</span>
+                  <textarea rows={4} value={resolutionDraft.reason} onChange={(event) => setResolutionDraft({ ...resolutionDraft, reason: event.target.value })} />
+                </label>
+                <button
+                  className="button primary full"
+                  disabled={!resolutionDraft.reason.trim() || actionBusy}
+                  onClick={async () => {
+                    setActionBusy(true);
+                    try {
+                      await resolveDispute();
+                    } catch (err: any) {
+                      setError(err.message || "Dispute resolution failed");
+                    } finally {
+                      setActionBusy(false);
+                    }
+                  }}
+                >
+                  Record manual resolution
+                </button>
+                <button className="button secondary full" onClick={() => loadEscrowTimeline(selectedDispute.escrow.escrowId)}>
+                  Open full timeline
+                </button>
+              </div>
+            ) : (
+              <p className="muted">Select a dispute to capture evidence or record the manual outcome.</p>
+            )}
+          </aside>
         </section>
       )}
 

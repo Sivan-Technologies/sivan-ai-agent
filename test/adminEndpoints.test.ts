@@ -210,6 +210,10 @@ describe("Admin Settings API Integration", () => {
     expect(support.status).toBe(200);
     expect(Array.isArray(support.body)).toBe(true);
 
+    const disputes = await request(app).get("/admin/disputes?limit=10").set(headers);
+    expect(disputes.status).toBe(200);
+    expect(Array.isArray(disputes.body)).toBe(true);
+
     const created = await request(app)
       .post("/admin/support/cases")
       .set(headers)

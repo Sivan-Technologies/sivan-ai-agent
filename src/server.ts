@@ -19,6 +19,8 @@ import { requireCoreApiAuth } from "./middleware/apiAuth";
 import {
   adminSettingsSchema,
   adminReleaseApprovalSchema,
+  disputeEvidenceSchema,
+  disputeResolutionSchema,
   escrowActionSchema,
   escrowCreateSchema,
   formatZodError,
@@ -293,6 +295,29 @@ async function buildEscrowDetail(escrowId: string) {
           : "monitor",
     },
   };
+}
+
+async function buildDisputeRows(limit = 100) {
+  const escrows = await escrowStore.listEscrows(limit);
+  const disputeEscrows = escrows.filter((escrow) => escrow.status === "DISPUTED");
+  return Promise.all(disputeEscrows.map(async (escrow) => {
+    const [events, transactions, supportCases] = await Promise.all([
+      escrowStore.listEvents(escrow.escrowId, 25),
+      escrowStore.listTransactions(escrow.escrowId),
+      opsStore.searchSupportCases(escrow.escrowId, 10),
+    ]);
+    const evidenceCount = events.filter((event) => event.eventType === "dispute_evidence_recorded").length;
+    const openedAt = events.find((event) => event.eventType === "dispute_opened")?.createdAt || escrow.updatedAt;
+    return {
+      escrow,
+      openedAt,
+      evidenceCount,
+      latestEventAt: events[0]?.createdAt || escrow.updatedAt,
+      supportCases,
+      transactions,
+      events,
+    };
+  }));
 }
 
 async function buildReconciliationRows(limit = 250) {
@@ -1019,6 +1044,81 @@ app.post("/admin/escrows/:escrowId/dispute", requireAdminAuth, logAdminAction("a
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Dispute failed" });
+  }
+});
+
+app.get("/admin/disputes", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await buildDisputeRows(parsed.data.limit));
+});
+
+app.post("/admin/escrows/:escrowId/dispute/evidence", requireAdminAuth, logAdminAction("record_dispute_evidence"), async (req, res) => {
+  const parsed = disputeEvidenceSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid dispute evidence payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (escrow.status !== "DISPUTED") {
+    return res.status(400).json({ error: `Evidence can only be added while escrow is DISPUTED, current status is ${escrow.status}` });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const evidence = parsed.data;
+  await escrowStore.addEvent({
+    escrowId: escrow.escrowId,
+    actor: evidence.submittedBy || adminUser,
+    actorRole: evidence.source,
+    channel: "admin",
+    previousStatus: escrow.status,
+    nextStatus: escrow.status,
+    eventType: "dispute_evidence_recorded",
+    reason: evidence.summary,
+    metadata: JSON.stringify({
+      evidenceType: evidence.evidenceType,
+      uri: evidence.uri || null,
+      recordedBy: adminUser,
+    }),
+  });
+  const supportCases = await opsStore.searchSupportCases(escrow.escrowId, 1);
+  if (supportCases[0]) {
+    await opsStore.addSupportNote(
+      supportCases[0].caseId,
+      adminUser,
+      `${evidence.evidenceType}: ${evidence.summary}${evidence.uri ? ` (${evidence.uri})` : ""}`,
+      "dispute_evidence"
+    );
+  }
+  res.status(201).json(await buildEscrowDetail(escrow.escrowId));
+});
+
+app.post("/admin/escrows/:escrowId/dispute/resolve", requireAdminAuth, logAdminAction("resolve_dispute"), async (req, res) => {
+  const parsed = disputeResolutionSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid dispute resolution payload", details: formatZodError(parsed.error) });
+  }
+  try {
+    const adminUser = (req as any).adminUser || "unknown";
+    const updated = await escrowStore.resolveDispute(req.params.escrowId, adminUser, parsed.data);
+    const supportCases = await opsStore.searchSupportCases(req.params.escrowId, 5);
+    await Promise.all(supportCases.map(async (supportCase) => {
+      await opsStore.updateSupportCase(supportCase.caseId, { status: "resolved", priority: supportCase.priority });
+      await opsStore.addSupportNote(
+        supportCase.caseId,
+        adminUser,
+        `Dispute resolved as ${parsed.data.outcome}: ${parsed.data.reason}${parsed.data.reference ? ` Reference: ${parsed.data.reference}` : ""}`,
+        "dispute_resolved"
+      );
+    }));
+    res.status(200).json({ escrow: updated, detail: await buildEscrowDetail(updated.escrowId), supportCases });
+  } catch (err: any) {
+    capturePaymentWarning("Admin dispute resolution failed", {
+      escrowId: req.params.escrowId,
+      error: err.message || err,
+    });
+    res.status(400).json({ error: err.message || "Dispute resolution failed" });
   }
 });
 

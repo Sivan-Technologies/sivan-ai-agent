@@ -166,4 +166,40 @@ describe("EscrowStore", () => {
     expect(events.map((event) => event.eventType)).toContain("payment_review_required");
     expect(transactions[0].status).toBe("review_required");
   });
+
+  it("records manual dispute resolution outcomes", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000011", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000012", "seller");
+    await escrowStore.upsertPayoutAccount({
+      userId: seller.userId,
+      bankName: "Test Bank",
+      bankCode: "999",
+      accountNumber: "0123456789",
+      accountName: "Seller User",
+      verificationStatus: "verified",
+    });
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 20000,
+      currency: "NAIRA",
+      purpose: "Disputed content delivery",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.markDisputed(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm", "Buyer says work was not delivered");
+    const resolved = await escrowStore.resolveDispute(escrow.escrowId, "admin", {
+      outcome: "release_to_seller",
+      reason: "Evidence showed seller delivered the work",
+      reference: "dispute-payout-1",
+    });
+    const events = await escrowStore.listEvents(escrow.escrowId);
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+
+    expect(resolved.status).toBe("RELEASED");
+    expect(resolved.manualPayoutReference).toBe("dispute-payout-1");
+    expect(events.map((event) => event.eventType)).toContain("dispute_resolved");
+    expect(transactions.map((transaction) => transaction.status)).toContain("manual_dispute_release");
+  });
 });

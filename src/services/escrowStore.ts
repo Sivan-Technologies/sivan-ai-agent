@@ -819,6 +819,68 @@ export class EscrowStore {
     return (await this.getEscrowById(escrowId))!;
   }
 
+  public async resolveDispute(
+    escrowId: string,
+    adminUser: string,
+    options: { outcome: "release_to_seller" | "refund_buyer" | "cancel_no_funds" | "no_action_close"; reason: string; reference?: string }
+  ): Promise<EscrowRecord> {
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) throw new Error("Escrow not found");
+    if (escrow.status !== "DISPUTED") {
+      throw new Error(`Escrow dispute cannot be resolved from ${escrow.status}`);
+    }
+    if (options.outcome === "release_to_seller" && escrow.currency === "NAIRA" && !options.reference?.trim()) {
+      throw new Error("A payout reference is required when resolving a Naira dispute to seller release");
+    }
+
+    const nextStatus: EscrowStatus =
+      options.outcome === "release_to_seller"
+        ? "RELEASED"
+        : "CANCELLED";
+
+    await this.transitionEscrow(escrowId, nextStatus, {
+      actor: adminUser,
+      actorRole: "admin",
+      channel: "admin",
+      eventType: "dispute_resolved",
+      reason: options.reason,
+      metadata: {
+        outcome: options.outcome,
+        reference: options.reference || null,
+      },
+    });
+
+    if (options.outcome === "release_to_seller") {
+      const reference = options.reference || `dispute-release-${escrowId}`;
+      await this.recordPayoutReconciliation(escrowId, adminUser, reference, `Dispute resolution: ${options.reason}`);
+      await this.addTransaction({
+        escrowId,
+        provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
+        transactionType: "release",
+        status: "manual_dispute_release",
+        amount: escrow.amount,
+        currency: escrow.currency,
+        reference,
+        rawPayload: JSON.stringify({ outcome: options.outcome, reason: options.reason }),
+      });
+    }
+
+    if (options.outcome === "refund_buyer") {
+      await this.addTransaction({
+        escrowId,
+        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "paystack" : "x402"),
+        transactionType: "refund",
+        status: "manual_refund_recorded",
+        amount: escrow.receivedAmount || escrow.amount,
+        currency: escrow.currency,
+        reference: options.reference,
+        rawPayload: JSON.stringify({ outcome: options.outcome, reason: options.reason }),
+      });
+    }
+
+    return (await this.getEscrowById(escrowId))!;
+  }
+
   private async assertBuyerActor(escrow: EscrowRecord, actor: string): Promise<void> {
     const buyer = await this.getUserById(escrow.buyerUserId);
     if (!buyer || buyer.whatsappNumber !== actor) {

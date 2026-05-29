@@ -237,7 +237,7 @@ Legend:
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and Paystack-verified payout account are complete |
 | Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout reference and stores reconciliation details |
 | Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
-| Phase 10 | Support and dispute workflow | ✅ Support Ops MVP / 🟡 dispute resolution next | Admin Support tab now provides inbox, status tracking, internal notes, operator assignment, search, and dispute-linked support cases; evidence capture and final dispute outcomes are next |
+| Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Sentry hooks, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
@@ -246,6 +246,7 @@ Legend:
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
 | Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
 | Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, operator actions, release history, payment history, dispute history, and linked support cases |
+| Phase 11H | Dispute evidence and resolution | ✅ Completed for manual-resolution MVP | Admin Disputes tab lists open disputes, captures evidence records, links support cases, records manual outcomes, writes release/refund/cancel events, and closes related support cases |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
 | Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced, build cleanly, and Telegram production docs/dependencies are pushed; remaining work is deploy-time env wiring, live smoke checks, and production incident drills |
@@ -311,6 +312,7 @@ The current system already has:
 - ✅ high-risk escrow blocks and review signals with operator-visible abuse analytics
 - ✅ admin Risk tab for abuse reputation watchlist, request/device fingerprint watch, velocity outliers, and recent signals
 - ✅ support workflow foundation: Admin Support tab, support inbox, assignments, status updates, search, internal notes, and automatic case creation from disputes
+- ✅ dispute desk foundation: Admin Disputes tab, evidence capture, manual resolution outcomes, release/refund/cancel event history, and related support-case closure
 - ✅ queue resilience foundation: persistent queue status, job ledger, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
 - ✅ Paystack webhook recovery jobs are enqueued automatically when webhook processing fails after a valid reference is present
 - ✅ Admin Payout Safety tab and payout safety review queue exist before autonomous payout automation
@@ -339,10 +341,12 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | WhatsApp bot sync | ✅ Build clean | Repo is not behind `origin/main`; uncommitted local edits remain and were preserved |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
 | x402/SAP live proof | 🟡 Requires operator credentials/run | Needs real SAP/x402 credentials plus either `X402_VERIFY_PAYMENT_ID` or intentional `X402_VERIFY_CREATE_PAYMENT=true`; do not mark production settlement fully verified until a live proof artifact exists |
-| Dispute evidence and resolution | 🟡 Next escrow feature | Dispute state and support cases exist; evidence capture, admin resolution, refund/release outcomes, and user-facing history remain |
+| Dispute evidence and resolution | ✅ Completed for manual-resolution MVP / 🟡 user-facing history next | Dispute state, support cases, evidence capture, admin resolution, refund/release/cancel outcomes, and audit history exist; user-facing dispute history remains |
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.
 
+##databse recommendation strong advice or must
+do not use render free monthly database to scale strongly use another long time database
 ## Recommended MVP Release Policy
 
 For the first MVP:
@@ -445,5 +449,5 @@ Next production-hardening focus:
 1. 🟡 Run live smoke checks against the deployed Render services after every deploy and wire GitHub secrets.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. 🟡 Add deploy-time incident drills for queue replay, webhook recovery, and payout failure recovery.
-4. 🟡 Add dispute evidence capture and admin resolution outcomes.
+4. 🟡 Add user-facing dispute history and participant notifications for dispute evidence/resolution updates.
 5. 🟡 Add stronger fraud controls beyond MVP: cross-device graphing, persistent malicious-user reputation actions, and automated abuse trend alerts.
