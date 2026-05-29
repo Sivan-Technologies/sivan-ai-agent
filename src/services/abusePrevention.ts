@@ -37,10 +37,25 @@ export class AbusePreventionService {
     const highAmountNaira = Number(process.env.ABUSE_HIGH_AMOUNT_NAIRA || "1000000");
     const highAmountUsdc = Number(process.env.ABUSE_HIGH_AMOUNT_USDC || "5000");
 
-    const [recent, buyer] = await Promise.all([
+    const [recent, buyer, actions] = await Promise.all([
       this.escrowStore.listEscrows(250),
       this.escrowStore.findUserByWhatsapp(input.buyerWhatsapp),
+      this.opsStore.listAbuseActions(500),
     ]);
+    const now = Date.now();
+    const activeActions = actions.filter((action) => !action.expiresAt || new Date(action.expiresAt).getTime() > now);
+    const matchingAction = activeActions.find((action) => {
+      if (action.subjectId === input.buyerWhatsapp) return true;
+      if (input.deviceFingerprint && action.subjectId === input.deviceFingerprint) return true;
+      if (input.requestIp && action.subjectId === input.requestIp) return true;
+      if (input.userAgent && action.subjectId === input.userAgent) return true;
+      return false;
+    });
+    if (matchingAction) {
+      const score = matchingAction.action === "block" ? 100 : matchingAction.action === "limit" ? 70 : 35;
+      riskScore += score;
+      reasons.push(`Active abuse action ${matchingAction.action}: ${matchingAction.reason}`);
+    }
     const buyerRecent = buyer
       ? recent.filter((escrow) => escrow.buyerUserId === buyer.userId || escrow.sellerWhatsapp === input.buyerWhatsapp)
       : [];

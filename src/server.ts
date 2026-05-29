@@ -19,6 +19,9 @@ import { requireCoreApiAuth } from "./middleware/apiAuth";
 import {
   adminSettingsSchema,
   adminReleaseApprovalSchema,
+  abuseActionSchema,
+  disputeEvidenceSchema,
+  disputeResolutionSchema,
   escrowActionSchema,
   escrowCreateSchema,
   formatZodError,
@@ -64,6 +67,7 @@ void escrowStore.initializeSchema();
 void opsStore.initializeSchema();
 const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 const paystackClient = new PaystackClient();
+let lastAbuseTrendAlertAt = 0;
 
 const corsOrigin = process.env.FRONTEND_URL || "*";
 app.use(cors({ origin: corsOrigin }));
@@ -143,6 +147,7 @@ async function buildAbuseAnalytics(limit = 500) {
     opsStore.listAbuseSignals(limit),
     escrowStore.listEscrows(limit),
   ]);
+  const actions = await opsStore.listAbuseActions(limit);
   const severityCounts = signals.reduce<Record<string, number>>((acc, signal) => {
     acc[signal.severity] = (acc[signal.severity] || 0) + 1;
     return acc;
@@ -215,15 +220,17 @@ async function buildAbuseAnalytics(limit = 500) {
     buyerVelocity.set(escrow.buyerUserId, current);
   }
 
-  return {
+  const analytics = {
     totals: {
       signals: signals.length,
       criticalSignals: signals.filter((signal) => signal.severity === "critical").length,
       highSignals: signals.filter((signal) => signal.severity === "high").length,
       monitoredEscrows: escrows.length,
+      activeActions: actions.filter((action) => !action.expiresAt || new Date(action.expiresAt).getTime() > Date.now()).length,
     },
     severityCounts,
     categoryCounts,
+    actions: actions.slice(0, 50),
     reputationWatchlist: Array.from(subjectMap.values())
       .sort((a, b) => b.maxRiskScore - a.maxRiskScore || b.signals - a.signals)
       .slice(0, 25),
@@ -236,6 +243,20 @@ async function buildAbuseAnalytics(limit = 500) {
       .sort((a, b) => b.escrows - a.escrows || b.active - a.active)
       .slice(0, 25),
   };
+  const alertThreshold = Number(process.env.ABUSE_TREND_ALERT_MIN_SIGNALS || "5");
+  const now = Date.now();
+  if (
+    (analytics.totals.criticalSignals >= alertThreshold || analytics.fingerprintWatchlist.length >= alertThreshold) &&
+    now - lastAbuseTrendAlertAt > 15 * 60_000
+  ) {
+    lastAbuseTrendAlertAt = now;
+    capturePaymentWarning("Abuse trend threshold reached", {
+      criticalSignals: analytics.totals.criticalSignals,
+      fingerprintWatchCount: analytics.fingerprintWatchlist.length,
+      threshold: alertThreshold,
+    });
+  }
+  return analytics;
 }
 
 function paystackEmailForWhatsapp(whatsappNumber: string) {
@@ -293,6 +314,50 @@ async function buildEscrowDetail(escrowId: string) {
           : "monitor",
     },
   };
+}
+
+async function buildDisputeRows(limit = 100) {
+  const escrows = await escrowStore.listEscrows(limit);
+  const disputeEscrows = escrows.filter((escrow) => escrow.status === "DISPUTED");
+  return Promise.all(disputeEscrows.map(async (escrow) => {
+    const [events, transactions, supportCases] = await Promise.all([
+      escrowStore.listEvents(escrow.escrowId, 25),
+      escrowStore.listTransactions(escrow.escrowId),
+      opsStore.searchSupportCases(escrow.escrowId, 10),
+    ]);
+    const evidenceCount = events.filter((event) => event.eventType === "dispute_evidence_recorded").length;
+    const openedAt = events.find((event) => event.eventType === "dispute_opened")?.createdAt || escrow.updatedAt;
+    return {
+      escrow,
+      openedAt,
+      evidenceCount,
+      latestEventAt: events[0]?.createdAt || escrow.updatedAt,
+      supportCases,
+      transactions,
+      events,
+    };
+  }));
+}
+
+async function disputeHistoryForEscrow(escrowId: string) {
+  const detail = await buildEscrowDetail(escrowId);
+  if (!detail) return null;
+  const eventTypes = new Set(["dispute_opened", "dispute_evidence_recorded", "dispute_resolved"]);
+  return {
+    escrowId,
+    status: detail.escrow.status,
+    events: detail.events.filter((event) => eventTypes.has(event.eventType)),
+    transactions: detail.transactions.filter((transaction) => ["refund", "release"].includes(transaction.transactionType)),
+  };
+}
+
+async function notifyEscrowParticipants(escrow: EscrowRecord, message: string) {
+  const [buyer, seller] = await Promise.all([
+    escrowStore.getUserById(escrow.buyerUserId),
+    escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
+  ]);
+  const targets = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.sellerWhatsapp].filter(Boolean) as string[];
+  await Promise.all(Array.from(new Set(targets)).map((target) => notifyWhatsAppBot(target, message)));
 }
 
 async function buildReconciliationRows(limit = 250) {
@@ -623,6 +688,12 @@ app.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
   const detail = await buildEscrowDetail(req.params.escrowId);
   if (!detail) return res.status(404).json({ error: "Escrow not found" });
   res.status(200).json(detail);
+});
+
+app.get("/api/escrows/:escrowId/dispute-history", requireCoreApiAuth, async (req, res) => {
+  const history = await disputeHistoryForEscrow(req.params.escrowId);
+  if (!history) return res.status(404).json({ error: "Escrow not found" });
+  res.status(200).json(history);
 });
 
 app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) => {
@@ -1022,6 +1093,90 @@ app.post("/admin/escrows/:escrowId/dispute", requireAdminAuth, logAdminAction("a
   }
 });
 
+app.get("/admin/disputes", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await buildDisputeRows(parsed.data.limit));
+});
+
+app.post("/admin/escrows/:escrowId/dispute/evidence", requireAdminAuth, logAdminAction("record_dispute_evidence"), async (req, res) => {
+  const parsed = disputeEvidenceSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid dispute evidence payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (escrow.status !== "DISPUTED") {
+    return res.status(400).json({ error: `Evidence can only be added while escrow is DISPUTED, current status is ${escrow.status}` });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const evidence = parsed.data;
+  await escrowStore.addEvent({
+    escrowId: escrow.escrowId,
+    actor: evidence.submittedBy || adminUser,
+    actorRole: evidence.source,
+    channel: "admin",
+    previousStatus: escrow.status,
+    nextStatus: escrow.status,
+    eventType: "dispute_evidence_recorded",
+    reason: evidence.summary,
+    metadata: JSON.stringify({
+      evidenceType: evidence.evidenceType,
+      uri: evidence.uri || null,
+      recordedBy: adminUser,
+    }),
+  });
+  const supportCases = await opsStore.searchSupportCases(escrow.escrowId, 1);
+  if (supportCases[0]) {
+    await opsStore.addSupportNote(
+      supportCases[0].caseId,
+      adminUser,
+      `${evidence.evidenceType}: ${evidence.summary}${evidence.uri ? ` (${evidence.uri})` : ""}`,
+      "dispute_evidence"
+    );
+  }
+  if (evidence.notifyParticipants) {
+    await notifyEscrowParticipants(escrow, `Dispute update for ${escrow.escrowId}: ${evidence.summary}`);
+  }
+  res.status(201).json(await buildEscrowDetail(escrow.escrowId));
+});
+
+app.post("/admin/escrows/:escrowId/dispute/resolve", requireAdminAuth, logAdminAction("resolve_dispute"), async (req, res) => {
+  const parsed = disputeResolutionSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid dispute resolution payload", details: formatZodError(parsed.error) });
+  }
+  try {
+    const adminUser = (req as any).adminUser || "unknown";
+    const updated = await escrowStore.resolveDispute(req.params.escrowId, adminUser, parsed.data);
+    const supportCases = await opsStore.searchSupportCases(req.params.escrowId, 5);
+    await Promise.all(supportCases.map(async (supportCase) => {
+      await opsStore.updateSupportCase(supportCase.caseId, { status: "resolved", priority: supportCase.priority });
+      await opsStore.addSupportNote(
+        supportCase.caseId,
+        adminUser,
+        `Dispute resolved as ${parsed.data.outcome}: ${parsed.data.reason}${parsed.data.reference ? ` Reference: ${parsed.data.reference}` : ""}`,
+        "dispute_resolved"
+      );
+    }));
+    if (parsed.data.notifyParticipants) {
+      await notifyEscrowParticipants(
+        updated,
+        `Dispute resolved for ${updated.escrowId}: ${parsed.data.outcome}. ${parsed.data.reason}`
+      );
+    }
+    res.status(200).json({ escrow: updated, detail: await buildEscrowDetail(updated.escrowId), supportCases });
+  } catch (err: any) {
+    capturePaymentWarning("Admin dispute resolution failed", {
+      escrowId: req.params.escrowId,
+      error: err.message || err,
+    });
+    res.status(400).json({ error: err.message || "Dispute resolution failed" });
+  }
+});
+
 app.get("/admin/webhooks", requireAdminAuth, async (req, res) => {
   const parsed = limitQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -1154,6 +1309,30 @@ app.get("/admin/abuse/analytics", requireAdminAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
   res.status(200).json(await buildAbuseAnalytics(parsed.data.limit));
+});
+
+app.get("/admin/abuse/actions", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await opsStore.listAbuseActions(parsed.data.limit));
+});
+
+app.post("/admin/abuse/actions", requireAdminAuth, logAdminAction("record_abuse_action"), async (req, res) => {
+  const parsed = abuseActionSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid abuse action payload", details: formatZodError(parsed.error) });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const action = await opsStore.recordAbuseAction({ ...parsed.data, createdBy: adminUser });
+  capturePaymentWarning("Abuse reputation action recorded", {
+    subjectType: action.subjectType,
+    subjectId: action.subjectId,
+    action: action.action,
+    createdBy: adminUser,
+  });
+  res.status(201).json(action);
 });
 
 app.get("/admin/support/cases", requireAdminAuth, async (req, res) => {

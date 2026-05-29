@@ -74,6 +74,7 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `ABUSE_ESCROW_VELOCITY_LIMIT` - Recent escrow count for a buyer before velocity risk is flagged. Defaults to `8`.
 - `ABUSE_HIGH_AMOUNT_NAIRA` - Naira amount threshold that adds high-amount risk. Defaults to `1000000`.
 - `ABUSE_HIGH_AMOUNT_USDC` - USDC amount threshold that adds high-amount risk. Defaults to `5000`.
+- `ABUSE_TREND_ALERT_MIN_SIGNALS` - Critical signal or repeated-fingerprint threshold for automated abuse trend alerts. Defaults to `5`.
 - `PORT` - HTTP port for the webhook server.
 - `AGENT_TASK_TYPE`, `USER_PAYMENT_PREFERENCE`, `USER_EMAIL`, `PAYMENT_AMOUNT`, and `TASK_INSTRUCTIONS` - Optional local demo runner values only. Leave these blank/commented in production because real escrow data must come from API/WhatsApp/admin input.
 

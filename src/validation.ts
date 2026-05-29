@@ -41,6 +41,22 @@ export const escrowActionSchema = z.object({
   reason: z.string().trim().min(2).max(1000).optional(),
 });
 
+export const disputeEvidenceSchema = z.object({
+  evidenceType: z.enum(["message", "payment_proof", "delivery_proof", "identity", "other"]).default("other"),
+  source: z.enum(["buyer", "seller", "admin", "support", "payment_provider"]).default("admin"),
+  summary: z.string().trim().min(3).max(2000),
+  uri: z.string().trim().url().max(1000).optional(),
+  submittedBy: z.string().trim().min(2).max(120).optional(),
+  notifyParticipants: z.coerce.boolean().default(false),
+});
+
+export const disputeResolutionSchema = z.object({
+  outcome: z.enum(["release_to_seller", "refund_buyer", "cancel_no_funds", "no_action_close"]),
+  reason: z.string().trim().min(5).max(2000),
+  reference: z.string().trim().min(3).max(160).optional(),
+  notifyParticipants: z.coerce.boolean().default(false),
+});
+
 export const adminReleaseApprovalSchema = z.object({
   manualPayoutReference: z.string().trim().min(3).max(160),
   payoutNotes: z.string().trim().min(2).max(1000).optional(),
@@ -78,6 +94,14 @@ export const supportCaseUpdateSchema = z.object({
 export const supportSearchSchema = z.object({
   q: z.string().trim().min(2).max(120),
   limit: z.coerce.number().int().min(1).max(250).default(50),
+});
+
+export const abuseActionSchema = z.object({
+  subjectType: z.enum(["user", "device", "ip", "user_agent", "escrow_create", "other"]).default("user"),
+  subjectId: z.string().trim().min(2).max(240),
+  action: z.enum(["watch", "warn", "limit", "block", "clear"]),
+  reason: z.string().trim().min(3).max(2000),
+  expiresAt: z.string().datetime().optional(),
 });
 
 export const queueJobCreateSchema = z.object({
