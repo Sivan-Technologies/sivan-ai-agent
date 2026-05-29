@@ -50,6 +50,12 @@ export const disputeEvidenceSchema = z.object({
   notifyParticipants: z.coerce.boolean().default(false),
 });
 
+export const participantDisputeEvidenceSchema = disputeEvidenceSchema.extend({
+  actorWhatsapp: whatsappAddress,
+  source: z.enum(["buyer", "seller"]).optional(),
+  notifyParticipants: z.coerce.boolean().default(true),
+});
+
 export const disputeResolutionSchema = z.object({
   outcome: z.enum(["release_to_seller", "refund_buyer", "cancel_no_funds", "no_action_close"]),
   reason: z.string().trim().min(5).max(2000),
