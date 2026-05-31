@@ -62,8 +62,16 @@ describe("EscrowStore", () => {
     });
     const events = await escrowStore.listEvents(escrow.escrowId);
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const rawPayout = (escrowStore as any).sqlite.prepare(`SELECT account_number, account_number_encrypted, account_number_last4 FROM payout_accounts WHERE payout_account_id = ?`).get(payout.payoutAccountId);
 
     expect(payout.verificationStatus).toBe("verified");
+    expect(payout.accountNumber).toBe("****6789");
+    expect(payout.accountNumberLast4).toBe("6789");
+    expect(rawPayout.account_number).toMatch(/^acct:/);
+    expect(rawPayout.account_number).not.toContain("0123456789");
+    expect(rawPayout.account_number_encrypted).toMatch(/^enc:v1:/);
+    expect(rawPayout.account_number_encrypted).not.toContain("0123456789");
+    expect(rawPayout.account_number_last4).toBe("6789");
     expect(funded?.status).toBe("IN_PROGRESS");
     expect(funded?.receivedAmount).toBe(10000);
     expect(funded?.providerPaymentStatus).toBe("success");

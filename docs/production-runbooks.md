@@ -71,3 +71,12 @@ These runbooks keep money movement deterministic. Operators should prefer re-che
 2. Inspect `/admin/queue/jobs/:jobId`.
 3. Use `/admin/queue/jobs/:jobId/retry` with `resetAttempts=true` only after the root cause is fixed.
 4. Run `/admin/queue/run` for immediate recovery, or rely on the background worker in production.
+
+## Sentry Verification
+
+1. Confirm `SENTRY_DSN`, `SENTRY_ENVIRONMENT=production`, and `SENTRY_RELEASE` are set on the deployed service.
+2. Temporarily set `SENTRY_DEBUG_ENDPOINT_ENABLED=true`.
+3. Deploy, then call `GET /debug-sentry` on the backend or WhatsApp bot service.
+4. Confirm the error, log, metric, and trace arrive in Sentry.
+5. Immediately set `SENTRY_DEBUG_ENDPOINT_ENABLED=false` and redeploy.
+6. Do not enable `SENTRY_SEND_DEFAULT_PII` unless privacy/compliance requirements have been reviewed.

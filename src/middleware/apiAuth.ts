@@ -2,6 +2,10 @@ import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { warn } from "../lib/logger";
 
+function allowInsecureLocalAuth() {
+  return process.env.NODE_ENV !== "production" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
+}
+
 function safeEquals(a: string, b: string) {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -12,11 +16,11 @@ export function requireCoreApiAuth(req: Request, res: Response, next: NextFuncti
   const expectedSecret = process.env.CORE_API_SECRET;
 
   if (!expectedSecret) {
-    if (process.env.NODE_ENV === "production") {
+    if (!allowInsecureLocalAuth()) {
       return res.status(503).json({ error: "CORE_API_SECRET is not configured" });
     }
 
-    warn("CORE_API_SECRET not configured; allowing task ingress in non-production mode");
+    warn("CORE_API_SECRET not configured; allowing insecure local task ingress because ALLOW_INSECURE_LOCAL_AUTH=true");
     return next();
   }
 

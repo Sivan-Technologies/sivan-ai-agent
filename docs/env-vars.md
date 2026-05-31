@@ -53,11 +53,20 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or Render internal Postgres URL when `DATABASE_PROVIDER=postgres`.
 - `POSTGRES_DATABASE_URL` - Optional Render internal Postgres URL fallback used when `DATABASE_PROVIDER=postgres` and `DATABASE_URL` is blank or still a placeholder.
 - `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
-- `SENTRY_DSN` - Optional Sentry DSN for production error and payment/webhook alerting.
+- `SENTRY_DSN` - Optional Sentry DSN for production error, log, trace, and profiling telemetry. Set this in Render for the backend service.
+- `SENTRY_ENVIRONMENT` - Sentry environment name. Use `production`, `staging`, or `development`.
+- `SENTRY_RELEASE` - Optional release identifier. Use a git SHA, deploy ID, or semantic version so Sentry can group issues by release.
+- `SENTRY_TRACES_SAMPLE_RATE` - Sentry transaction trace sample rate. Recommended default is `0.1` in production and `0` locally unless debugging.
+- `SENTRY_PROFILE_SESSION_SAMPLE_RATE` - Sentry Node profiling session sample rate. Keep `0` by default; temporarily raise only while investigating performance.
+- `SENTRY_ENABLE_LOGS` - Set `true` to send structured Sentry logs.
+- `SENTRY_SEND_DEFAULT_PII` - Keep `false` unless you have reviewed privacy/compliance requirements. The app also redacts common secrets before sending events.
+- `SENTRY_DEBUG_ENDPOINT_ENABLED` - Set `true` only for a short verification window to expose `/debug-sentry`; return it to `false` immediately after confirming events arrive.
 - `OPERATIONS_ALERT_WEBHOOK_URL` - Optional HTTPS endpoint that receives operational/payment warning events as JSON.
 - `OPERATIONS_ALERT_WEBHOOK_SECRET` - Optional shared secret sent as `x-sivan-alert-secret` to the operations alert webhook.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
+- `PAYOUT_ENCRYPTION_KEY` - Required in production. Used to AES-256-GCM encrypt payout account numbers at rest. Generate a 32-byte random secret and keep it stable across deploys; rotating it requires a planned data re-encryption migration.
+- `PAYOUT_TOKEN_SECRET` - Optional separate HMAC secret used to derive deterministic payout account tokens for uniqueness/lookups without storing raw account numbers. If blank, the app falls back to `PAYOUT_ENCRYPTION_KEY`.
 - `WEBHOOK_URL` - Public URL for webhook callbacks.
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
@@ -140,10 +149,19 @@ DATABASE_URL=./data/sivan-escrow-agent.db
 POSTGRES_DATABASE_URL=
 POSTGRES_SSL=true
 SENTRY_DSN=
+SENTRY_ENVIRONMENT=development
+SENTRY_RELEASE=
+SENTRY_TRACES_SAMPLE_RATE=0
+SENTRY_PROFILE_SESSION_SAMPLE_RATE=0
+SENTRY_ENABLE_LOGS=false
+SENTRY_SEND_DEFAULT_PII=false
+SENTRY_DEBUG_ENDPOINT_ENABLED=false
 OPERATIONS_ALERT_WEBHOOK_URL=
 OPERATIONS_ALERT_WEBHOOK_SECRET=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
+PAYOUT_ENCRYPTION_KEY=change-me-32-byte-random-secret
+PAYOUT_TOKEN_SECRET=change-me-separate-hmac-secret
 WEBHOOK_URL=https://yourapp.example.com/webhooks
 SMOKE_BASE_URL=https://yourapp.example.com
 SMOKE_ADMIN_API_KEY=
