@@ -1,3 +1,5 @@
+import "./instrument";
+import * as Sentry from "@sentry/node";
 import { validateConfig, config } from "./config";
 import { SapAgent } from "./services/sapAgent";
 import { AceDataClient } from "./services/aceData";
@@ -36,6 +38,7 @@ async function runAgentWorkflow() {
 }
 
 runAgentWorkflow().catch((error) => {
+  Sentry.captureException(error);
   console.error("[ERROR]", error.message || error);
-  process.exit(1);
+  void Sentry.flush(2000).finally(() => process.exit(1));
 });

@@ -273,7 +273,7 @@ POST /webhooks/paystack
 
 The backend verifies:
 
-- webhook signature
+- webhook signature with constant-time HMAC comparison
 - payment reference
 - transaction amount
 - transaction status
@@ -373,6 +373,11 @@ Dispute AI should come later. The MVP should first preserve clean states and evi
 6. Every escrow must have a transaction ID, buyer, seller, amount, reference, state, and audit history.
 7. MVP payouts should require manual admin approval.
 8. Do not fully automate release until reconciliation, fraud handling, and dispute workflows are mature.
+9. Internal bot notifications must require `NOTIFY_SECRET`; missing notify auth should fail closed.
+10. Backend task/admin ingress must require `CORE_API_SECRET`, `ADMIN_API_KEY`, or admin JWT. Missing-secret local bypasses are only allowed with explicit `ALLOW_INSECURE_LOCAL_AUTH=true`.
+11. Payout account numbers should be encrypted or tokenized and masked in API responses before production volume increases.
+12. Seller payout account resolution should include name-match scoring before payout readiness.
+13. High-value or high-risk escrows should remain in manual review until release readiness checks pass.
 
 ## Future Privy And Crypto Flow
 
@@ -406,11 +411,12 @@ The current code already has:
 
 - authenticated `/api/tasks`
 - Paystack transfer-only initialization
-- Paystack webhook verification
+- Paystack webhook verification with constant-time HMAC comparison
 - workflow persistence
 - admin endpoints
 - WhatsApp bot bridge
-- notification callback
+- notification callback that fails closed when `NOTIFY_SECRET` is missing
+- explicit local-auth bypass opt-in for backend admin/core API development
 
 Current engineering status:
 
@@ -423,9 +429,11 @@ Current engineering status:
 7. ✅ Add explicit buyer completion before release.
 8. ✅ Add `PENDING_RELEASE` admin approval flow.
 9. ✅ Add manual payout tracking before automated Paystack transfers.
-10. 🟡 Add dispute state and admin evidence collection.
+10. ✅ Add dispute state and admin evidence collection.
 11. ✅ Add audit log for every state transition.
-12. 🟡 Continue production hardening: smoke checks, monitoring, alert routing, and live x402/SAP verification.
+12. ✅ Add cross-repo security hardening: fail-closed notify auth, crypto-random Telegram admin session tokens, Telegram auth rate limits, production CORS fail-closed behavior, Paystack constant-time HMAC comparison, and explicit local-auth opt-in.
+13. 🟡 Continue production hardening: payout-data encryption/tokenization, log redaction, live smoke checks, monitoring, alert routing, and live x402/SAP verification.
+14. 🟡 Add compliance MVP controls from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value manual review, release readiness checks, and ledger entries.
 
 ## Product Positioning
 

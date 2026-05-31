@@ -73,7 +73,9 @@ export class PaystackClient {
   public async verifyWebhookSignature(rawBody: string, signature: string): Promise<boolean> {
     log("Verifying Paystack webhook signature");
     const hash = crypto.createHmac("sha512", this.secretKey).update(rawBody).digest("hex");
-    return hash === signature;
+    const expected = Buffer.from(hash, "hex");
+    const provided = Buffer.from(signature, "hex");
+    return expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
   }
 
   public async fetchTransaction(reference: string): Promise<PaystackTransactionStatus> {

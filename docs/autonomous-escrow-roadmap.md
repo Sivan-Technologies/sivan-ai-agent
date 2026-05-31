@@ -213,9 +213,9 @@ Recommended MVP rules:
 Current estimate:
 
 ```text
-MVP escrow-core readiness: 93%
-Production financial-readiness: 90%
-Cross-repo production-readiness: 88%
+MVP escrow-core readiness: 94%
+Production financial-readiness: 91%
+Cross-repo production-readiness: 90%
 ```
 
 Legend:
@@ -239,9 +239,9 @@ Legend:
 | Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
-| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Sentry hooks, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
+| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
-| Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, admin/API auth gates, CORS, rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
+| Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, stricter admin/API auth gates, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, and operator analytics |
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
 | Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
@@ -251,9 +251,10 @@ Legend:
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
 | Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed cross-device graph analytics, trend thresholds emit operational alerts, and suggested reputation actions are surfaced for operators |
 | Phase 11L | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | Admin DR status, `npm run dr:check`, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; production still needs provider backup proof and a recorded restore drill |
+| Phase 11M | Compliance MVP | 🟡 Planned | See `docs/compliance.md`; next work is name-match scoring, shared payout account detection, high-value manual review, release readiness checks, and ledger entries |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth are synced and build cleanly; remaining work is Render/Vercel env verification, live smoke checks, recurring incident drills, and recurring DR restore drills |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend and bot smoke checks pass from local env. Remaining work is GitHub/Render secret rotation, recurring incident drills, and recurring DR restore drills |
 
 ## What Is Completed So Far
 
@@ -262,6 +263,7 @@ The current system already has:
 - ✅ backend health and readiness endpoints
 - ✅ authenticated task creation with `CORE_API_SECRET`
 - ✅ protected admin endpoints with `ADMIN_API_KEY`
+- ✅ admin/core local auth bypasses require explicit `ALLOW_INSECURE_LOCAL_AUTH=true` outside production
 - ✅ request validation with Zod
 - ✅ Postgres-backed storage support
 - ✅ production Postgres fallback: when `DATABASE_PROVIDER=postgres`, backend can use `POSTGRES_DATABASE_URL` if `DATABASE_URL` is blank or still a placeholder
@@ -269,7 +271,7 @@ The current system already has:
 - ✅ legacy `workflow_tasks` retained as agent-task history
 - ✅ Paystack transfer-only checkout configuration
 - ✅ Paystack transaction reference storage
-- ✅ Paystack webhook signature verification
+- ✅ Paystack webhook signature verification with constant-time HMAC comparison
 - ✅ Paystack transaction verification before Naira execution
 - ✅ Paystack amount mismatch detection with `REVIEW_REQUIRED`
 - ✅ admin Paystack transaction re-check by escrow reference
@@ -293,6 +295,7 @@ The current system already has:
 - ✅ improved transaction status replies with readiness, funding, payout, and next action
 - ✅ USDC/x402 policy lane: autonomous release after deterministic checks
 - ✅ WhatsApp notification callback
+- ✅ WhatsApp notification callback fails closed when `NOTIFY_SECRET` is missing
 - ✅ Twilio webhook signature validation in the bot
 - ✅ WhatsApp private-DM escrow onboarding foundation
 - ✅ WhatsApp conversation sessions persisted in Postgres for Render restart recovery
@@ -300,13 +303,15 @@ The current system already has:
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
-- ✅ Telegram admin auth repo pulled to latest `origin/main`, production docs/dependencies committed, pushed, and local build passes
-- ✅ WhatsApp bot repo checked against `origin/main` and local build passes
+- ✅ Telegram admin auth uses crypto-random session tokens, request/verify rate limiting, failed-attempt tracking, Helmet, and production CORS fail-closed behavior
+- ✅ Telegram admin auth local build and tests pass
+- ✅ WhatsApp bot local build and tests pass
 - ✅ Admin dashboard keeps both production Ops visibility and Telegram Admin Auth session visibility after the latest cross-repo sync
 - ✅ Render deployment for backend and bot
 - ✅ documentation for WhatsApp escrow MVP flow
 - ✅ admin operations visibility endpoints for database, alert, Sentry, and recent operational-event status
 - ✅ operations alert webhook routing for payment and operational warnings
+- ✅ production Sentry instrumentation for backend and WhatsApp bot with early SDK init, Express error handler, env-driven tracing/profiling/logs, source maps, and event redaction
 - ✅ admin Operations tab for database, Sentry, alert, queue, abuse, support, event, and settlement-verification visibility
 - ✅ operator smoke-check script for live Render/backend health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
 - ✅ scheduled/manual GitHub Actions production smoke workflow
@@ -336,7 +341,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Item | Status | Notes |
 | --- | --- | --- |
 | Smoke checks | ✅ Completed for operator script | `npm run smoke` checks public health/readiness plus admin database, operations, queue, webhook, reconciliation, support, and abuse surfaces when an admin key is supplied |
-| Monitoring/operational visibility | ✅ Completed for MVP | Admin operations endpoints expose database status, alert configuration, Sentry configuration, and recent operational events |
+| Monitoring/operational visibility | ✅ Completed for MVP | Admin operations endpoints expose database status, alert configuration, Sentry configuration, and recent operational events; backend and WhatsApp bot both have production Sentry SDK setup |
 | Alert routing | ✅ Completed for webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to `OPERATIONS_ALERT_WEBHOOK_URL` |
 | Queue resilience foundation | ✅ Completed for MVP | Durable queue jobs, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility exist |
 | Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, request/device fingerprint metadata, abuse signal persistence, high-risk blocking, reputation watchlist, velocity dashboard, and operator analytics exist |
@@ -344,9 +349,11 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Transaction recovery procedures | ✅ Completed for MVP | Operator runbook and admin recovery endpoints cover payment re-check, webhook recovery jobs, payout review jobs, support linking, and queue replay |
 | Payout safety layer | ✅ Completed for manual-payout MVP | Manual release approval still gates Naira payouts; Admin Payout Safety tab, payout review jobs, recovery queue, and reconciliation views prevent blind autonomous retries |
 | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab plus `/admin/escrows/:escrowId/events` expose escrow timeline, transactions, and linked support cases |
+| Cross-repo security hardening | ✅ Completed for current pass | Notify auth fails closed, Telegram OTP/session hardening is in place, Paystack HMAC comparison is constant-time, and admin/core local auth bypass requires explicit opt-in |
+| Payout data protection | ✅ Implemented for current backend | New and legacy payout account numbers are tokenized, AES-256-GCM encrypted at rest, masked in API/store responses, and shared logging redacts account/payment/secret-like values. Production must set stable `PAYOUT_ENCRYPTION_KEY` and `PAYOUT_TOKEN_SECRET` before deploy |
 | Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
-| Telegram admin auth sync | ✅ Pushed/build clean | Local repo is up to date with `origin/main`; production README fixes and lockfile-consistent dependency metadata were pushed; unrelated local edits remain and were preserved |
-| WhatsApp bot sync | ✅ Build clean | Repo is not behind `origin/main`; uncommitted local edits remain and were preserved |
+| Telegram admin auth sync | ✅ Build/test clean locally | Current local repo includes session-token hardening and production CORS fail-closed behavior; push/deploy verification remains an operator step |
+| WhatsApp bot sync | ✅ Build/test clean locally | Current local repo includes fail-closed notify auth; push/deploy verification remains an operator step |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
 | x402/SAP live proof | 🟡 Requires operator credentials/run | Needs real SAP/x402 credentials plus either `X402_VERIFY_PAYMENT_ID` or intentional `X402_VERIFY_CREATE_PAYMENT=true`; do not mark production settlement fully verified until a live proof artifact exists |
 | Dispute evidence and resolution | ✅ Completed for API/manual-resolution MVP | Dispute state, support cases, evidence capture, admin resolution, refund/release/cancel outcomes, audit history, and participant-visible dispute history API exist |
@@ -450,13 +457,14 @@ Completed from the prior immediate implementation order:
 9. ✅ production-hardening visibility: monitoring, alerts, and smoke checks
 10. ✅ retry worker system: queue claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
 11. ✅ live smoke testing surface: health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
-12. ✅ production environment hardening foundation: env docs, secret placeholders, admin/API auth gates, rate limiting, CORS, and HTTPS deploy assumptions
+12. ✅ production environment hardening foundation: env docs, secret placeholders, stricter admin/API auth gates, explicit local-auth opt-in, rate limiting, CORS, and HTTPS deploy assumptions
 13. ✅ abuse prevention expansion for MVP: velocity checks, self-dealing checks, high-amount checks, scam keyword scoring, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, velocity dashboard, and operator visibility
 14. ✅ transaction recovery procedures: payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund, and queue recovery runbook
 15. ✅ support operations workflow: Admin Support tab, support inbox, status tracking, internal notes, assignment, search, and dispute-linked support cases
 16. ✅ payout automation safety foundation: Admin Payout Safety tab, manual payout gate, payout review jobs, reconciliation views, recovery jobs, duplicate-risk prevention by operator review, and no blind autonomous retry
 17. ✅ audit/event explorer: Admin Audit tab and escrow timeline endpoint with events, transactions, operator actions, release history, payment history, dispute history, and linked support cases
 18. ✅ backup and disaster recovery foundation: Admin Ops DR status, `npm run dr:check`, backup env contract, restore-test tracking, rollback/outage procedure, and release-note template
+19. ✅ cross-repo security hardening pass: fail-closed WhatsApp notify auth, crypto-random Telegram session tokens, Telegram auth rate limits, Paystack constant-time HMAC comparison, and explicit local-auth bypass opt-in
 
 Next production-hardening focus:
 
@@ -464,5 +472,7 @@ Next production-hardening focus:
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. 🟡 Run deploy-time incident drills after each Render deploy and store the drill result in the release notes.
 4. 🟡 Run the first live database restore drill on a staging database, update `BACKUP_LAST_RESTORE_TEST_AT`, and store proof in release notes.
-5. ✅ Add richer user-facing dispute evidence flow in WhatsApp/private API; richer participant screens remain future portal work.
-6. ✅ Add cross-device graph visibility and automated reputation action suggestions; deeper graph investigation UI remains future work.
+5. ✅ Encrypt/tokenize payout account numbers at rest, mask payout API responses, and redact payout/payment secrets from logs.
+6. 🟡 Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, release readiness gates, and ledger entries.
+7. ✅ Add richer user-facing dispute evidence flow in WhatsApp/private API; richer participant screens remain future portal work.
+8. ✅ Add cross-device graph visibility and automated reputation action suggestions; deeper graph investigation UI remains future work.

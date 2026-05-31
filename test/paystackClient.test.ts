@@ -22,6 +22,14 @@ describe("PaystackClient.verifyWebhookSignature", () => {
     const ok = await client.verifyWebhookSignature(payload, signature);
     expect(ok).toBe(true);
   });
+
+  it("rejects invalid signatures without throwing", async () => {
+    (config.paystack as any).secretKey = "test-secret";
+    const client = new PaystackClient();
+    const payload = JSON.stringify({ event: "test", data: { reference: "ref-1" } });
+
+    await expect(client.verifyWebhookSignature(payload, "invalid")).resolves.toBe(false);
+  });
 });
 
 describe("PaystackClient.initializeTransaction", () => {

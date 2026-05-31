@@ -2,6 +2,10 @@ import { Request, Response, NextFunction } from "express";
 import { error, warn } from "../lib/logger";
 import jwt from "jsonwebtoken";
 
+function allowInsecureLocalAuth() {
+  return process.env.NODE_ENV !== "production" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
+}
+
 /**
  * Middleware to verify admin API key from header or env.
  * Sets req.adminUser on success.
@@ -29,12 +33,12 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
 
   // 2) Fallback to legacy static admin key if configured
   if (!adminApiKey) {
-    if (process.env.NODE_ENV === "production") {
-      error("ADMIN_API_KEY not configured in production");
+    if (!allowInsecureLocalAuth()) {
+      error("ADMIN_API_KEY not configured");
       return res.status(503).json({ error: "Admin authentication is not configured" });
     }
 
-    warn("ADMIN_API_KEY not configured; skipping auth in non-production mode");
+    warn("ADMIN_API_KEY not configured; allowing insecure local admin auth because ALLOW_INSECURE_LOCAL_AUTH=true");
     (req as any).adminUser = "anonymous";
     return next();
   }

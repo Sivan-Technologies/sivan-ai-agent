@@ -38,6 +38,7 @@ export interface PayoutAccountRecord {
   userId: string;
   bankName: string;
   accountNumber: string;
+  accountNumberLast4?: string;
   bankCode?: string;
   accountName?: string;
   verificationStatus: "pending" | "verified" | "failed";
@@ -112,6 +113,40 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
+function payoutEncryptionKey() {
+  const configured = process.env.PAYOUT_ENCRYPTION_KEY || "";
+  if (!configured && process.env.NODE_ENV === "production") {
+    throw new Error("PAYOUT_ENCRYPTION_KEY is required in production");
+  }
+  return crypto.createHash("sha256").update(configured || "sivan-local-dev-payout-key").digest();
+}
+
+function payoutAccountToken(accountNumber: string) {
+  const secret = process.env.PAYOUT_TOKEN_SECRET || process.env.PAYOUT_ENCRYPTION_KEY || process.env.CORE_API_SECRET || "sivan-local-dev-payout-token";
+  return `acct:${crypto.createHmac("sha256", secret).update(accountNumber).digest("hex").slice(0, 40)}`;
+}
+
+function encryptAccountNumber(accountNumber: string) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", payoutEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(accountNumber, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:v1:${iv.toString("base64url")}:${tag.toString("base64url")}:${encrypted.toString("base64url")}`;
+}
+
+function decryptAccountNumber(value?: string | null) {
+  if (!value?.startsWith("enc:v1:")) return null;
+  const [, , iv, tag, encrypted] = value.split(":");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", payoutEncryptionKey(), Buffer.from(iv, "base64url"));
+  decipher.setAuthTag(Buffer.from(tag, "base64url"));
+  return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64url")), decipher.final()]).toString("utf8");
+}
+
+function maskAccountNumber(accountNumber?: string | null, last4?: string | null) {
+  const suffix = last4 || accountNumber?.replace(/\D/g, "").slice(-4) || "";
+  return suffix ? `****${suffix}` : "****";
+}
+
 export class EscrowStore {
   private provider: StoreProvider;
   private sqlite?: Database.Database;
@@ -151,11 +186,14 @@ export class EscrowStore {
 
   private mapPayout(row: any): PayoutAccountRecord | null {
     if (!row) return null;
+    const decrypted = decryptAccountNumber(row.account_number_encrypted);
+    const last4 = row.account_number_last4 || decrypted?.slice(-4) || (String(row.account_number || "").startsWith("acct:") ? "" : String(row.account_number || "").slice(-4));
     return {
       payoutAccountId: row.payout_account_id,
       userId: row.user_id,
       bankName: row.bank_name,
-      accountNumber: row.account_number,
+      accountNumber: maskAccountNumber(decrypted, last4),
+      accountNumberLast4: last4 || undefined,
       bankCode: row.bank_code || undefined,
       accountName: row.account_name || undefined,
       verificationStatus: row.verification_status,
@@ -244,6 +282,8 @@ export class EscrowStore {
         user_id TEXT NOT NULL,
         bank_name TEXT NOT NULL,
         account_number TEXT NOT NULL,
+        account_number_encrypted TEXT,
+        account_number_last4 TEXT,
         bank_code TEXT,
         account_name TEXT,
         verification_status TEXT NOT NULL DEFAULT 'pending',
@@ -318,6 +358,9 @@ export class EscrowStore {
   private initializeSchemaSync() {
     this.sqlite!.exec(this.schemaSql("REAL"));
     this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "account_number_encrypted", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "account_number_last4", "TEXT");
+    this.migrateSqlitePayoutAccountNumbers();
     this.ensureSqliteColumn("escrows", "manual_payout_reference", "TEXT");
     this.ensureSqliteColumn("escrows", "payout_notes", "TEXT");
     this.ensureSqliteColumn("escrows", "released_by", "TEXT");
@@ -342,6 +385,9 @@ export class EscrowStore {
     } else {
       await this.pool!.query(this.schemaSql("DOUBLE PRECISION"));
       await this.ensurePostgresColumn("payout_accounts", "bank_code", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "account_number_encrypted", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "account_number_last4", "TEXT");
+      await this.migratePostgresPayoutAccountNumbers();
       await this.ensurePostgresColumn("escrows", "manual_payout_reference", "TEXT");
       await this.ensurePostgresColumn("escrows", "payout_notes", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
@@ -356,6 +402,52 @@ export class EscrowStore {
 
   private async ensurePostgresColumn(table: string, column: string, definition: string) {
     await this.pool!.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
+  }
+
+  private migrateSqlitePayoutAccountNumbers() {
+    const rows = this.sqlite!.prepare(`
+      SELECT payout_account_id, account_number
+      FROM payout_accounts
+      WHERE (account_number_encrypted IS NULL OR account_number_encrypted = '')
+        AND account_number NOT LIKE 'acct:%'
+    `).all() as Array<{ payout_account_id: string; account_number: string }>;
+    const update = this.sqlite!.prepare(`
+      UPDATE payout_accounts
+      SET account_number = @token,
+          account_number_encrypted = @encrypted,
+          account_number_last4 = @last4
+      WHERE payout_account_id = @payoutAccountId
+    `);
+    for (const row of rows) {
+      update.run({
+        payoutAccountId: row.payout_account_id,
+        token: payoutAccountToken(row.account_number),
+        encrypted: encryptAccountNumber(row.account_number),
+        last4: row.account_number.slice(-4),
+      });
+    }
+  }
+
+  private async migratePostgresPayoutAccountNumbers() {
+    const result = await this.pool!.query(`
+      SELECT payout_account_id, account_number
+      FROM payout_accounts
+      WHERE (account_number_encrypted IS NULL OR account_number_encrypted = '')
+        AND account_number NOT LIKE 'acct:%'
+    `);
+    for (const row of result.rows) {
+      await this.pool!.query(
+        `UPDATE payout_accounts
+         SET account_number = $1, account_number_encrypted = $2, account_number_last4 = $3
+         WHERE payout_account_id = $4`,
+        [
+          payoutAccountToken(row.account_number),
+          encryptAccountNumber(row.account_number),
+          String(row.account_number).slice(-4),
+          row.payout_account_id,
+        ]
+      );
+    }
   }
 
   public async upsertUserByWhatsapp(whatsappNumber: string, role?: string): Promise<UserRecord> {
@@ -433,32 +525,36 @@ export class EscrowStore {
     const existing = await this.getPayoutAccount(input.userId);
     const payoutAccountId = existing?.payoutAccountId || id("payout");
     const verificationStatus = input.verificationStatus || existing?.verificationStatus || "pending";
+    const accountNumberToken = payoutAccountToken(input.accountNumber);
+    const accountNumberEncrypted = encryptAccountNumber(input.accountNumber);
+    const accountNumberLast4 = input.accountNumber.slice(-4);
 
     if (existing) {
       if (this.provider === "sqlite") {
         this.sqlite!.prepare(`
           UPDATE payout_accounts
-          SET bank_name = @bankName, account_number = @accountNumber, bank_code = @bankCode, account_name = @accountName,
+          SET bank_name = @bankName, account_number = @accountNumberToken, account_number_encrypted = @accountNumberEncrypted,
+              account_number_last4 = @accountNumberLast4, bank_code = @bankCode, account_name = @accountName,
               verification_status = @verificationStatus, provider_recipient_code = @providerRecipientCode, updated_at = @now
           WHERE payout_account_id = @payoutAccountId
-        `).run({ ...input, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now, payoutAccountId });
+        `).run({ ...input, accountNumberToken, accountNumberEncrypted, accountNumberLast4, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now, payoutAccountId });
       } else {
         await this.pool!.query(
-          `UPDATE payout_accounts SET bank_name = $1, account_number = $2, bank_code = $3, account_name = $4, verification_status = $5,
-           provider_recipient_code = $6, updated_at = $7 WHERE payout_account_id = $8`,
-          [input.bankName, input.accountNumber, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, payoutAccountId]
+          `UPDATE payout_accounts SET bank_name = $1, account_number = $2, account_number_encrypted = $3, account_number_last4 = $4,
+           bank_code = $5, account_name = $6, verification_status = $7, provider_recipient_code = $8, updated_at = $9 WHERE payout_account_id = $10`,
+          [input.bankName, accountNumberToken, accountNumberEncrypted, accountNumberLast4, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, payoutAccountId]
         );
       }
     } else if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
-        VALUES (@payoutAccountId, @userId, @bankName, @accountNumber, @bankCode, @accountName, @verificationStatus, @providerRecipientCode, @now, @now)
-      `).run({ ...input, payoutAccountId, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now });
+        INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, account_number_encrypted, account_number_last4, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
+        VALUES (@payoutAccountId, @userId, @bankName, @accountNumberToken, @accountNumberEncrypted, @accountNumberLast4, @bankCode, @accountName, @verificationStatus, @providerRecipientCode, @now, @now)
+      `).run({ ...input, payoutAccountId, accountNumberToken, accountNumberEncrypted, accountNumberLast4, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now });
     } else {
       await this.pool!.query(
-        `INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [payoutAccountId, input.userId, input.bankName, input.accountNumber, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, now]
+        `INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, account_number_encrypted, account_number_last4, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [payoutAccountId, input.userId, input.bankName, accountNumberToken, accountNumberEncrypted, accountNumberLast4, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, now]
       );
     }
 

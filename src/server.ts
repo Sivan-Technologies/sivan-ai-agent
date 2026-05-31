@@ -1,3 +1,4 @@
+import "./instrument";
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
@@ -49,11 +50,6 @@ import type { PaystackTransactionStatus } from "./services/paystackClient";
 
 validateConfig();
 
-// Initialize Sentry if configured
-if (process.env.SENTRY_DSN) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.0 });
-}
-
 const app = express();
 const sapAgent = new SapAgent(config.sap.rpcUrl, config.synapse.apiKey);
 const aceData = new AceDataClient(config.aceData.baseUrl, config.aceData.apiKey);
@@ -77,11 +73,6 @@ app.use(cors({ origin: corsOrigin }));
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
 app.use(limiter);
 
-// Sentry request handler (if initialized)
-if (process.env.SENTRY_DSN) {
-  app.use(Sentry.Handlers.requestHandler());
-}
-
 app.use(bodyParser.json({ verify: (req: any, res, buf) => { req.rawBody = buf.toString(); } }));
 
 // Simple request logger
@@ -93,6 +84,17 @@ app.use((req, _res, next) => {
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok", uptime: process.uptime() });
 });
+
+if (process.env.SENTRY_DEBUG_ENDPOINT_ENABLED === "true") {
+  app.get("/debug-sentry", (_req, _res) => {
+    Sentry.logger.info("Sivan escrow Sentry debug endpoint triggered", {
+      action: "debug_sentry",
+      service: "sivan-escrow-agent",
+    });
+    Sentry.metrics.count("sivan_escrow_debug_sentry", 1);
+    throw new Error("Sivan escrow Sentry debug error");
+  });
+}
 
 async function buildDatabaseStatus() {
   const startedAt = Date.now();
@@ -1604,6 +1606,13 @@ app.get("/admin/audit-history", requireAdminAuth, async (req, res) => {
   }
 });
 
+Sentry.setupExpressErrorHandler(app);
+
+app.use((err: any, _req: any, res: any, _next: any) => {
+  error("Unhandled error in HTTP pipeline", err && (err.message || err));
+  res.status(500).json({ error: err?.message || "internal server error", eventId: res.sentry || null });
+});
+
 const port = Number(process.env.PORT || 4000);
 
 export default app;
@@ -1614,13 +1623,3 @@ if (require.main === module) {
     info(`Webhook server listening on port ${port}`);
   });
 }
-
-// Sentry error handler and generic error handler
-if (process.env.SENTRY_DSN) {
-  app.use(Sentry.Handlers.errorHandler());
-}
-
-app.use((err: any, _req: any, res: any, _next: any) => {
-  error("Unhandled error in HTTP pipeline", err && (err.message || err));
-  res.status(500).json({ error: err?.message || "internal server error" });
-});
