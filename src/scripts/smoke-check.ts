@@ -10,7 +10,13 @@ type SmokeResult = {
   detail?: string;
 };
 
-const baseUrl = (process.env.SMOKE_BASE_URL || process.env.PUBLIC_BASE_URL || "http://localhost:4000").replace(/\/$/, "");
+const configuredBaseUrl = process.env.SMOKE_BASE_URL || process.env.PUBLIC_BASE_URL;
+if (process.env.GITHUB_ACTIONS === "true" && !configuredBaseUrl) {
+  console.error("SMOKE_BASE_URL is required in GitHub Actions. Set SIVAN_SMOKE_BASE_URL or the workflow fallback URL.");
+  process.exit(1);
+}
+
+const baseUrl = (configuredBaseUrl || "http://localhost:4000").replace(/\/$/, "");
 const adminKey = process.env.SMOKE_ADMIN_API_KEY || process.env.ADMIN_API_KEY || "";
 const requireSettlementProof = ["1", "true", "yes"].includes((process.env.SMOKE_REQUIRE_SETTLEMENT_PROOF || "").toLowerCase());
 

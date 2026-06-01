@@ -791,6 +791,19 @@ app.post("/api/users/profile", requireCoreApiAuth, async (req, res) => {
   res.status(200).json(updated);
 });
 
+app.get("/api/users/profile", requireCoreApiAuth, async (req, res) => {
+  const whatsappNumber = typeof req.query.whatsappNumber === "string" ? req.query.whatsappNumber : "";
+  const parsed = userProfileSchema.shape.whatsappNumber.safeParse(whatsappNumber);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid WhatsApp number" });
+  }
+  const user = await escrowStore.findUserByWhatsapp(parsed.data);
+  if (!user) {
+    return res.status(404).json({ error: "User profile not found" });
+  }
+  res.status(200).json(user);
+});
+
 app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
   const parsed = payoutAccountSchema.safeParse(req.body);
   if (!parsed.success) {

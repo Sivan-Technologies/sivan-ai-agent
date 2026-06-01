@@ -353,7 +353,6 @@ export class EscrowStore {
 
       CREATE INDEX IF NOT EXISTS idx_escrows_status ON escrows(status);
       CREATE INDEX IF NOT EXISTS idx_escrows_payment_reference ON escrows(payment_reference);
-      CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id);
       CREATE INDEX IF NOT EXISTS idx_transactions_escrow_id ON transactions(escrow_id);
       CREATE INDEX IF NOT EXISTS idx_escrow_events_escrow_id ON escrow_events(escrow_id);
     `;
@@ -370,6 +369,7 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "released_by", "TEXT");
     this.ensureSqliteColumn("escrows", "released_at", "TEXT");
     this.ensureSqliteColumn("escrows", "client_request_id", "TEXT");
+    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
     this.ensureSqliteColumn("escrows", "received_amount", "REAL");
     this.ensureSqliteColumn("escrows", "provider_payment_status", "TEXT");
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
@@ -398,6 +398,7 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "client_request_id", "TEXT");
+      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
       await this.ensurePostgresColumn("escrows", "received_amount", "DOUBLE PRECISION");
       await this.ensurePostgresColumn("escrows", "provider_payment_status", "TEXT");
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");

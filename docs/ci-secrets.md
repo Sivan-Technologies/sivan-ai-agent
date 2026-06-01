@@ -8,7 +8,7 @@ The production smoke workflow reads:
 
 | Name | Purpose |
 | --- | --- |
-| `SIVAN_SMOKE_BASE_URL` | Backend Render URL, for example `https://sivan-escrow-agent.onrender.com` |
+| `SIVAN_SMOKE_BASE_URL` | Backend Render URL, for example `https://sivan-escrow-agent.onrender.com`; the workflow also has a Render URL fallback so CI does not accidentally smoke-test `localhost` |
 | `SIVAN_SMOKE_ADMIN_API_KEY` | Rotated admin key used only by smoke checks |
 
 Optional repository variable:
@@ -26,6 +26,8 @@ gh secret set SIVAN_SMOKE_ADMIN_API_KEY --body "<rotated-admin-key>"
 gh variable set SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF --body "false"
 gh workflow run production-smoke.yml
 ```
+
+If GitHub Actions logs show `http://localhost:4000`, the workflow is not receiving a production base URL. The workflow now falls back to the Render backend URL, but the preferred production setup is still to set `SIVAN_SMOKE_BASE_URL` explicitly so staging and production can be separated later.
 
 ## Render Backend Service
 
