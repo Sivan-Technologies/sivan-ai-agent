@@ -1,7 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
 import { config } from "../config";
-import { log } from "../lib/logger";
+import { log, warn } from "../lib/logger";
 import { NIGERIA_BANK_FALLBACKS } from "./bankFallback";
 
 export interface PaystackTransaction {
@@ -122,7 +122,10 @@ export class PaystackClient {
         slug: bank.slug,
       }));
     } catch (err: any) {
-      console.warn("[WARN] Paystack bank list unavailable; using fallback bank list", err?.message || err);
+      warn("Paystack bank list unavailable; using fallback bank list", {
+        status: err?.response?.status,
+        message: err?.message || "unknown error",
+      });
       return NIGERIA_BANK_FALLBACKS;
     }
   }
