@@ -144,6 +144,30 @@ describe("Admin Settings API Integration", () => {
     expect(Array.isArray(events.body)).toBe(true);
   });
 
+  it("should expose WhatsApp provider status through protected admin proxy", async () => {
+    const unauthorized = await request(app).get("/admin/whatsapp-provider");
+    expect(unauthorized.status).toBe(401);
+
+    const status = await request(app)
+      .get("/admin/whatsapp-provider")
+      .set("x-admin-key", "test-admin-key");
+    expect(status.status).toBe(200);
+    expect(status.body).toMatchObject({
+      activeProvider: "unknown",
+      configured: false,
+      providers: {
+        twilio: { configured: false },
+        meta: { configured: false },
+      },
+    });
+
+    const invalid = await request(app)
+      .post("/admin/whatsapp-provider")
+      .set("x-admin-key", "test-admin-key")
+      .send({ provider: "telegram" });
+    expect(invalid.status).toBe(400);
+  });
+
   it("should expose protected disaster recovery readiness without secrets", async () => {
     const unauthorized = await request(app).get("/admin/dr/status");
     expect(unauthorized.status).toBe(401);

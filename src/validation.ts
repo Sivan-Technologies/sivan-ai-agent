@@ -77,6 +77,10 @@ export const adminSettingsSchema = z.object({
   expectedVersion: z.coerce.number().int().positive(),
 });
 
+export const whatsappProviderSwitchSchema = z.object({
+  provider: z.enum(["twilio", "meta"]),
+});
+
 export const supportCaseCreateSchema = z.object({
   subject: z.string().trim().min(3).max(240),
   priority: z.enum(["low", "normal", "high", "urgent"]).default("normal"),

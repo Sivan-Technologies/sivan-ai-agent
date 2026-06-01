@@ -32,6 +32,61 @@ export async function notifyWhatsAppBotStrict(to: string, message: string) {
   }
 }
 
+export async function getWhatsAppProviderStatus() {
+  const notifyUrl = config.app.notificationUrl;
+  const secret = config.app.notificationSecret;
+
+  if (!notifyUrl) {
+    return {
+      activeProvider: "unknown",
+      configured: false,
+      providers: {
+        twilio: { configured: false },
+        meta: { configured: false },
+      },
+      warning: "NOTIFICATION_URL is not configured",
+    };
+  }
+
+  const response = await fetch(`${notifyUrl}/api/whatsapp-provider`, {
+    headers: {
+      ...(secret ? { "x-notify-secret": secret } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.text();
+    throw new Error(`WhatsApp provider status failed: ${response.status} ${payload}`);
+  }
+
+  return response.json();
+}
+
+export async function switchWhatsAppProvider(provider: "twilio" | "meta") {
+  const notifyUrl = config.app.notificationUrl;
+  const secret = config.app.notificationSecret;
+
+  if (!notifyUrl) {
+    throw new Error("NOTIFICATION_URL is not configured");
+  }
+
+  const response = await fetch(`${notifyUrl}/api/whatsapp-provider`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(secret ? { "x-notify-secret": secret } : {}),
+    },
+    body: JSON.stringify({ provider }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text();
+    throw new Error(`WhatsApp provider switch failed: ${response.status} ${payload}`);
+  }
+
+  return response.json();
+}
+
 function tryParseResult(value: string) {
   try {
     return JSON.parse(value);

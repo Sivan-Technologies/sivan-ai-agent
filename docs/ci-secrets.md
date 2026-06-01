@@ -57,7 +57,14 @@ Set or rotate these on the bot service:
 ```env
 CORE_API_SECRET=<same-rotated-core-secret-as-backend>
 NOTIFY_SECRET=<rotated-notify-secret>
+WHATSAPP_PROVIDER=twilio
 TWILIO_AUTH_TOKEN=<rotated-twilio-auth-token>
+META_ACCESS_TOKEN=<meta-system-user-token>
+META_PHONE_NUMBER_ID=<meta-phone-number-id>
+META_WHATSAPP_BUSINESS_ACCOUNT_ID=<meta-waba-id>
+META_WEBHOOK_VERIFY_TOKEN=<random-meta-webhook-verify-token>
+META_APP_SECRET=<meta-app-secret>
+META_GRAPH_API_VERSION=v23.0
 SENTRY_DSN=<sentry-dsn>
 SENTRY_ENVIRONMENT=production
 SENTRY_TRACES_SAMPLE_RATE=0.1
@@ -66,6 +73,8 @@ SENTRY_ENABLE_LOGS=true
 SENTRY_SEND_DEFAULT_PII=false
 SENTRY_DEBUG_ENDPOINT_ENABLED=false
 ```
+
+Keep Twilio credentials present until Meta has passed live inbound/outbound tests. The admin Ops panel can switch the active outbound provider through the backend proxy, but Render `WHATSAPP_PROVIDER` should be updated for the permanent deploy default.
 
 ## Verification
 

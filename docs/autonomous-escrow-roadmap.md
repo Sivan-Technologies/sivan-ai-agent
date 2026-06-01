@@ -229,7 +229,7 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
-| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
+| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, Meta Cloud API foundation now exists as a second transport, outbound messages work, webhook routes exist, optional Meta app-secret signature verification is wired, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
 | Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, buyer profiles can be fetched for repeat WhatsApp deals, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
@@ -254,7 +254,7 @@ Legend:
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, release readiness checks, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Remaining work is Phase 2 KYC provider abstraction |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend and bot smoke checks pass from local env. Remaining work is GitHub/Render secret rotation, recurring incident drills, and recurring DR restore drills |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend and bot smoke checks pass from local env; admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is GitHub/Render secret rotation, Meta live webhook verification, recurring incident drills, and recurring DR restore drills |
 
 ## What Is Completed So Far
 
