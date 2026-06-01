@@ -12,12 +12,33 @@ This runbook defines the minimum production process for recovering Sivan after d
 | Restore drill cadence | At least every 30 days and after major schema changes |
 | Rollback proof | Every production release should record the deploy SHA, smoke result, incident drill result, and DR check result |
 
+## Recommended Backup Provider
+
+Use Render paid managed Postgres point-in-time recovery as the primary MVP backup. Sivan is already hosted on Render and the backend is configured for `DATABASE_PROVIDER=postgres`, so this keeps recovery operationally simple while still supporting isolated restore validation before cutting services over.
+
+Recommended layers:
+
+| Layer | Use now? | Purpose |
+| --- | --- | --- |
+| Render paid Postgres PITR | ✅ Primary | Fastest recovery path for accidental deletes, bad deploys, corrupt writes, or data-loss incidents |
+| Render logical export | ✅ Manual before major migrations | Portable restore artifact before risky schema/data operations |
+| S3 scheduled `pg_dump` export | 🟡 Add before higher volume | Longer retention and provider-independent backup copy |
+| SQLite file backup | ❌ Production no | Local development only; not acceptable for real-money escrow recovery |
+
+Production minimum:
+
+1. Use a paid Render Postgres instance. Free Render Postgres does not provide the recovery posture needed for real money.
+2. Keep `BACKUP_PROVIDER=render-postgres-pitr`.
+3. Set `BACKUP_RETENTION_DAYS` to the actual Render recovery window for the workspace plan.
+4. Run one staging restore drill before launch, then every 30 days.
+5. Add S3 scheduled exports once escrow volume grows or if regulatory/audit retention must exceed the Render recovery window.
+
 ## Required Environment
 
 Set these in Render or the production secret manager:
 
 ```env
-BACKUP_PROVIDER=managed-postgres
+BACKUP_PROVIDER=render-postgres-pitr
 BACKUP_RETENTION_DAYS=7
 BACKUP_POLICY_URL=
 BACKUP_RESTORE_RUNBOOK_URL=docs/disaster-recovery.md
@@ -55,12 +76,41 @@ If DR status fails because no restore drill is fresh, the deployment can remain 
 ## Database Backup Procedure
 
 1. Confirm `DATABASE_PROVIDER=postgres` in production.
-2. Confirm the database is a managed Postgres instance with provider backups enabled.
+2. Confirm the database is a paid Render Postgres instance with point-in-time recovery enabled.
 3. Confirm `BACKUP_RETENTION_DAYS` matches the provider setting.
 4. Confirm backup metadata is visible in the provider dashboard before promotion.
 5. Record the backup policy link or internal note location in `BACKUP_POLICY_URL`.
 
 SQLite is acceptable only for local development. It is not a production disaster-recovery plan.
+
+## Render Setup Checklist
+
+In the Render database dashboard:
+
+1. Open the production Postgres database.
+2. Confirm it is not on the Free instance type.
+3. Open the Recovery page and confirm point-in-time recovery is available.
+4. Record the visible recovery window in `BACKUP_RETENTION_DAYS`.
+5. Create a manual logical export before major schema changes or payment-state migrations.
+6. For a restore drill, restore to a new database instance, never over production.
+
+In the backend Render service:
+
+```env
+DATABASE_PROVIDER=postgres
+DATABASE_URL=<internal-render-postgres-url>
+POSTGRES_SSL=true
+BACKUP_PROVIDER=render-postgres-pitr
+BACKUP_RETENTION_DAYS=<actual-render-recovery-window-days>
+BACKUP_POLICY_URL=<private-render-recovery-note-or-dashboard-link>
+BACKUP_RESTORE_RUNBOOK_URL=docs/disaster-recovery.md
+BACKUP_RESTORE_TEST_MAX_AGE_DAYS=30
+ROLLBACK_RELEASE_URL=<render-service-deploys-or-runbook-url>
+OUTAGE_CONTACTS=<operator-contact-list>
+DR_BASE_URL=https://sivan-escrow-agent.onrender.com
+DR_ADMIN_API_KEY=<rotated-admin-api-key>
+DR_REQUIRE_FRESH_RESTORE=true
+```
 
 ## Restore Testing Procedure
 

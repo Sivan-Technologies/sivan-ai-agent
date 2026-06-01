@@ -79,7 +79,7 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
 - `SMOKE_REQUIRE_SETTLEMENT_PROOF` - Set `true` to make smoke checks require a previously run settlement verification proof.
-- `BACKUP_PROVIDER` - Human-readable backup provider label shown in admin DR status, for example `managed-postgres`.
+- `BACKUP_PROVIDER` - Human-readable backup provider label shown in admin DR status. Use `render-postgres-pitr` for the production Render Postgres backup plan.
 - `BACKUP_RETENTION_DAYS` - Number of days production database backups are retained. Use the real managed database retention, not an aspirational value.
 - `BACKUP_POLICY_URL` - Optional private runbook/provider URL proving where backup policy is documented.
 - `BACKUP_RESTORE_RUNBOOK_URL` - Runbook path or URL for restore testing. Defaults to `docs/disaster-recovery.md`.
