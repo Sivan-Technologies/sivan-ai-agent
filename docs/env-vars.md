@@ -199,8 +199,8 @@ For production, set the backend service to use the managed Postgres URL. With Ne
 
 ```env
 DATABASE_PROVIDER=postgres
-DATABASE_URL=postgresql://user:password@neon-pooler-host/db?sslmode=require&channel_binding=require
-POSTGRES_DATABASE_URL=postgresql://user:password@neon-pooler-host/db?sslmode=require&channel_binding=require
+DATABASE_URL=postgresql://user:password@neon-pooler-host/db?sslmode=verify-full&channel_binding=require
+POSTGRES_DATABASE_URL=postgresql://user:password@neon-pooler-host/db?sslmode=verify-full&channel_binding=require
 POSTGRES_SSL=true
 ```
 

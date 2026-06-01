@@ -98,8 +98,8 @@ In the backend service:
 
 ```env
 DATABASE_PROVIDER=postgres
-DATABASE_URL=<neon-pooled-connection-url-for-runtime>
-POSTGRES_DATABASE_URL=<neon-pooled-connection-url-for-runtime>
+DATABASE_URL=<neon-pooled-connection-url-for-runtime-with-sslmode-verify-full>
+POSTGRES_DATABASE_URL=<neon-pooled-connection-url-for-runtime-with-sslmode-verify-full>
 POSTGRES_SSL=true
 BACKUP_PROVIDER=neon-postgres-pitr
 BACKUP_RETENTION_DAYS=<actual-neon-restore-window-days>
