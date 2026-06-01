@@ -20,7 +20,21 @@ That gives Sivan a strong early trust foundation without adding unnecessary onbo
 
 Full BVN/NIN/selfie verification should be added only when transaction size, fraud signals, or regulatory posture requires it.
 
-## Layer 1: Financial Compliance
+## Compliance Layer Status
+
+| Layer | Status | Summary |
+| --- | --- | --- |
+| Layer 1: Financial Compliance | 🟡 Partially complete | MVP phone/profile/bank resolution/name-match controls are implemented; full BVN/NIN/selfie KYC is not yet implemented |
+| Layer 1C: AML MVP | 🟡 Partially complete | Velocity, high-value, shared-account, abuse signals, and operator review foundations exist; deeper dispute-ratio/user-level AML scoring remains next |
+| Layer 1D: Release Controls | 🟡 Partially complete | Manual Naira payout approval, payout verification, name-match, shared-account, and high-value gates exist; aggregate compliance risk gate and support-case automation remain next |
+| Layer 2: Data Protection | ✅ Complete for MVP | Payout account tokenization, AES-256-GCM encryption, masking, and log redaction are implemented |
+| Layer 3: Escrow Accounting | 🟡 Partially complete | Funding, release, and refund ledger entries exist; explicit fee-capture entries are still pending |
+| Layer 4: Fraud Engine | 🟡 Partially complete | Abuse signals, reputation actions, velocity/high-amount checks, shared-account/name-match release gates exist; deeper graph/dispute scoring remains next |
+| Phase 2 KYC | 🔴 Not started | Prembly/Smile/Paystack identity-document validation abstraction is still future work |
+
+Legend: ✅ complete for MVP, 🟡 partially complete, 🔴 not started, 🔮 future.
+
+## Layer 1: Financial Compliance 🟡
 
 ### MVP Identity Verification
 
@@ -28,11 +42,14 @@ MVP identity verification should require:
 
 | Check | Source | Status |
 | --- | --- | --- |
-| Phone number | WhatsApp/Twilio sender | Implemented as primary user identity |
-| Full name | Private WhatsApp DM | Implemented for buyer and seller profiles |
-| Bank account number | Private WhatsApp DM | Implemented; now encrypted/tokenized at rest |
-| Bank/account name resolution | Paystack `/bank/resolve` | Implemented through `PaystackClient.resolveBankAccount` |
-| Name match score | Internal scoring | Implemented for MVP |
+| Phone number | WhatsApp/Twilio sender | ✅ Implemented as primary user identity |
+| Full name | Private WhatsApp DM | ✅ Implemented for buyer and seller profiles |
+| Bank account number | Private WhatsApp DM | ✅ Implemented; now encrypted/tokenized at rest |
+| Bank/account name resolution | Paystack `/bank/resolve` | ✅ Implemented through `PaystackClient.resolveBankAccount` |
+| Fallback bank search | Built-in Nigerian bank list | ✅ Implemented so setup can continue during Paystack bank-list outages |
+| Fallback account name enquiry | Monnify Name Enquiry | 🟡 Implemented as optional fallback when credentials are configured |
+| Name match score | Internal scoring | ✅ Implemented for MVP |
+| BVN/NIN/selfie KYC | KYC provider | 🔴 Not started; Phase 2 |
 
 Recommended flow:
 
@@ -83,7 +100,7 @@ Current implementation:
 - Weak matches set `verification_status=pending` and block acceptance/release until manual review.
 - Failed matches set `verification_status=failed` and return a verification error.
 
-### Production KYC Phase
+### Production KYC Phase 🔴
 
 Do not add full KYC to the first live MVP unless a payment partner requires it.
 
@@ -117,7 +134,7 @@ Provider path:
 
 Paystack's customer validation flow can validate bank-account details with identity documents, but bank support is country/bank dependent and the documented Validate Account flow is not the same low-friction Nigerian `/bank/resolve` lookup. Use it for higher-risk Paystack-backed flows where the required identity document is available, not as the first MVP gate.
 
-## Layer 1C: AML MVP
+## Layer 1C: AML MVP 🟡
 
 Sivan does not need bank-grade AML on day one, but every escrow should produce risk signals.
 
@@ -125,12 +142,12 @@ Track these signals:
 
 | Signal | Example | MVP action |
 | --- | --- | --- |
-| Velocity | 10 escrows today | Increase risk score |
-| Large transaction | Amount above `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` | Implemented release review gate |
-| Shared payout account | Multiple sellers use same account token | Implemented payout review gate |
-| High dispute rate | Seller dispute ratio above 30% | Manual review or account limit |
-| New user | First transaction | Mild risk increase |
-| Repeated device/fingerprint | Same device across many accounts | Risk increase |
+| Velocity | 10 escrows today | ✅ Increases risk score |
+| Large transaction | Amount above `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` | ✅ Implemented release review gate |
+| Shared payout account | Multiple sellers use same account token | ✅ Implemented payout review gate |
+| High dispute rate | Seller dispute ratio above 30% | 🔴 Manual review/account limit scoring not yet implemented |
+| New user | First transaction | 🟡 Basic user history exists; explicit new-user score still pending |
+| Repeated device/fingerprint | Same device across many accounts | ✅ Risk/action foundation exists |
 
 Store per escrow and per user:
 
@@ -150,21 +167,23 @@ Risk levels:
 | 51-79 | High | Manual review before release |
 | 80-100 | Critical | Block or require enhanced KYC |
 
-## Layer 1D: Release Controls
+## Layer 1D: Release Controls 🟡
 
 Before any payout, Sivan should verify:
 
 | Gate | Required for MVP |
 | --- | --- |
-| Buyer phone identity exists | Yes |
-| Seller phone identity exists | Yes |
-| Seller profile complete | Yes |
-| Seller bank account resolved | Yes |
-| Account name match acceptable | Yes |
-| Payment verified | Yes |
-| No active dispute | Yes |
-| Risk score below release threshold | Partial; high-value/shared-account/name-match gates are enforced, deeper aggregate user risk is next |
-| Admin approved Naira payout | Yes |
+| Buyer phone identity exists | ✅ Yes |
+| Seller phone identity exists | ✅ Yes |
+| Seller profile complete | ✅ Yes |
+| Seller bank account resolved | ✅ Yes |
+| Account name match acceptable | ✅ Yes |
+| Payment verified | ✅ Yes |
+| No active dispute | ✅ Yes |
+| High-value review threshold | ✅ Yes |
+| Shared payout account review | ✅ Yes |
+| Aggregate user risk below release threshold | 🟡 Partial; deeper aggregate user risk is next |
+| Admin approved Naira payout | ✅ Yes |
 
 Recommended payout policy:
 
@@ -178,7 +197,7 @@ PENDING_RELEASE
 
 If a release check fails, keep the escrow in `REVIEW_REQUIRED` or block the release action with a specific compliance reason. Current release checks block weak/failed account-name matches, shared payout accounts, and high-value releases before admin payout approval.
 
-## Layer 2: Data Protection
+## Layer 2: Data Protection ✅
 
 Current status:
 
@@ -196,7 +215,7 @@ Production requirements:
 - keep `SENTRY_SEND_DEFAULT_PII=false`
 - keep provider data scrubbing enabled in Sentry
 
-## Layer 3: Escrow Accounting
+## Layer 3: Escrow Accounting 🟡
 
 Sivan should add a ledger before volume grows.
 
@@ -204,10 +223,10 @@ Current system tracks escrow state and transactions. The backend now also writes
 
 | Event | Debit | Credit |
 | --- | --- | --- |
-| Buyer funds escrow | Buyer receivable/payment rail | Escrow liability |
-| Seller payout release | Escrow liability | Seller payable/payment rail |
-| Buyer refund | Escrow liability | Buyer refund/payment rail |
-| Fee capture | Escrow liability | Sivan revenue |
+| Buyer funds escrow | ✅ Buyer receivable/payment rail | ✅ Escrow liability |
+| Seller payout release | ✅ Escrow liability | ✅ Seller payable/payment rail |
+| Buyer refund | ✅ Escrow liability | ✅ Buyer refund/payment rail |
+| Fee capture | 🔴 Escrow liability | 🔴 Sivan revenue |
 
 Recommended table:
 
@@ -229,7 +248,7 @@ Do this before high transaction volume. It prevents reconciliation and accountin
 
 Remaining ledger work: add explicit fee-capture entries once fee policy is finalized.
 
-## Layer 4: Fraud Engine
+## Layer 4: Fraud Engine 🟡
 
 Sivan already has abuse signals and reputation actions. Expand them into explicit compliance-grade risk decisions.
 
@@ -237,14 +256,14 @@ Initial scoring:
 
 | Event | Score |
 | --- | ---: |
-| New user | +5 |
-| Large amount | +20 |
-| Velocity spike | +20 |
-| Multiple devices | +15 |
-| Multiple disputes | +30 |
-| Shared payout account | +25 |
-| Account name weak match | +25 |
-| Account name failed match | +60 |
+| New user | 🔴 +5 pending |
+| Large amount | ✅ +20/review gate implemented |
+| Velocity spike | ✅ +20/risk scoring implemented |
+| Multiple devices | ✅ +15/action foundation implemented |
+| Multiple disputes | 🔴 +30 pending |
+| Shared payout account | ✅ +25/review gate implemented |
+| Account name weak match | ✅ +25/review gate implemented |
+| Account name failed match | ✅ +60/rejection gate implemented |
 
 Output:
 
