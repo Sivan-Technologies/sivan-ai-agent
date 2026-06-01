@@ -49,6 +49,7 @@ export interface PayoutAccountRecord {
 
 export interface EscrowRecord {
   escrowId: string;
+  clientRequestId?: string;
   buyerUserId: string;
   sellerUserId?: string;
   sellerWhatsapp?: string;
@@ -207,6 +208,7 @@ export class EscrowStore {
     if (!row) return null;
     return {
       escrowId: row.escrow_id,
+      clientRequestId: row.client_request_id || undefined,
       buyerUserId: row.buyer_user_id,
       sellerUserId: row.seller_user_id || undefined,
       sellerWhatsapp: row.seller_whatsapp || undefined,
@@ -315,6 +317,7 @@ export class EscrowStore {
         payout_notes TEXT,
         released_by TEXT,
         released_at TEXT,
+        client_request_id TEXT,
         created_by_channel TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -365,6 +368,8 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "payout_notes", "TEXT");
     this.ensureSqliteColumn("escrows", "released_by", "TEXT");
     this.ensureSqliteColumn("escrows", "released_at", "TEXT");
+    this.ensureSqliteColumn("escrows", "client_request_id", "TEXT");
+    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
     this.ensureSqliteColumn("escrows", "received_amount", "REAL");
     this.ensureSqliteColumn("escrows", "provider_payment_status", "TEXT");
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
@@ -392,6 +397,8 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "payout_notes", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_at", "TEXT");
+      await this.ensurePostgresColumn("escrows", "client_request_id", "TEXT");
+      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
       await this.ensurePostgresColumn("escrows", "received_amount", "DOUBLE PRECISION");
       await this.ensurePostgresColumn("escrows", "provider_payment_status", "TEXT");
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
@@ -571,6 +578,7 @@ export class EscrowStore {
   }
 
   public async createEscrow(input: {
+    clientRequestId?: string;
     buyerUserId: string;
     sellerUserId?: string;
     sellerWhatsapp?: string;
@@ -589,24 +597,64 @@ export class EscrowStore {
       this.sqlite!.prepare(`
         INSERT INTO escrows (
           escrow_id, buyer_user_id, seller_user_id, seller_whatsapp, amount, currency,
-          purpose, status, settlement_policy, created_by_channel, created_at, updated_at
+          purpose, status, settlement_policy, client_request_id, created_by_channel, created_at, updated_at
         ) VALUES (
           @escrowId, @buyerUserId, @sellerUserId, @sellerWhatsapp, @amount, @currency,
-          @purpose, @status, @settlementPolicy, @createdByChannel, @now, @now
+          @purpose, @status, @settlementPolicy, @clientRequestId, @createdByChannel, @now, @now
         )
-      `).run({ ...input, escrowId, status, settlementPolicy, sellerUserId: input.sellerUserId || null, sellerWhatsapp: input.sellerWhatsapp || null, now });
+      `).run({
+        ...input,
+        escrowId,
+        status,
+        settlementPolicy,
+        clientRequestId: input.clientRequestId || null,
+        sellerUserId: input.sellerUserId || null,
+        sellerWhatsapp: input.sellerWhatsapp || null,
+        now,
+      });
     } else {
       await this.pool!.query(
         `INSERT INTO escrows (
           escrow_id, buyer_user_id, seller_user_id, seller_whatsapp, amount, currency,
-          purpose, status, settlement_policy, created_by_channel, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [escrowId, input.buyerUserId, input.sellerUserId || null, input.sellerWhatsapp || null, input.amount, input.currency, input.purpose, status, settlementPolicy, input.createdByChannel, now, now]
+          purpose, status, settlement_policy, client_request_id, created_by_channel, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          escrowId,
+          input.buyerUserId,
+          input.sellerUserId || null,
+          input.sellerWhatsapp || null,
+          input.amount,
+          input.currency,
+          input.purpose,
+          status,
+          settlementPolicy,
+          input.clientRequestId || null,
+          input.createdByChannel,
+          now,
+          now,
+        ]
       );
     }
 
     await this.addEvent({ escrowId, actor: input.buyerUserId, actorRole: "buyer", channel: input.createdByChannel, nextStatus: status, eventType: "escrow_created", reason: input.purpose });
     return (await this.getEscrowById(escrowId))!;
+  }
+
+  public async findEscrowByClientRequestId(clientRequestId: string): Promise<EscrowRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.mapEscrow(this.sqlite!.prepare(`
+        SELECT * FROM escrows
+        WHERE client_request_id = @clientRequestId
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get({ clientRequestId }));
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM escrows WHERE client_request_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [clientRequestId]
+    );
+    return this.mapEscrow(result.rows[0]);
   }
 
   public async attachPayment(input: {

@@ -715,6 +715,18 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     }
 
     const input = parsed.data;
+    if (input.clientRequestId) {
+      const existing = await escrowStore.findEscrowByClientRequestId(input.clientRequestId);
+      if (existing) {
+        return res.status(200).json({
+          escrow: existing,
+          payment: null,
+          sellerInviteSent: false,
+          idempotent: true,
+        });
+      }
+    }
+
     const abuseDecision = await abusePrevention.evaluateEscrowCreate({
       ...input,
       requestIp: req.ip,
@@ -749,15 +761,16 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       amount: input.amount,
       currency: input.currency,
       purpose: input.purpose,
+      clientRequestId: input.clientRequestId,
       createdByChannel: input.channel,
     });
 
     let payment: any = null;
     if (seller) {
-      await notifyWhatsAppBot(
+      void notifyWhatsAppBot(
         seller.whatsappNumber,
         `You have been invited to Sivan escrow ${escrow.escrowId} for ${input.currency} ${input.amount}.\nPurpose: ${input.purpose}\nReply: accept ${escrow.escrowId}`
-      );
+      ).catch((err) => captureOperationalError("Failed to send seller escrow invite", err));
     }
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
@@ -776,6 +789,19 @@ app.post("/api/users/profile", requireCoreApiAuth, async (req, res) => {
   const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber);
   const updated = await escrowStore.updateUserProfile(user.userId, parsed.data.firstName, parsed.data.lastName);
   res.status(200).json(updated);
+});
+
+app.get("/api/users/profile", requireCoreApiAuth, async (req, res) => {
+  const whatsappNumber = typeof req.query.whatsappNumber === "string" ? req.query.whatsappNumber : "";
+  const parsed = userProfileSchema.shape.whatsappNumber.safeParse(whatsappNumber);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid WhatsApp number" });
+  }
+  const user = await escrowStore.findUserByWhatsapp(parsed.data);
+  if (!user) {
+    return res.status(404).json({ error: "User profile not found" });
+  }
+  res.status(200).json(user);
 });
 
 app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {

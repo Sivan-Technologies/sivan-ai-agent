@@ -19,6 +19,6 @@ jobs:
       - name: Run backend smoke checks
         run: npm run smoke
         env:
-          SMOKE_BASE_URL: ${{ secrets.SIVAN_SMOKE_BASE_URL }}
+          SMOKE_BASE_URL: ${{ secrets.SIVAN_SMOKE_BASE_URL || vars.SIVAN_SMOKE_BASE_URL || 'https://sivan-escrow-agent.onrender.com' }}
           SMOKE_ADMIN_API_KEY: ${{ secrets.SIVAN_SMOKE_ADMIN_API_KEY }}
           SMOKE_REQUIRE_SETTLEMENT_PROOF: ${{ vars.SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF || 'false' }}

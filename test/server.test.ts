@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.DATABASE_URL = process.env.DATABASE_URL || "./data/test-server.db";
 process.env.NOTIFICATION_URL = "";
+process.env.CORE_API_SECRET = "test-core-secret";
 
 // Import app after test environment overrides are set.
 const app = (await import("../src/server")).default;
@@ -22,6 +23,29 @@ describe("server basic endpoints", () => {
     expect(res.body.database).toMatchObject({
       status: "ok",
       configured: true,
+    });
+  });
+
+  it("saves and returns a user profile by WhatsApp number", async () => {
+    const whatsappNumber = "whatsapp:+2348000000101";
+    const save = await request(app)
+      .post("/api/users/profile")
+      .set("x-core-api-key", "test-core-secret")
+      .send({ whatsappNumber, firstName: "Ada", lastName: "Okoro" });
+
+    expect(save.status).toBe(200);
+    expect(save.body.firstName).toBe("Ada");
+
+    const lookup = await request(app)
+      .get("/api/users/profile")
+      .query({ whatsappNumber })
+      .set("x-core-api-key", "test-core-secret");
+
+    expect(lookup.status).toBe(200);
+    expect(lookup.body).toMatchObject({
+      whatsappNumber,
+      firstName: "Ada",
+      lastName: "Okoro",
     });
   });
 });
