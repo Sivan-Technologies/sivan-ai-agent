@@ -53,9 +53,14 @@ type ReconciliationRow = {
   escrowId: string;
   buyer: string;
   seller: string;
+  sellerName?: string | null;
   expectedAmount: number;
   receivedAmount: number | null;
   currency: "NAIRA" | "USDC";
+  grossAmount?: number;
+  platformFeeAmount?: number;
+  sellerNetAmount?: number;
+  amountSource?: "escrow_record";
   paystackReference?: string | null;
   paymentProvider?: string | null;
   paymentStatus: string;
@@ -66,6 +71,13 @@ type ReconciliationRow = {
   flags: string[];
   purpose: string;
   payoutVerified: boolean;
+  payoutBankName?: string | null;
+  payoutBankCode?: string | null;
+  payoutAccountNumber?: string | null;
+  resolvedAccountName?: string | null;
+  nameMatchScore?: number | null;
+  nameMatchLevel?: string | null;
+  riskLevel?: "LOW" | "MEDIUM" | "HIGH";
   paymentCheckedAt?: string | null;
 };
 
@@ -288,12 +300,28 @@ const adminAuthBase = (import.meta as any).env.VITE_ADMIN_AUTH_BASE_URL || "http
 
 const money = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
 
+function calculateSellerNet(amount: number, currency: "NAIRA" | "USDC", settings?: FeeSettings | null) {
+  if (!settings) return { platformFeeAmount: 0, sellerNetAmount: amount };
+  const percentFee = currency === "NAIRA"
+    ? Math.round((amount * settings.nairaFeePercent) / 100)
+    : Number((amount * (settings.usdcFeePercent / 100)).toFixed(6));
+  const fixedFee = currency === "NAIRA" ? settings.nairaFeeFixed : settings.usdcFeeFixed;
+  const platformFeeAmount = Math.min(amount, Math.max(0, Number((percentFee + fixedFee).toFixed(6))));
+  return {
+    platformFeeAmount,
+    sellerNetAmount: Math.max(0, Number((amount - platformFeeAmount).toFixed(6))),
+  };
+}
+
 function compactId(value?: string, length = 10) {
   if (!value) return "unassigned";
   return value.length > length ? `${value.slice(0, length)}...` : value;
 }
 
 function statusTone(status: string) {
+  if (/^high$/i.test(status)) return "critical";
+  if (/^medium$/i.test(status)) return "watch";
+  if (/^low$/i.test(status)) return "good";
   if (/failed|error|invalid|release_failed|review_required|mismatch/i.test(status)) return "critical";
   if (/settled|completed|confirmed|success/i.test(status)) return "good";
   if (/pending|created|received|executing|waiting/i.test(status)) return "watch";
@@ -680,8 +708,11 @@ function App() {
     }
   };
 
-  const approveEscrowRelease = async (escrowId: string) => {
-    const manualPayoutReference = window.prompt("Enter manual payout reference from Paystack/bank transfer:");
+  const approveEscrowRelease = async (escrowId: string, payoutAmount?: number, currency?: string) => {
+    const amountLabel = payoutAmount !== undefined && currency
+      ? ` Seller net payout is ${money.format(payoutAmount)} ${currency}.`
+      : "";
+    const manualPayoutReference = window.prompt(`Enter payout reference from Paystack/bank transfer.${amountLabel}\nDo not enter a payout amount here.`);
     if (!manualPayoutReference) return;
     const payoutNotes = window.prompt("Optional payout notes:") || undefined;
     const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/approve-release`, {
@@ -904,6 +935,16 @@ function App() {
       row.flags.includes("missing_payout_reference")
     );
   }, [reconciliationRows]);
+
+  const selectedPayoutQuote = selectedEscrow
+    ? reconciliationByEscrow.get(selectedEscrow.escrowId) || {
+      grossAmount: selectedEscrow.amount,
+      platformFeeAmount: calculateSellerNet(selectedEscrow.amount, selectedEscrow.currency, feeSettings).platformFeeAmount,
+      sellerNetAmount: calculateSellerNet(selectedEscrow.amount, selectedEscrow.currency, feeSettings).sellerNetAmount,
+      amountSource: "escrow_record" as const,
+      currency: selectedEscrow.currency,
+    }
+    : null;
 
   const deadOrFailedJobs = useMemo(() => queueJobs.filter((job) => job.status === "failed" || job.status === "dead"), [queueJobs]);
 
@@ -1173,6 +1214,9 @@ function App() {
                 <div className="detail-row"><span>Payment status</span><strong>{selectedEscrow.providerPaymentStatus || selectedEscrow.status}</strong></div>
                 <div className="detail-row"><span>Expected amount</span><strong>{money.format(selectedEscrow.amount)} {selectedEscrow.currency}</strong></div>
                 <div className="detail-row"><span>Received amount</span><strong>{selectedEscrow.receivedAmount === undefined ? "not verified" : `${money.format(selectedEscrow.receivedAmount)} ${selectedEscrow.currency}`}</strong></div>
+                <div className="detail-row"><span>Platform fee</span><strong>{money.format(selectedPayoutQuote?.platformFeeAmount ?? 0)} {selectedEscrow.currency}</strong></div>
+                <div className="detail-row"><span>Seller net payout</span><strong>{money.format(selectedPayoutQuote?.sellerNetAmount ?? selectedEscrow.amount)} {selectedEscrow.currency}</strong></div>
+                <div className="detail-row"><span>Amount source</span><strong>{selectedPayoutQuote?.amountSource || "escrow_record"}</strong></div>
                 <div className="detail-row"><span>Payment checked</span><strong>{formatTime(selectedEscrow.paymentCheckedAt)}</strong></div>
                 <div className="detail-row"><span>Seller</span><strong>{selectedEscrow.sellerWhatsapp || selectedEscrow.sellerUserId || "pending"}</strong></div>
                 <div className="detail-row"><span>Payout ref</span><strong>{selectedEscrow.manualPayoutReference || (selectedEscrow.status === "RELEASED" ? "MISSING REFERENCE" : "not released")}</strong></div>
@@ -1229,7 +1273,11 @@ function App() {
                   disabled={selectedEscrow.status !== "PENDING_RELEASE"}
                   onClick={async () => {
                     try {
-                      await approveEscrowRelease(selectedEscrow.escrowId);
+                      await approveEscrowRelease(
+                        selectedEscrow.escrowId,
+                        selectedPayoutQuote?.sellerNetAmount ?? selectedEscrow.amount,
+                        selectedEscrow.currency
+                      );
                     } catch (err: any) {
                       setError(err.message || "Release approval failed");
                     }
@@ -1660,8 +1708,12 @@ function App() {
                   <tr>
                     <th>Escrow</th>
                     <th>Status</th>
-                    <th>Expected</th>
-                    <th>Received</th>
+                    <th>Seller</th>
+                    <th>Payout account</th>
+                    <th>Gross</th>
+                    <th>Fee</th>
+                    <th>Seller net</th>
+                    <th>Risk</th>
                     <th>Payout ref</th>
                     <th>Action</th>
                   </tr>
@@ -1671,8 +1723,15 @@ function App() {
                     <tr key={row.escrowId}>
                       <td><strong>{row.escrowId}</strong><small>{row.purpose}</small></td>
                       <td><span className={`status ${statusTone(row.status)}`}>{row.status}</span></td>
-                      <td>{money.format(row.expectedAmount)} {row.currency}</td>
-                      <td>{row.receivedAmount === null ? "pending" : `${money.format(row.receivedAmount)} ${row.currency}`}</td>
+                      <td><strong>{row.sellerName || row.seller}</strong><small>{row.seller}</small></td>
+                      <td>
+                        <strong>{row.payoutBankName || "not set"} {row.payoutAccountNumber || ""}</strong>
+                        <small>{row.resolvedAccountName || "name not resolved"}{row.nameMatchLevel ? ` · ${row.nameMatchLevel}` : ""}</small>
+                      </td>
+                      <td>{money.format(row.grossAmount ?? row.expectedAmount)} {row.currency}</td>
+                      <td>{money.format(row.platformFeeAmount ?? 0)} {row.currency}</td>
+                      <td><strong>{money.format(row.sellerNetAmount ?? row.expectedAmount)} {row.currency}</strong></td>
+                      <td><span className={`status ${statusTone(row.riskLevel || "LOW")}`}>{row.riskLevel || "LOW"}</span></td>
                       <td>{row.payoutReference || "missing"}</td>
                       <td>
                         <button
@@ -1681,20 +1740,24 @@ function App() {
                           onClick={async () => {
                             setActionBusy(true);
                             try {
-                              await enqueuePayoutReview(row.escrowId, "operator_requested_from_payout_safety");
+                              if (row.status === "PENDING_RELEASE") {
+                                await approveEscrowRelease(row.escrowId, row.sellerNetAmount ?? row.expectedAmount, row.currency);
+                              } else {
+                                await enqueuePayoutReview(row.escrowId, "operator_requested_from_payout_safety");
+                              }
                             } catch (err: any) {
-                              setError(err.message || "Payout review failed");
+                              setError(err.message || "Payout action failed");
                             } finally {
                               setActionBusy(false);
                             }
                           }}
                         >
-                          Review
+                          {row.status === "PENDING_RELEASE" ? "Approve payout" : "Review"}
                         </button>
                       </td>
                     </tr>
                   ))}
-                  {payoutSafetyRows.length === 0 && <tr><td colSpan={6} className="empty-cell">No payout exceptions</td></tr>}
+                  {payoutSafetyRows.length === 0 && <tr><td colSpan={10} className="empty-cell">No payout exceptions</td></tr>}
                 </tbody>
               </table>
             </div>

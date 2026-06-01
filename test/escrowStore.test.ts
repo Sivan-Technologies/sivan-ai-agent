@@ -68,6 +68,9 @@ describe("EscrowStore", () => {
     const released = await escrowStore.approveManualRelease(escrow.escrowId, "admin", {
       manualPayoutReference: "manual-payout-1",
       payoutNotes: "Paid from Paystack dashboard",
+      grossAmount: 10000,
+      platformFeeAmount: 300,
+      sellerNetAmount: 9700,
     });
     const events = await escrowStore.listEvents(escrow.escrowId);
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
@@ -93,7 +96,10 @@ describe("EscrowStore", () => {
     expect(released.status).toBe("RELEASED");
     expect(released.manualPayoutReference).toBe("manual-payout-1");
     expect(transactions.length).toBeGreaterThanOrEqual(2);
-    expect(ledgerEntries.map((entry) => entry.entryType)).toEqual(expect.arrayContaining(["funding", "release"]));
+    expect(transactions.find((transaction) => transaction.transactionType === "release")?.amount).toBe(9700);
+    expect(ledgerEntries.map((entry) => entry.entryType)).toEqual(expect.arrayContaining(["funding", "release", "fee"]));
+    expect(ledgerEntries.find((entry) => entry.entryType === "release")?.amount).toBe(9700);
+    expect(ledgerEntries.find((entry) => entry.entryType === "fee")?.amount).toBe(300);
     expect(events.map((event) => event.eventType)).toContain("manual_release_approved");
   });
 

@@ -124,6 +124,14 @@ export interface LedgerEntryRecord {
   createdAt: string;
 }
 
+export interface ManualReleaseOptions {
+  manualPayoutReference: string;
+  payoutNotes?: string;
+  grossAmount?: number;
+  platformFeeAmount?: number;
+  sellerNetAmount?: number;
+}
+
 function detectProvider(databaseUrl: string, provider?: string): StoreProvider {
   if (provider === "postgres" || databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://")) {
     return "postgres";
@@ -1129,10 +1137,19 @@ export class EscrowStore {
     return (await this.getEscrowById(escrowId))!;
   }
 
-  public async approveManualRelease(escrowId: string, adminUser: string, options: { manualPayoutReference: string; payoutNotes?: string }): Promise<EscrowRecord> {
+  public async approveManualRelease(escrowId: string, adminUser: string, options: ManualReleaseOptions): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
     if (!options.manualPayoutReference?.trim()) throw new Error("Manual payout reference is required");
+    const grossAmount = options.grossAmount ?? escrow.amount;
+    const platformFeeAmount = Math.max(0, options.platformFeeAmount ?? 0);
+    const sellerNetAmount = Math.max(0, options.sellerNetAmount ?? grossAmount - platformFeeAmount);
+    if (grossAmount !== escrow.amount) {
+      throw new Error("Release gross amount must match the escrow amount");
+    }
+    if (sellerNetAmount > grossAmount) {
+      throw new Error("Seller net payout cannot exceed escrow amount");
+    }
     if (escrow.currency === "NAIRA" && escrow.status !== "PENDING_RELEASE") {
       throw new Error("Naira escrow must be pending release before admin approval");
     }
@@ -1154,7 +1171,14 @@ export class EscrowStore {
       channel: "admin",
       eventType: "manual_release_approved",
       reason: escrow.currency === "NAIRA" ? `Manual payout approved: ${options.manualPayoutReference}` : "Admin release approved",
-      metadata: { manualPayoutReference: options.manualPayoutReference, payoutNotes: options.payoutNotes || null },
+      metadata: {
+        manualPayoutReference: options.manualPayoutReference,
+        payoutNotes: options.payoutNotes || null,
+        grossAmount,
+        platformFeeAmount,
+        sellerNetAmount,
+        amountSource: "escrow_record",
+      },
     });
     await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
     const transactionId = await this.addTransaction({
@@ -1162,10 +1186,17 @@ export class EscrowStore {
       provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
       transactionType: "release",
       status: escrow.currency === "NAIRA" ? "manual_approved" : "released",
-      amount: escrow.amount,
+      amount: sellerNetAmount,
       currency: escrow.currency,
       reference: options.manualPayoutReference,
-      rawPayload: JSON.stringify({ paymentReference: escrow.paymentReference, payoutNotes: options.payoutNotes || null }),
+      rawPayload: JSON.stringify({
+        paymentReference: escrow.paymentReference,
+        payoutNotes: options.payoutNotes || null,
+        grossAmount,
+        platformFeeAmount,
+        sellerNetAmount,
+        amountSource: "escrow_record",
+      }),
     });
     await this.addLedgerEntry({
       escrowId,
@@ -1173,10 +1204,22 @@ export class EscrowStore {
       entryType: "release",
       debitAccount: "escrow_liability",
       creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
-      amount: escrow.amount,
+      amount: sellerNetAmount,
       currency: escrow.currency,
       providerReference: options.manualPayoutReference,
     });
+    if (platformFeeAmount > 0) {
+      await this.addLedgerEntry({
+        escrowId,
+        transactionId,
+        entryType: "fee",
+        debitAccount: "escrow_liability",
+        creditAccount: "platform_fee_revenue",
+        amount: platformFeeAmount,
+        currency: escrow.currency,
+        providerReference: options.manualPayoutReference,
+      });
+    }
     return (await this.getEscrowById(escrowId))!;
   }
 

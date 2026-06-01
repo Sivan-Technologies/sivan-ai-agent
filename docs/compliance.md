@@ -26,9 +26,9 @@ Full BVN/NIN/selfie verification should be added only when transaction size, fra
 | --- | --- | --- |
 | Layer 1: Financial Compliance | 🟡 Partially complete | MVP phone/profile/bank resolution/name-match controls are implemented; full BVN/NIN/selfie KYC is not yet implemented |
 | Layer 1C: AML MVP | 🟡 Partially complete | Velocity, high-value, shared-account, abuse signals, and operator review foundations exist; deeper dispute-ratio/user-level AML scoring remains next |
-| Layer 1D: Release Controls | 🟡 Partially complete | Manual Naira payout approval, payout verification, name-match, shared-account, and high-value gates exist; aggregate compliance risk gate and support-case automation remain next |
+| Layer 1D: Release Controls | 🟡 Partially complete | Manual Naira payout approval, escrow-derived payout amount, payout verification, name-match, shared-account, and high-value gates exist; aggregate compliance risk gate and support-case automation remain next |
 | Layer 2: Data Protection | ✅ Complete for MVP | Payout account tokenization, AES-256-GCM encryption, masking, and log redaction are implemented |
-| Layer 3: Escrow Accounting | 🟡 Partially complete | Funding, release, and refund ledger entries exist; explicit fee-capture entries are still pending |
+| Layer 3: Escrow Accounting | ✅ Complete for MVP | Funding, seller-net release, refund, and fee-capture ledger entries exist; full finance export/reconciliation reports remain future work |
 | Layer 4: Fraud Engine | 🟡 Partially complete | Abuse signals, reputation actions, velocity/high-amount checks, shared-account/name-match release gates exist; deeper graph/dispute scoring remains next |
 | Phase 2 KYC | 🔴 Not started | Prembly/Smile/Paystack identity-document validation abstraction is still future work |
 
@@ -184,18 +184,31 @@ Before any payout, Sivan should verify:
 | Shared payout account review | ✅ Yes |
 | Aggregate user risk below release threshold | 🟡 Partial; deeper aggregate user risk is next |
 | Admin approved Naira payout | ✅ Yes |
+| Amount comes from escrow record | ✅ Yes |
+| Admin enters payout amount manually | ❌ No |
+| Admin records payout/reference ID only | ✅ Yes |
 
 Recommended payout policy:
 
 ```text
 PENDING_RELEASE
   -> run release readiness checks
-  -> if checks pass, show admin payout approval action
-  -> admin records payout reference
+  -> if checks pass, show admin payout approval action with escrow gross amount, fee, seller net payout, masked bank account, resolved name, and risk level
+  -> admin pays the seller from Paystack dashboard, bank app, or later automated transfer
+  -> admin records payout/reference ID only
   -> RELEASED
 ```
 
 If a release check fails, keep the escrow in `REVIEW_REQUIRED` or block the release action with a specific compliance reason. Current release checks block weak/failed account-name matches, shared payout accounts, and high-value releases before admin payout approval.
+
+Current payout approval behavior:
+
+- ✅ The approval API accepts `manualPayoutReference` and optional notes only.
+- ✅ Gross amount is loaded from the escrow record, not from admin input.
+- ✅ Platform fee and seller net payout are calculated from platform fee settings.
+- ✅ Release transactions and ledger entries record seller net payout.
+- ✅ Fee-capture ledger entries record the platform fee when fee settings produce a positive fee.
+- ✅ Admin Payout Safety shows gross amount, platform fee, seller net payout, masked payout account, resolved account name, and risk level.
 
 ## Layer 2: Data Protection ✅
 
@@ -215,18 +228,18 @@ Production requirements:
 - keep `SENTRY_SEND_DEFAULT_PII=false`
 - keep provider data scrubbing enabled in Sentry
 
-## Layer 3: Escrow Accounting 🟡
+## Layer 3: Escrow Accounting ✅
 
 Sivan should add a ledger before volume grows.
 
-Current system tracks escrow state and transactions. The backend now also writes a double-entry-style `ledger_entries` table for funding, release, and refund events:
+Current system tracks escrow state and transactions. The backend now also writes a double-entry-style `ledger_entries` table for funding, seller-net release, refund, and fee-capture events:
 
 | Event | Debit | Credit |
 | --- | --- | --- |
 | Buyer funds escrow | ✅ Buyer receivable/payment rail | ✅ Escrow liability |
-| Seller payout release | ✅ Escrow liability | ✅ Seller payable/payment rail |
+| Seller net payout release | ✅ Escrow liability | ✅ Seller payable/payment rail |
 | Buyer refund | ✅ Escrow liability | ✅ Buyer refund/payment rail |
-| Fee capture | 🔴 Escrow liability | 🔴 Sivan revenue |
+| Fee capture | ✅ Escrow liability | ✅ Sivan revenue |
 
 Recommended table:
 
@@ -290,7 +303,7 @@ High risk should trigger manual review before release. Critical risk should bloc
 5. ✅ Add release readiness checks before admin payout approval.
 6. ✅ Add compliance fields to escrow detail through payout/readiness payloads.
 7. ✅ Add ledger entries for funding, release, and refund.
-8. 🟡 Add fee ledger entries once fee policy is finalized.
+8. ✅ Add fee ledger entries for admin-approved seller payouts.
 9. 🟡 Add Phase 2 KYC provider abstraction for Prembly/Smile/Paystack identity validation.
 
 ## Sources
