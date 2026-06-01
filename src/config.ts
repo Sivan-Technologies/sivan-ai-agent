@@ -19,6 +19,11 @@ function envValue(key: string, fallback = "") {
   return looksPlaceholder ? fallback : value;
 }
 
+function envNumber(key: string, fallback: number) {
+  const value = Number(envValue(key, String(fallback)));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 const databaseProvider = envValue("DATABASE_PROVIDER", "sqlite");
 const defaultDatabaseUrl = path.resolve(process.cwd(), "data", "sivan-escrow-agent.db");
 const databaseUrl =
@@ -60,6 +65,7 @@ export const config = {
     webhookSecret: envValue("PAYSTACK_WEBHOOK_SECRET"),
     receiverAccount: envValue("PAYSTACK_RECEIVER_ACCOUNT"),
     callbackUrl: envValue("PAYSTACK_CALLBACK_URL"),
+    timeoutMs: envNumber("PAYSTACK_TIMEOUT_MS", 8000),
     channels: envValue("PAYSTACK_CHANNELS", "bank_transfer")
       .split(",")
       .map((channel) => channel.trim())
@@ -69,6 +75,7 @@ export const config = {
     apiKey: envValue("MONNIFY_API_KEY"),
     secretKey: envValue("MONNIFY_SECRET_KEY"),
     baseUrl: envValue("MONNIFY_BASE_URL", "https://sandbox.monnify.com"),
+    timeoutMs: envNumber("MONNIFY_TIMEOUT_MS", 8000),
   },
   app: {
     env: envValue("NODE_ENV", "development"),

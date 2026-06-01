@@ -7,6 +7,7 @@ export class MonnifyClient {
   private baseUrl = config.monnify.baseUrl;
   private apiKey = config.monnify.apiKey;
   private secretKey = config.monnify.secretKey;
+  private timeoutMs = config.monnify.timeoutMs;
   private cachedToken = "";
   private tokenExpiresAt = 0;
 
@@ -22,7 +23,7 @@ export class MonnifyClient {
     const response = await axios.post(
       `${this.baseUrl}/api/v1/auth/login`,
       {},
-      { headers: { Authorization: `Basic ${credentials}` } }
+      { headers: { Authorization: `Basic ${credentials}` }, timeout: this.timeoutMs }
     );
 
     const token = response.data?.responseBody?.accessToken;
@@ -41,6 +42,7 @@ export class MonnifyClient {
     const response = await axios.get(`${this.baseUrl}/api/v1/disbursements/account/validate`, {
       headers: { Authorization: `Bearer ${token}` },
       params: { accountNumber, bankCode },
+      timeout: this.timeoutMs,
     });
 
     const body = response.data?.responseBody;

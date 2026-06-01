@@ -44,9 +44,11 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `PAYSTACK_RECEIVER_ACCOUNT` - Optional receiver account identifier for Paystack.
 - `PAYSTACK_CHANNELS` - Comma-separated Paystack checkout channels. Use `bank_transfer` for transfer-only escrow collection.
 - `PAYSTACK_CALLBACK_URL` - Browser redirect URL after Paystack checkout. This is not the webhook URL.
+- `PAYSTACK_TIMEOUT_MS` - Timeout for Paystack API calls, including account resolution. Defaults to `8000`; keep it below the WhatsApp webhook timeout so seller setup returns a retry message instead of hanging.
 - `MONNIFY_API_KEY` - Optional Monnify API key. When set with `MONNIFY_SECRET_KEY`, Sivan can use Monnify Name Enquiry as a fallback for payout account resolution.
 - `MONNIFY_SECRET_KEY` - Optional Monnify secret key for access-token generation.
 - `MONNIFY_BASE_URL` - Monnify API base URL. Use sandbox for testing and production URL only after Monnify live access is approved.
+- `MONNIFY_TIMEOUT_MS` - Timeout for Monnify auth/name-enquiry calls. Defaults to `8000`.
 
 ### Application and workflow
 
