@@ -36,6 +36,7 @@ export class PaystackClient {
   private secretKey = config.paystack.secretKey;
   private receiverAccount = config.paystack.receiverAccount;
   private channels = config.paystack.channels;
+  private timeoutMs = config.paystack.timeoutMs;
 
   private getHeaders() {
     return {
@@ -57,7 +58,7 @@ export class PaystackClient {
         channels: this.channels,
         metadata: { receiver: this.receiverAccount },
       },
-      { headers: this.getHeaders() }
+      { headers: this.getHeaders(), timeout: this.timeoutMs }
     );
 
     if (!response.data || !response.data.status) {
@@ -83,6 +84,7 @@ export class PaystackClient {
     log("Fetching Paystack transaction status", { reference });
     const response = await axios.get(`${this.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
       headers: this.getHeaders(),
+      timeout: this.timeoutMs,
     });
 
     if (!response.data || !response.data.status) {
@@ -107,6 +109,7 @@ export class PaystackClient {
     try {
       const response = await axios.get(`${this.baseUrl}/bank?country=nigeria&perPage=100`, {
         headers: this.getHeaders(),
+        timeout: this.timeoutMs,
       });
 
       if (!response.data || !response.data.status || !Array.isArray(response.data.data)) {
@@ -128,7 +131,7 @@ export class PaystackClient {
     log("Resolving Paystack bank account", { accountNumber, bankCode });
     const response = await axios.get(
       `${this.baseUrl}/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
-      { headers: this.getHeaders() }
+      { headers: this.getHeaders(), timeout: this.timeoutMs }
     );
 
     if (!response.data || !response.data.status || !response.data.data?.account_name) {
