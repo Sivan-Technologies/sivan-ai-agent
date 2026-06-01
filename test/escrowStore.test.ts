@@ -33,6 +33,7 @@ describe("EscrowStore", () => {
     });
 
     const escrow = await escrowStore.createEscrow({
+      clientRequestId: "whatsapp-request-0001",
       buyerUserId: buyer.userId,
       sellerUserId: seller.userId,
       sellerWhatsapp: seller.whatsappNumber,
@@ -41,7 +42,10 @@ describe("EscrowStore", () => {
       purpose: "Logo design",
       createdByChannel: "whatsapp_dm",
     });
+    const idempotentLookup = await escrowStore.findEscrowByClientRequestId("whatsapp-request-0001");
     expect(escrow.status).toBe("PENDING_ACCEPTANCE");
+    expect(idempotentLookup?.escrowId).toBe(escrow.escrowId);
+    expect(idempotentLookup?.clientRequestId).toBe("whatsapp-request-0001");
     const accepted = await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
     expect(accepted.status).toBe("PENDING_PAYMENT");
     await escrowStore.attachPayment({

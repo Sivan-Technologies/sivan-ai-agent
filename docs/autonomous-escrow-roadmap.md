@@ -229,7 +229,7 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
-| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, and escrow commands now cover accept, status, complete, release, and dispute |
+| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
 | Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
@@ -289,6 +289,8 @@ The current system already has:
 - ✅ participant-only non-admin dispute checks
 - ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
 - ✅ seller invite/accept flow before payment initialization
+- ✅ escrow creation idempotency for repeated WhatsApp `YES` confirmations
+- ✅ seller invite notification is asynchronous so Twilio/bot latency does not block escrow creation responses
 - ✅ Paystack bank/account verification for seller payout accounts
 - ✅ guided seller profile setup in WhatsApp: first name, last name, bank search, account number, account verification
 - ✅ Naira escrow acceptance requires payout readiness before payment initialization

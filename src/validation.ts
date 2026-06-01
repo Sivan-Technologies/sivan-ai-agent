@@ -20,6 +20,7 @@ export const escrowCreateSchema = z.object({
   currency: z.enum(["NAIRA", "USDC"]),
   purpose: z.string().trim().min(3).max(1000),
   channel: z.enum(["whatsapp_dm", "whatsapp_group", "admin", "api"]).default("api"),
+  clientRequestId: z.string().trim().min(8).max(120).optional(),
 });
 
 export const userProfileSchema = z.object({

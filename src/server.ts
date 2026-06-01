@@ -715,6 +715,18 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     }
 
     const input = parsed.data;
+    if (input.clientRequestId) {
+      const existing = await escrowStore.findEscrowByClientRequestId(input.clientRequestId);
+      if (existing) {
+        return res.status(200).json({
+          escrow: existing,
+          payment: null,
+          sellerInviteSent: false,
+          idempotent: true,
+        });
+      }
+    }
+
     const abuseDecision = await abusePrevention.evaluateEscrowCreate({
       ...input,
       requestIp: req.ip,
@@ -749,15 +761,16 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       amount: input.amount,
       currency: input.currency,
       purpose: input.purpose,
+      clientRequestId: input.clientRequestId,
       createdByChannel: input.channel,
     });
 
     let payment: any = null;
     if (seller) {
-      await notifyWhatsAppBot(
+      void notifyWhatsAppBot(
         seller.whatsappNumber,
         `You have been invited to Sivan escrow ${escrow.escrowId} for ${input.currency} ${input.amount}.\nPurpose: ${input.purpose}\nReply: accept ${escrow.escrowId}`
-      );
+      ).catch((err) => captureOperationalError("Failed to send seller escrow invite", err));
     }
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
