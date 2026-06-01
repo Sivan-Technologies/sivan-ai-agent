@@ -18,13 +18,20 @@ function envNumber(key: string, fallback: number) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-function redact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redact);
+function redact(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (depth > 8) return "[Truncated]";
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+    return value.slice(0, 50).map((entry) => redact(entry, seen, depth + 1));
+  }
   if (value && typeof value === "object") {
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      Object.entries(value as Record<string, unknown>).slice(0, 100).map(([key, entry]) => [
         key,
-        SECRET_KEY_PATTERN.test(key) ? "[Filtered]" : redact(entry),
+        SECRET_KEY_PATTERN.test(key) ? "[Filtered]" : redact(entry, seen, depth + 1),
       ])
     );
   }
@@ -59,3 +66,7 @@ if (dsn && !Sentry.isInitialized()) {
 }
 
 export { Sentry };
+
+export const __test__ = {
+  redactForSentry: redact,
+};
