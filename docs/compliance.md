@@ -76,6 +76,8 @@ account_verification_provider
 Current implementation:
 
 - `PaystackClient.resolveBankAccount` returns the resolved account name.
+- If Paystack bank-list lookup is unavailable, the backend returns a built-in Nigerian bank fallback list so WhatsApp seller setup can continue.
+- If Paystack account resolution fails and Monnify credentials are configured, the backend attempts Monnify Name Enquiry as a fallback account-name resolver.
 - The backend compares seller profile name against the resolved account name.
 - Strong and medium matches set `verification_status=verified`.
 - Weak matches set `verification_status=pending` and block acceptance/release until manual review.
@@ -109,10 +111,11 @@ Provider path:
 | Provider | Recommended role |
 | --- | --- |
 | Paystack customer validation | Use when BVN + bank-account validation is needed for Paystack-specific workflows or dedicated account compliance |
+| Monnify Name Enquiry | Optional fallback for Nigerian bank-account name enquiry when Monnify credentials are available |
 | Prembly | Good Phase 2 startup KYC provider for BVN/NIN/phone/face checks |
 | Smile ID | Stronger later option for broader African KYC, ID verification, face, and liveness |
 
-Paystack's customer validation flow can validate bank-account details with BVN, but it is asynchronous and tied to customer validation workflows. Use it for higher-risk Paystack-backed flows, not as the first MVP gate.
+Paystack's customer validation flow can validate bank-account details with identity documents, but bank support is country/bank dependent and the documented Validate Account flow is not the same low-friction Nigerian `/bank/resolve` lookup. Use it for higher-risk Paystack-backed flows where the required identity document is available, not as the first MVP gate.
 
 ## Layer 1C: AML MVP
 
@@ -269,11 +272,12 @@ High risk should trigger manual review before release. Critical risk should bloc
 6. ✅ Add compliance fields to escrow detail through payout/readiness payloads.
 7. ✅ Add ledger entries for funding, release, and refund.
 8. 🟡 Add fee ledger entries once fee policy is finalized.
-9. 🟡 Add Phase 2 KYC provider abstraction for Prembly/Smile/Paystack BVN validation.
+9. 🟡 Add Phase 2 KYC provider abstraction for Prembly/Smile/Paystack identity validation.
 
 ## Sources
 
 - Paystack Resolve Account Number API: https://docs-v2.paystack.com/identity-verification/verify-account-number/
 - Paystack Customer Validation API: https://paystack.com/docs/identity-verification/validate-customer/
 - Paystack Transfers documentation: https://paystack.com/docs/transfers/
+- Monnify customer verification and Name Enquiry documentation: https://developers.monnify.com/docs/verification-api/verifying-your-customers
 - Prembly BVN verification documentation: https://docs.prembly.com/reference/bvn-basic

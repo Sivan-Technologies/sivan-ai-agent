@@ -65,6 +65,11 @@ export const config = {
       .map((channel) => channel.trim())
       .filter(Boolean),
   },
+  monnify: {
+    apiKey: envValue("MONNIFY_API_KEY"),
+    secretKey: envValue("MONNIFY_SECRET_KEY"),
+    baseUrl: envValue("MONNIFY_BASE_URL", "https://sandbox.monnify.com"),
+  },
   app: {
     env: envValue("NODE_ENV", "development"),
     logLevel: envValue("LOG_LEVEL", "info"),

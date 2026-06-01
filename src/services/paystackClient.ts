@@ -1,7 +1,8 @@
 import axios from "axios";
 import crypto from "crypto";
 import { config } from "../config";
-import { log, error } from "../lib/logger";
+import { log } from "../lib/logger";
+import { NIGERIA_BANK_FALLBACKS } from "./bankFallback";
 
 export interface PaystackTransaction {
   authorizationUrl: string;
@@ -101,19 +102,26 @@ export class PaystackClient {
 
   public async listBanks(): Promise<PaystackBank[]> {
     log("Fetching Paystack bank list");
-    const response = await axios.get(`${this.baseUrl}/bank?country=nigeria&perPage=100`, {
-      headers: this.getHeaders(),
-    });
+    if (!this.secretKey) return NIGERIA_BANK_FALLBACKS;
 
-    if (!response.data || !response.data.status || !Array.isArray(response.data.data)) {
-      throw new Error("Invalid Paystack bank list response");
+    try {
+      const response = await axios.get(`${this.baseUrl}/bank?country=nigeria&perPage=100`, {
+        headers: this.getHeaders(),
+      });
+
+      if (!response.data || !response.data.status || !Array.isArray(response.data.data)) {
+        throw new Error("Invalid Paystack bank list response");
+      }
+
+      return response.data.data.map((bank: any) => ({
+        name: bank.name,
+        code: bank.code,
+        slug: bank.slug,
+      }));
+    } catch (err: any) {
+      console.warn("[WARN] Paystack bank list unavailable; using fallback bank list", err?.message || err);
+      return NIGERIA_BANK_FALLBACKS;
     }
-
-    return response.data.data.map((bank: any) => ({
-      name: bank.name,
-      code: bank.code,
-      slug: bank.slug,
-    }));
   }
 
   public async resolveBankAccount(accountNumber: string, bankCode: string): Promise<PaystackAccountResolution> {

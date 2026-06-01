@@ -292,6 +292,8 @@ The current system already has:
 - ✅ escrow creation idempotency for repeated WhatsApp `YES` confirmations
 - ✅ seller invite notification is asynchronous so Twilio/bot latency does not block escrow creation responses
 - ✅ Paystack bank/account verification for seller payout accounts
+- ✅ fallback Nigerian bank list so WhatsApp bank search can continue when Paystack bank-list lookup is temporarily unavailable
+- ✅ optional Monnify Name Enquiry fallback for payout account-name resolution when configured
 - ✅ seller payout name-match scoring with strong/medium auto approval and weak/failed review outcomes
 - ✅ shared payout account detection using deterministic payout account tokens
 - ✅ high-value release review threshold before payout approval
