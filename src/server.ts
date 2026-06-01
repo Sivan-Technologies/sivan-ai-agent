@@ -13,8 +13,8 @@ import { PaymentRouter } from "./services/paymentRouter";
 import { AgentOrchestrator, TaskRequest } from "./services/agentOrchestrator";
 import { notifyWhatsAppBot, notifyWhatsAppBotStrict, formatTaskSummary } from "./services/notificationService";
 import { WorkflowStore } from "./services/workflowStore";
-import { SettingsStore } from "./services/settingsStore";
-import { EscrowRecord, EscrowStore } from "./services/escrowStore";
+import { FeeCalculation, SettingsStore } from "./services/settingsStore";
+import { EscrowCurrency, EscrowRecord, EscrowStore } from "./services/escrowStore";
 import { requireAdminAuth, logAdminAction } from "./middleware/adminAuth";
 import { requireCoreApiAuth } from "./middleware/apiAuth";
 import {
@@ -351,6 +351,33 @@ function paystackEmailForWhatsapp(whatsappNumber: string) {
   return `whatsapp_${digits || "user"}@sivan.local`;
 }
 
+type PayoutQuote = FeeCalculation & {
+  currency: EscrowCurrency;
+  grossAmount: number;
+  platformFeeAmount: number;
+  sellerNetAmount: number;
+  amountSource: "escrow_record";
+};
+
+async function calculateEscrowPayoutQuote(amount: number, currency: EscrowCurrency): Promise<PayoutQuote> {
+  const settings = await settingsStore.getSettings();
+  const fees = currency === "NAIRA"
+    ? settingsStore.calculateNairaFee(amount, settings)
+    : settingsStore.calculateUSDCFee(amount, settings);
+  const platformFeeAmount = Math.min(amount, Math.max(0, fees.totalPlatformFee));
+  const sellerNetAmount = Math.max(0, amount - platformFeeAmount);
+  return {
+    ...fees,
+    totalPlatformFee: platformFeeAmount,
+    recipientNet: sellerNetAmount,
+    currency,
+    grossAmount: amount,
+    platformFeeAmount,
+    sellerNetAmount,
+    amountSource: "escrow_record",
+  };
+}
+
 async function buildEscrowDetail(escrowId: string) {
   const escrow = await escrowStore.getEscrowById(escrowId);
   if (!escrow) return null;
@@ -368,12 +395,14 @@ async function buildEscrowDetail(escrowId: string) {
   const payoutVerified = Boolean(payout && payout.verificationStatus === "verified");
   const payoutNameMatchAcceptable = Boolean(payout && ["strong", "medium"].includes(payout.nameMatchLevel || ""));
   const payoutReleaseReady = Boolean(payoutVerified && payoutNameMatchAcceptable && !payout?.sharedAccountFlag);
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
 
   return {
     escrow,
     buyer,
     seller,
     payout,
+    payoutQuote,
     transactions,
     events,
     ledgerEntries,
@@ -518,24 +547,38 @@ async function buildReconciliationRows(limit = 250) {
   const escrows = await escrowStore.listEscrows(limit);
   return Promise.all(
     escrows.map(async (escrow) => {
-      const [buyer, seller, payout] = await Promise.all([
+      const [buyer, seller, payout, payoutQuote] = await Promise.all([
         escrowStore.getUserById(escrow.buyerUserId),
         escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
         escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
+        calculateEscrowPayoutQuote(escrow.amount, escrow.currency),
       ]);
       const flags = new Set(escrow.reconciliationFlags || []);
       if (escrow.status === "REVIEW_REQUIRED") flags.add("payment_review_required");
       if (escrow.status === "RELEASED" && !escrow.manualPayoutReference) flags.add("missing_payout_reference");
       if (escrow.status === "PENDING_RELEASE") flags.add("release_awaiting_manual_payout");
       if ((escrow.reconciliationFlags || []).includes("payment_amount_mismatch")) flags.add("payment_amount_mismatch");
+      const payoutVerified = payout?.verificationStatus === "verified";
+      if (payout?.sharedAccountFlag) flags.add("shared_payout_account_review");
+      if (payout && !["strong", "medium"].includes(payout.nameMatchLevel || "")) flags.add("payout_name_match_review");
+      const riskLevel = flags.has("payment_amount_mismatch") || flags.has("shared_payout_account_review") || flags.has("payout_name_match_review")
+        ? "HIGH"
+        : flags.size > 0
+        ? "MEDIUM"
+        : "LOW";
 
       return {
         escrowId: escrow.escrowId,
         buyer: buyer?.whatsappNumber || escrow.buyerUserId,
         seller: seller?.whatsappNumber || escrow.sellerWhatsapp || escrow.sellerUserId || "unassigned",
+        sellerName: seller ? [seller.firstName, seller.lastName].filter(Boolean).join(" ") || null : null,
         expectedAmount: escrow.amount,
         receivedAmount: escrow.receivedAmount ?? null,
         currency: escrow.currency,
+        grossAmount: payoutQuote.grossAmount,
+        platformFeeAmount: payoutQuote.platformFeeAmount,
+        sellerNetAmount: payoutQuote.sellerNetAmount,
+        amountSource: payoutQuote.amountSource,
         paystackReference: escrow.paymentProvider === "paystack" ? escrow.paymentReference || null : null,
         paymentProvider: escrow.paymentProvider || null,
         paymentStatus: escrow.providerPaymentStatus || escrow.status,
@@ -545,7 +588,14 @@ async function buildReconciliationRows(limit = 250) {
         status: escrow.status,
         flags: Array.from(flags),
         purpose: escrow.purpose,
-        payoutVerified: payout?.verificationStatus === "verified",
+        payoutVerified,
+        payoutBankName: payout?.bankName || null,
+        payoutBankCode: payout?.bankCode || null,
+        payoutAccountNumber: payout?.accountNumber || null,
+        resolvedAccountName: payout?.resolvedAccountName || payout?.accountName || null,
+        nameMatchScore: payout?.nameMatchScore ?? null,
+        nameMatchLevel: payout?.nameMatchLevel || null,
+        riskLevel,
         paymentCheckedAt: escrow.paymentCheckedAt || null,
       };
     })
@@ -564,12 +614,20 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     "seller",
     "expected amount",
     "received amount",
+    "platform fee",
+    "seller net payout",
+    "amount source",
     "currency",
     "Paystack reference",
     "payment status",
     "payout reference",
     "release approver",
     "release timestamp",
+    "payout bank",
+    "payout account",
+    "resolved account name",
+    "name match",
+    "risk level",
     "status",
     "flags",
   ];
@@ -579,12 +637,20 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     row.seller,
     row.expectedAmount,
     row.receivedAmount,
+    row.platformFeeAmount,
+    row.sellerNetAmount,
+    row.amountSource,
     row.currency,
     row.paystackReference,
     row.paymentStatus,
     row.payoutReference,
     row.payoutApprover,
     row.releaseTimestamp,
+    row.payoutBankName,
+    row.payoutAccountNumber,
+    row.resolvedAccountName,
+    row.nameMatchLevel,
+    row.riskLevel,
     row.status,
     row.flags,
   ].map(csvEscape).join(","));
@@ -1249,14 +1315,27 @@ app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminA
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid payout reconciliation payload", details: formatZodError(parsed.error) });
     }
-    const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, parsed.data);
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) {
+      return res.status(404).json({ error: "Escrow not found" });
+    }
+    const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+    const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, {
+      ...parsed.data,
+      grossAmount: payoutQuote.grossAmount,
+      platformFeeAmount: payoutQuote.platformFeeAmount,
+      sellerNetAmount: payoutQuote.sellerNetAmount,
+    });
     info("Manual payout approval recorded", {
       escrowId: updated.escrowId,
       adminUser,
       manualPayoutReference: updated.manualPayoutReference,
       releasedAt: updated.releasedAt,
+      grossAmount: payoutQuote.grossAmount,
+      platformFeeAmount: payoutQuote.platformFeeAmount,
+      sellerNetAmount: payoutQuote.sellerNetAmount,
     });
-    res.status(200).json(updated);
+    res.status(200).json({ escrow: updated, payoutQuote });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Release approval failed" });
   }
