@@ -67,6 +67,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
 - `PAYOUT_ENCRYPTION_KEY` - Required in production. Used to AES-256-GCM encrypt payout account numbers at rest. Generate a 32-byte random secret and keep it stable across deploys; rotating it requires a planned data re-encryption migration.
 - `PAYOUT_TOKEN_SECRET` - Optional separate HMAC secret used to derive deterministic payout account tokens for uniqueness/lookups without storing raw account numbers. If blank, the app falls back to `PAYOUT_ENCRYPTION_KEY`.
+- `PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT` - Number of distinct sellers using the same payout account token that triggers manual compliance review. Defaults to `2`.
+- `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` - Naira release amount threshold that moves release to compliance review before payout approval. Defaults to `500000`.
+- `USDC_HIGH_VALUE_REVIEW_AMOUNT` - USDC release amount threshold that blocks autonomous release for manual review. Defaults to `2500`.
 - `WEBHOOK_URL` - Public URL for webhook callbacks.
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
@@ -162,6 +165,9 @@ ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
 PAYOUT_ENCRYPTION_KEY=change-me-32-byte-random-secret
 PAYOUT_TOKEN_SECRET=change-me-separate-hmac-secret
+PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT=2
+NAIRA_HIGH_VALUE_REVIEW_AMOUNT=500000
+USDC_HIGH_VALUE_REVIEW_AMOUNT=2500
 WEBHOOK_URL=https://yourapp.example.com/webhooks
 SMOKE_BASE_URL=https://yourapp.example.com
 SMOKE_ADMIN_API_KEY=

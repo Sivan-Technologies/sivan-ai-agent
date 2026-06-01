@@ -32,7 +32,7 @@ MVP identity verification should require:
 | Full name | Private WhatsApp DM | Implemented for buyer and seller profiles |
 | Bank account number | Private WhatsApp DM | Implemented; now encrypted/tokenized at rest |
 | Bank/account name resolution | Paystack `/bank/resolve` | Implemented through `PaystackClient.resolveBankAccount` |
-| Name match score | Internal scoring | Next engineering task |
+| Name match score | Internal scoring | Implemented for MVP |
 
 Recommended flow:
 
@@ -72,6 +72,14 @@ name_match_level
 account_verified_at
 account_verification_provider
 ```
+
+Current implementation:
+
+- `PaystackClient.resolveBankAccount` returns the resolved account name.
+- The backend compares seller profile name against the resolved account name.
+- Strong and medium matches set `verification_status=verified`.
+- Weak matches set `verification_status=pending` and block acceptance/release until manual review.
+- Failed matches set `verification_status=failed` and return a verification error.
 
 ### Production KYC Phase
 
@@ -115,8 +123,8 @@ Track these signals:
 | Signal | Example | MVP action |
 | --- | --- | --- |
 | Velocity | 10 escrows today | Increase risk score |
-| Large transaction | Amount above `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` | Manual review |
-| Shared payout account | Multiple sellers use same account token | Manual review |
+| Large transaction | Amount above `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` | Implemented release review gate |
+| Shared payout account | Multiple sellers use same account token | Implemented payout review gate |
 | High dispute rate | Seller dispute ratio above 30% | Manual review or account limit |
 | New user | First transaction | Mild risk increase |
 | Repeated device/fingerprint | Same device across many accounts | Risk increase |
@@ -149,10 +157,10 @@ Before any payout, Sivan should verify:
 | Seller phone identity exists | Yes |
 | Seller profile complete | Yes |
 | Seller bank account resolved | Yes |
-| Account name match acceptable | Next engineering task |
+| Account name match acceptable | Yes |
 | Payment verified | Yes |
 | No active dispute | Yes |
-| Risk score below release threshold | Next engineering task |
+| Risk score below release threshold | Partial; high-value/shared-account/name-match gates are enforced, deeper aggregate user risk is next |
 | Admin approved Naira payout | Yes |
 
 Recommended payout policy:
@@ -165,7 +173,7 @@ PENDING_RELEASE
   -> RELEASED
 ```
 
-If a release check fails, keep the escrow in `REVIEW_REQUIRED` or `PENDING_RELEASE` and create/support-link an operator review case.
+If a release check fails, keep the escrow in `REVIEW_REQUIRED` or block the release action with a specific compliance reason. Current release checks block weak/failed account-name matches, shared payout accounts, and high-value releases before admin payout approval.
 
 ## Layer 2: Data Protection
 
@@ -189,7 +197,7 @@ Production requirements:
 
 Sivan should add a ledger before volume grows.
 
-Current system tracks escrow state and transactions. The next production accounting step is a double-entry-style ledger:
+Current system tracks escrow state and transactions. The backend now also writes a double-entry-style `ledger_entries` table for funding, release, and refund events:
 
 | Event | Debit | Credit |
 | --- | --- | --- |
@@ -215,6 +223,8 @@ ledger_entries
 ```
 
 Do this before high transaction volume. It prevents reconciliation and accounting problems later.
+
+Remaining ledger work: add explicit fee-capture entries once fee policy is finalized.
 
 ## Layer 4: Fraud Engine
 
@@ -251,14 +261,15 @@ High risk should trigger manual review before release. Critical risk should bloc
 
 ## Recommended Next Engineering Sequence
 
-1. Add name match scoring for seller payout setup.
-2. Store `name_match_score`, `name_match_level`, and `account_verified_at`.
-3. Add shared payout account detection using the payout account token.
-4. Add high-value amount review threshold.
-5. Add release readiness checks before admin payout approval.
-6. Add compliance/risk fields to admin escrow detail and reconciliation rows.
-7. Add ledger entries for funding, release, refund, and fees.
-8. Add Phase 2 KYC provider abstraction for Prembly/Smile/Paystack BVN validation.
+1. ✅ Add name match scoring for seller payout setup.
+2. ✅ Store `resolved_account_name`, `name_match_score`, `name_match_level`, `account_verified_at`, and `account_verification_provider`.
+3. ✅ Add shared payout account detection using the payout account token.
+4. ✅ Add high-value amount review threshold.
+5. ✅ Add release readiness checks before admin payout approval.
+6. ✅ Add compliance fields to escrow detail through payout/readiness payloads.
+7. ✅ Add ledger entries for funding, release, and refund.
+8. 🟡 Add fee ledger entries once fee policy is finalized.
+9. 🟡 Add Phase 2 KYC provider abstraction for Prembly/Smile/Paystack BVN validation.
 
 ## Sources
 
@@ -266,4 +277,3 @@ High risk should trigger manual review before release. Critical risk should bloc
 - Paystack Customer Validation API: https://paystack.com/docs/identity-verification/validate-customer/
 - Paystack Transfers documentation: https://paystack.com/docs/transfers/
 - Prembly BVN verification documentation: https://docs.prembly.com/reference/bvn-basic
-

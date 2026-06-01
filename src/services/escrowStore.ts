@@ -21,6 +21,7 @@ export type EscrowStatus =
   | "CANCELLED";
 
 export type SettlementPolicy = "manual_naira_release" | "autonomous_usdc_release";
+export type NameMatchLevel = "strong" | "medium" | "weak" | "failed";
 type StoreProvider = "sqlite" | "postgres";
 
 export interface UserRecord {
@@ -41,6 +42,13 @@ export interface PayoutAccountRecord {
   accountNumberLast4?: string;
   bankCode?: string;
   accountName?: string;
+  resolvedAccountName?: string;
+  nameMatchScore?: number;
+  nameMatchLevel?: NameMatchLevel;
+  accountVerifiedAt?: string;
+  accountVerificationProvider?: string;
+  sharedAccountCount?: number;
+  sharedAccountFlag?: boolean;
   verificationStatus: "pending" | "verified" | "failed";
   providerRecipientCode?: string;
   createdAt: string;
@@ -103,6 +111,19 @@ export interface EscrowEventRecord {
   createdAt: string;
 }
 
+export interface LedgerEntryRecord {
+  ledgerEntryId: string;
+  escrowId: string;
+  transactionId?: string;
+  entryType: "funding" | "release" | "refund" | "fee";
+  debitAccount: string;
+  creditAccount: string;
+  amount: number;
+  currency: EscrowCurrency;
+  providerReference?: string;
+  createdAt: string;
+}
+
 function detectProvider(databaseUrl: string, provider?: string): StoreProvider {
   if (provider === "postgres" || databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://")) {
     return "postgres";
@@ -125,6 +146,16 @@ function payoutEncryptionKey() {
 function payoutAccountToken(accountNumber: string) {
   const secret = process.env.PAYOUT_TOKEN_SECRET || process.env.PAYOUT_ENCRYPTION_KEY || process.env.CORE_API_SECRET || "sivan-local-dev-payout-token";
   return `acct:${crypto.createHmac("sha256", secret).update(accountNumber).digest("hex").slice(0, 40)}`;
+}
+
+function highValueReviewAmount(currency: EscrowCurrency) {
+  return currency === "NAIRA"
+    ? Number(process.env.NAIRA_HIGH_VALUE_REVIEW_AMOUNT || "500000")
+    : Number(process.env.USDC_HIGH_VALUE_REVIEW_AMOUNT || "2500");
+}
+
+function payoutNameMatchAcceptable(payout: PayoutAccountRecord) {
+  return payout.nameMatchLevel === "strong" || payout.nameMatchLevel === "medium";
 }
 
 function encryptAccountNumber(accountNumber: string) {
@@ -197,6 +228,13 @@ export class EscrowStore {
       accountNumberLast4: last4 || undefined,
       bankCode: row.bank_code || undefined,
       accountName: row.account_name || undefined,
+      resolvedAccountName: row.resolved_account_name || undefined,
+      nameMatchScore: row.name_match_score === null || row.name_match_score === undefined ? undefined : Number(row.name_match_score),
+      nameMatchLevel: row.name_match_level || undefined,
+      accountVerifiedAt: row.account_verified_at || undefined,
+      accountVerificationProvider: row.account_verification_provider || undefined,
+      sharedAccountCount: row.shared_account_count === null || row.shared_account_count === undefined ? undefined : Number(row.shared_account_count),
+      sharedAccountFlag: Boolean(row.shared_account_flag),
       verificationStatus: row.verification_status,
       providerRecipientCode: row.provider_recipient_code || undefined,
       createdAt: row.created_at,
@@ -251,6 +289,21 @@ export class EscrowStore {
     };
   }
 
+  private mapLedgerEntry(row: any): LedgerEntryRecord {
+    return {
+      ledgerEntryId: row.ledger_entry_id,
+      escrowId: row.escrow_id,
+      transactionId: row.transaction_id || undefined,
+      entryType: row.entry_type,
+      debitAccount: row.debit_account,
+      creditAccount: row.credit_account,
+      amount: Number(row.amount),
+      currency: row.currency,
+      providerReference: row.provider_reference || undefined,
+      createdAt: row.created_at,
+    };
+  }
+
   private mapEvent(row: any): EscrowEventRecord {
     return {
       eventId: row.event_id,
@@ -288,6 +341,13 @@ export class EscrowStore {
         account_number_last4 TEXT,
         bank_code TEXT,
         account_name TEXT,
+        resolved_account_name TEXT,
+        name_match_score INTEGER,
+        name_match_level TEXT,
+        account_verified_at TEXT,
+        account_verification_provider TEXT,
+        shared_account_count INTEGER NOT NULL DEFAULT 1,
+        shared_account_flag INTEGER NOT NULL DEFAULT 0,
         verification_status TEXT NOT NULL DEFAULT 'pending',
         provider_recipient_code TEXT,
         created_at TEXT NOT NULL,
@@ -351,10 +411,24 @@ export class EscrowStore {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS ledger_entries (
+        ledger_entry_id TEXT PRIMARY KEY,
+        escrow_id TEXT NOT NULL,
+        transaction_id TEXT,
+        entry_type TEXT NOT NULL,
+        debit_account TEXT NOT NULL,
+        credit_account TEXT NOT NULL,
+        amount ${numberType} NOT NULL,
+        currency TEXT NOT NULL,
+        provider_reference TEXT,
+        created_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_escrows_status ON escrows(status);
       CREATE INDEX IF NOT EXISTS idx_escrows_payment_reference ON escrows(payment_reference);
       CREATE INDEX IF NOT EXISTS idx_transactions_escrow_id ON transactions(escrow_id);
       CREATE INDEX IF NOT EXISTS idx_escrow_events_escrow_id ON escrow_events(escrow_id);
+      CREATE INDEX IF NOT EXISTS idx_ledger_entries_escrow_id ON ledger_entries(escrow_id);
     `;
   }
 
@@ -363,6 +437,13 @@ export class EscrowStore {
     this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_encrypted", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_last4", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "resolved_account_name", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "name_match_score", "INTEGER");
+    this.ensureSqliteColumn("payout_accounts", "name_match_level", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "account_verified_at", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "account_verification_provider", "TEXT");
+    this.ensureSqliteColumn("payout_accounts", "shared_account_count", "INTEGER NOT NULL DEFAULT 1");
+    this.ensureSqliteColumn("payout_accounts", "shared_account_flag", "INTEGER NOT NULL DEFAULT 0");
     this.migrateSqlitePayoutAccountNumbers();
     this.ensureSqliteColumn("escrows", "manual_payout_reference", "TEXT");
     this.ensureSqliteColumn("escrows", "payout_notes", "TEXT");
@@ -392,6 +473,13 @@ export class EscrowStore {
       await this.ensurePostgresColumn("payout_accounts", "bank_code", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_encrypted", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_last4", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "resolved_account_name", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "name_match_score", "INTEGER");
+      await this.ensurePostgresColumn("payout_accounts", "name_match_level", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "account_verified_at", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "account_verification_provider", "TEXT");
+      await this.ensurePostgresColumn("payout_accounts", "shared_account_count", "INTEGER NOT NULL DEFAULT 1");
+      await this.ensurePostgresColumn("payout_accounts", "shared_account_flag", "INTEGER NOT NULL DEFAULT 0");
       await this.migratePostgresPayoutAccountNumbers();
       await this.ensurePostgresColumn("escrows", "manual_payout_reference", "TEXT");
       await this.ensurePostgresColumn("escrows", "payout_notes", "TEXT");
@@ -524,6 +612,13 @@ export class EscrowStore {
     accountNumber: string;
     bankCode?: string;
     accountName?: string;
+    resolvedAccountName?: string;
+    nameMatchScore?: number;
+    nameMatchLevel?: NameMatchLevel;
+    accountVerifiedAt?: string;
+    accountVerificationProvider?: string;
+    sharedAccountCount?: number;
+    sharedAccountFlag?: boolean;
     verificationStatus?: "pending" | "verified" | "failed";
     providerRecipientCode?: string;
   }): Promise<PayoutAccountRecord> {
@@ -535,6 +630,8 @@ export class EscrowStore {
     const accountNumberToken = payoutAccountToken(input.accountNumber);
     const accountNumberEncrypted = encryptAccountNumber(input.accountNumber);
     const accountNumberLast4 = input.accountNumber.slice(-4);
+    const sharedAccountCount = input.sharedAccountCount || 1;
+    const sharedAccountFlag = input.sharedAccountFlag ? 1 : 0;
 
     if (existing) {
       if (this.provider === "sqlite") {
@@ -542,30 +639,142 @@ export class EscrowStore {
           UPDATE payout_accounts
           SET bank_name = @bankName, account_number = @accountNumberToken, account_number_encrypted = @accountNumberEncrypted,
               account_number_last4 = @accountNumberLast4, bank_code = @bankCode, account_name = @accountName,
+              resolved_account_name = @resolvedAccountName, name_match_score = @nameMatchScore, name_match_level = @nameMatchLevel,
+              account_verified_at = @accountVerifiedAt, account_verification_provider = @accountVerificationProvider,
+              shared_account_count = @sharedAccountCount, shared_account_flag = @sharedAccountFlag,
               verification_status = @verificationStatus, provider_recipient_code = @providerRecipientCode, updated_at = @now
           WHERE payout_account_id = @payoutAccountId
-        `).run({ ...input, accountNumberToken, accountNumberEncrypted, accountNumberLast4, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now, payoutAccountId });
+        `).run({
+          ...input,
+          accountNumberToken,
+          accountNumberEncrypted,
+          accountNumberLast4,
+          bankCode: input.bankCode || null,
+          accountName: input.accountName || null,
+          resolvedAccountName: input.resolvedAccountName || input.accountName || null,
+          nameMatchScore: input.nameMatchScore ?? null,
+          nameMatchLevel: input.nameMatchLevel || null,
+          accountVerifiedAt: input.accountVerifiedAt || null,
+          accountVerificationProvider: input.accountVerificationProvider || null,
+          sharedAccountCount,
+          sharedAccountFlag,
+          providerRecipientCode: input.providerRecipientCode || null,
+          verificationStatus,
+          now,
+          payoutAccountId,
+        });
       } else {
         await this.pool!.query(
           `UPDATE payout_accounts SET bank_name = $1, account_number = $2, account_number_encrypted = $3, account_number_last4 = $4,
-           bank_code = $5, account_name = $6, verification_status = $7, provider_recipient_code = $8, updated_at = $9 WHERE payout_account_id = $10`,
-          [input.bankName, accountNumberToken, accountNumberEncrypted, accountNumberLast4, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, payoutAccountId]
+           bank_code = $5, account_name = $6, resolved_account_name = $7, name_match_score = $8, name_match_level = $9,
+           account_verified_at = $10, account_verification_provider = $11, shared_account_count = $12, shared_account_flag = $13,
+           verification_status = $14, provider_recipient_code = $15, updated_at = $16 WHERE payout_account_id = $17`,
+          [
+            input.bankName,
+            accountNumberToken,
+            accountNumberEncrypted,
+            accountNumberLast4,
+            input.bankCode || null,
+            input.accountName || null,
+            input.resolvedAccountName || input.accountName || null,
+            input.nameMatchScore ?? null,
+            input.nameMatchLevel || null,
+            input.accountVerifiedAt || null,
+            input.accountVerificationProvider || null,
+            sharedAccountCount,
+            sharedAccountFlag,
+            verificationStatus,
+            input.providerRecipientCode || null,
+            now,
+            payoutAccountId,
+          ]
         );
       }
     } else if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, account_number_encrypted, account_number_last4, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
-        VALUES (@payoutAccountId, @userId, @bankName, @accountNumberToken, @accountNumberEncrypted, @accountNumberLast4, @bankCode, @accountName, @verificationStatus, @providerRecipientCode, @now, @now)
-      `).run({ ...input, payoutAccountId, accountNumberToken, accountNumberEncrypted, accountNumberLast4, bankCode: input.bankCode || null, accountName: input.accountName || null, providerRecipientCode: input.providerRecipientCode || null, verificationStatus, now });
+        INSERT INTO payout_accounts (
+          payout_account_id, user_id, bank_name, account_number, account_number_encrypted, account_number_last4,
+          bank_code, account_name, resolved_account_name, name_match_score, name_match_level, account_verified_at,
+          account_verification_provider, shared_account_count, shared_account_flag, verification_status,
+          provider_recipient_code, created_at, updated_at
+        )
+        VALUES (
+          @payoutAccountId, @userId, @bankName, @accountNumberToken, @accountNumberEncrypted, @accountNumberLast4,
+          @bankCode, @accountName, @resolvedAccountName, @nameMatchScore, @nameMatchLevel, @accountVerifiedAt,
+          @accountVerificationProvider, @sharedAccountCount, @sharedAccountFlag, @verificationStatus,
+          @providerRecipientCode, @now, @now
+        )
+      `).run({
+        ...input,
+        payoutAccountId,
+        accountNumberToken,
+        accountNumberEncrypted,
+        accountNumberLast4,
+        bankCode: input.bankCode || null,
+        accountName: input.accountName || null,
+        resolvedAccountName: input.resolvedAccountName || input.accountName || null,
+        nameMatchScore: input.nameMatchScore ?? null,
+        nameMatchLevel: input.nameMatchLevel || null,
+        accountVerifiedAt: input.accountVerifiedAt || null,
+        accountVerificationProvider: input.accountVerificationProvider || null,
+        sharedAccountCount,
+        sharedAccountFlag,
+        providerRecipientCode: input.providerRecipientCode || null,
+        verificationStatus,
+        now,
+      });
     } else {
       await this.pool!.query(
-        `INSERT INTO payout_accounts (payout_account_id, user_id, bank_name, account_number, account_number_encrypted, account_number_last4, bank_code, account_name, verification_status, provider_recipient_code, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [payoutAccountId, input.userId, input.bankName, accountNumberToken, accountNumberEncrypted, accountNumberLast4, input.bankCode || null, input.accountName || null, verificationStatus, input.providerRecipientCode || null, now, now]
+        `INSERT INTO payout_accounts (
+          payout_account_id, user_id, bank_name, account_number, account_number_encrypted, account_number_last4,
+          bank_code, account_name, resolved_account_name, name_match_score, name_match_level, account_verified_at,
+          account_verification_provider, shared_account_count, shared_account_flag, verification_status,
+          provider_recipient_code, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+        [
+          payoutAccountId,
+          input.userId,
+          input.bankName,
+          accountNumberToken,
+          accountNumberEncrypted,
+          accountNumberLast4,
+          input.bankCode || null,
+          input.accountName || null,
+          input.resolvedAccountName || input.accountName || null,
+          input.nameMatchScore ?? null,
+          input.nameMatchLevel || null,
+          input.accountVerifiedAt || null,
+          input.accountVerificationProvider || null,
+          sharedAccountCount,
+          sharedAccountFlag,
+          verificationStatus,
+          input.providerRecipientCode || null,
+          now,
+          now,
+        ]
       );
     }
 
     return (await this.getPayoutAccount(input.userId))!;
+  }
+
+  public async countUsersWithPayoutAccountNumber(accountNumber: string, excludeUserId?: string): Promise<number> {
+    await this.initializeSchema();
+    const accountNumberToken = payoutAccountToken(accountNumber);
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`
+        SELECT COUNT(DISTINCT user_id) AS count
+        FROM payout_accounts
+        WHERE account_number = @accountNumberToken
+          AND (@excludeUserId IS NULL OR user_id != @excludeUserId)
+      `).get({ accountNumberToken, excludeUserId: excludeUserId || null }) as any;
+      return Number(row?.count || 0);
+    }
+    const result = await this.pool!.query(
+      `SELECT COUNT(DISTINCT user_id) AS count FROM payout_accounts WHERE account_number = $1 AND ($2::text IS NULL OR user_id != $2)`,
+      [accountNumberToken, excludeUserId || null]
+    );
+    return Number(result.rows[0]?.count || 0);
   }
 
   public async getPayoutAccount(userId: string): Promise<PayoutAccountRecord | null> {
@@ -745,6 +954,15 @@ export class EscrowStore {
       metadata,
     });
     await this.updateTransactionStatus(paymentReference, "success", metadata);
+    await this.addLedgerEntry({
+      escrowId: escrow.escrowId,
+      entryType: "funding",
+      debitAccount: escrow.currency === "NAIRA" ? "buyer_payment_paystack" : "buyer_payment_x402",
+      creditAccount: "escrow_liability",
+      amount: metadata?.amount || escrow.amount,
+      currency: escrow.currency,
+      providerReference: paymentReference,
+    });
     return this.getEscrowById(escrow.escrowId);
   }
 
@@ -847,6 +1065,9 @@ export class EscrowStore {
     }
 
     if (escrow.currency === "USDC") {
+      if (escrow.amount >= highValueReviewAmount(escrow.currency)) {
+        throw new Error("High-value USDC release requires manual review before autonomous release");
+      }
       await this.transitionEscrow(escrowId, "RELEASED", {
         actor,
         actorRole: "buyer",
@@ -860,14 +1081,31 @@ export class EscrowStore {
         if (!payout || payout.verificationStatus !== "verified") {
           throw new Error("Seller payout account must be verified before Naira release can be requested");
         }
+        if (!payoutNameMatchAcceptable(payout)) {
+          throw new Error("Seller payout account name match must be strong or medium before Naira release can be requested");
+        }
+        if (payout.sharedAccountFlag) {
+          throw new Error("Shared payout account requires manual compliance review before Naira release can be requested");
+        }
       }
-      await this.transitionEscrow(escrowId, "PENDING_RELEASE", {
-        actor,
-        actorRole: "buyer",
-        channel,
-        eventType: "release_requested",
-        reason: "Naira MVP requires manual admin payout approval",
-      });
+      if (escrow.amount >= highValueReviewAmount(escrow.currency)) {
+        await this.transitionEscrow(escrowId, "REVIEW_REQUIRED", {
+          actor,
+          actorRole: "buyer",
+          channel,
+          eventType: "high_value_release_review_required",
+          reason: `Amount meets high-value review threshold for ${escrow.currency}`,
+          metadata: { threshold: highValueReviewAmount(escrow.currency), amount: escrow.amount },
+        });
+      } else {
+        await this.transitionEscrow(escrowId, "PENDING_RELEASE", {
+          actor,
+          actorRole: "buyer",
+          channel,
+          eventType: "release_requested",
+          reason: "Naira MVP requires manual admin payout approval",
+        });
+      }
     }
 
     return (await this.getEscrowById(escrowId))!;
@@ -903,6 +1141,12 @@ export class EscrowStore {
       if (!payout || payout.verificationStatus !== "verified") {
         throw new Error("Seller payout account must be verified before payout approval");
       }
+      if (!payoutNameMatchAcceptable(payout)) {
+        throw new Error("Seller payout account name match must be strong or medium before payout approval");
+      }
+      if (payout.sharedAccountFlag) {
+        throw new Error("Shared payout account requires compliance review before payout approval");
+      }
     }
     await this.transitionEscrow(escrowId, "RELEASED", {
       actor: adminUser,
@@ -913,7 +1157,7 @@ export class EscrowStore {
       metadata: { manualPayoutReference: options.manualPayoutReference, payoutNotes: options.payoutNotes || null },
     });
     await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
-    await this.addTransaction({
+    const transactionId = await this.addTransaction({
       escrowId,
       provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
       transactionType: "release",
@@ -922,6 +1166,16 @@ export class EscrowStore {
       currency: escrow.currency,
       reference: options.manualPayoutReference,
       rawPayload: JSON.stringify({ paymentReference: escrow.paymentReference, payoutNotes: options.payoutNotes || null }),
+    });
+    await this.addLedgerEntry({
+      escrowId,
+      transactionId,
+      entryType: "release",
+      debitAccount: "escrow_liability",
+      creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+      amount: escrow.amount,
+      currency: escrow.currency,
+      providerReference: options.manualPayoutReference,
     });
     return (await this.getEscrowById(escrowId))!;
   }
@@ -997,7 +1251,7 @@ export class EscrowStore {
     if (options.outcome === "release_to_seller") {
       const reference = options.reference || `dispute-release-${escrowId}`;
       await this.recordPayoutReconciliation(escrowId, adminUser, reference, `Dispute resolution: ${options.reason}`);
-      await this.addTransaction({
+      const transactionId = await this.addTransaction({
         escrowId,
         provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
         transactionType: "release",
@@ -1007,10 +1261,20 @@ export class EscrowStore {
         reference,
         rawPayload: JSON.stringify({ outcome: options.outcome, reason: options.reason }),
       });
+      await this.addLedgerEntry({
+        escrowId,
+        transactionId,
+        entryType: "release",
+        debitAccount: "escrow_liability",
+        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+        amount: escrow.amount,
+        currency: escrow.currency,
+        providerReference: reference,
+      });
     }
 
     if (options.outcome === "refund_buyer") {
-      await this.addTransaction({
+      const transactionId = await this.addTransaction({
         escrowId,
         provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "paystack" : "x402"),
         transactionType: "refund",
@@ -1019,6 +1283,16 @@ export class EscrowStore {
         currency: escrow.currency,
         reference: options.reference,
         rawPayload: JSON.stringify({ outcome: options.outcome, reason: options.reason }),
+      });
+      await this.addLedgerEntry({
+        escrowId,
+        transactionId,
+        entryType: "refund",
+        debitAccount: "escrow_liability",
+        creditAccount: escrow.currency === "NAIRA" ? "buyer_refund_paystack" : "buyer_refund_x402",
+        amount: escrow.receivedAmount || escrow.amount,
+        currency: escrow.currency,
+        providerReference: options.reference,
       });
     }
 
@@ -1150,6 +1424,61 @@ export class EscrowStore {
     }
     const result = await this.pool!.query(`SELECT * FROM transactions WHERE escrow_id = $1 ORDER BY created_at DESC`, [escrowId]);
     return result.rows.map((row) => this.mapTransaction(row));
+  }
+
+  public async addLedgerEntry(input: {
+    escrowId: string;
+    transactionId?: string;
+    entryType: LedgerEntryRecord["entryType"];
+    debitAccount: string;
+    creditAccount: string;
+    amount: number;
+    currency: EscrowCurrency;
+    providerReference?: string;
+  }): Promise<LedgerEntryRecord> {
+    await this.initializeSchema();
+    const ledgerEntryId = id("ledger");
+    const createdAt = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO ledger_entries (
+          ledger_entry_id, escrow_id, transaction_id, entry_type, debit_account, credit_account,
+          amount, currency, provider_reference, created_at
+        ) VALUES (
+          @ledgerEntryId, @escrowId, @transactionId, @entryType, @debitAccount, @creditAccount,
+          @amount, @currency, @providerReference, @createdAt
+        )
+      `).run({ ...input, ledgerEntryId, transactionId: input.transactionId || null, providerReference: input.providerReference || null, createdAt });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO ledger_entries (
+          ledger_entry_id, escrow_id, transaction_id, entry_type, debit_account, credit_account,
+          amount, currency, provider_reference, created_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          ledgerEntryId,
+          input.escrowId,
+          input.transactionId || null,
+          input.entryType,
+          input.debitAccount,
+          input.creditAccount,
+          input.amount,
+          input.currency,
+          input.providerReference || null,
+          createdAt,
+        ]
+      );
+    }
+    return (await this.listLedgerEntries(input.escrowId)).find((entry) => entry.ledgerEntryId === ledgerEntryId)!;
+  }
+
+  public async listLedgerEntries(escrowId: string): Promise<LedgerEntryRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM ledger_entries WHERE escrow_id = @escrowId ORDER BY created_at DESC`).all({ escrowId }).map((row) => this.mapLedgerEntry(row));
+    }
+    const result = await this.pool!.query(`SELECT * FROM ledger_entries WHERE escrow_id = $1 ORDER BY created_at DESC`, [escrowId]);
+    return result.rows.map((row) => this.mapLedgerEntry(row));
   }
 
   public async listEvents(escrowId: string, limit = 100): Promise<EscrowEventRecord[]> {
