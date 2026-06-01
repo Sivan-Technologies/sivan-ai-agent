@@ -44,6 +44,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `PAYSTACK_RECEIVER_ACCOUNT` - Optional receiver account identifier for Paystack.
 - `PAYSTACK_CHANNELS` - Comma-separated Paystack checkout channels. Use `bank_transfer` for transfer-only escrow collection.
 - `PAYSTACK_CALLBACK_URL` - Browser redirect URL after Paystack checkout. This is not the webhook URL.
+- `MONNIFY_API_KEY` - Optional Monnify API key. When set with `MONNIFY_SECRET_KEY`, Sivan can use Monnify Name Enquiry as a fallback for payout account resolution.
+- `MONNIFY_SECRET_KEY` - Optional Monnify secret key for access-token generation.
+- `MONNIFY_BASE_URL` - Monnify API base URL. Use sandbox for testing and production URL only after Monnify live access is approved.
 
 ### Application and workflow
 
@@ -67,6 +70,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
 - `PAYOUT_ENCRYPTION_KEY` - Required in production. Used to AES-256-GCM encrypt payout account numbers at rest. Generate a 32-byte random secret and keep it stable across deploys; rotating it requires a planned data re-encryption migration.
 - `PAYOUT_TOKEN_SECRET` - Optional separate HMAC secret used to derive deterministic payout account tokens for uniqueness/lookups without storing raw account numbers. If blank, the app falls back to `PAYOUT_ENCRYPTION_KEY`.
+- `PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT` - Number of distinct sellers using the same payout account token that triggers manual compliance review. Defaults to `2`.
+- `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` - Naira release amount threshold that moves release to compliance review before payout approval. Defaults to `500000`.
+- `USDC_HIGH_VALUE_REVIEW_AMOUNT` - USDC release amount threshold that blocks autonomous release for manual review. Defaults to `2500`.
 - `WEBHOOK_URL` - Public URL for webhook callbacks.
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
@@ -141,6 +147,9 @@ PAYSTACK_WEBHOOK_SECRET=your-paystack-webhook-secret
 PAYSTACK_RECEIVER_ACCOUNT=your-paystack-receiver-account
 PAYSTACK_CHANNELS=bank_transfer
 PAYSTACK_CALLBACK_URL=https://yourapp.example.com/payment/callback
+MONNIFY_API_KEY=
+MONNIFY_SECRET_KEY=
+MONNIFY_BASE_URL=https://sandbox.monnify.com
 
 NODE_ENV=development
 LOG_LEVEL=debug
@@ -162,6 +171,9 @@ ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
 PAYOUT_ENCRYPTION_KEY=change-me-32-byte-random-secret
 PAYOUT_TOKEN_SECRET=change-me-separate-hmac-secret
+PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT=2
+NAIRA_HIGH_VALUE_REVIEW_AMOUNT=500000
+USDC_HIGH_VALUE_REVIEW_AMOUNT=2500
 WEBHOOK_URL=https://yourapp.example.com/webhooks
 SMOKE_BASE_URL=https://yourapp.example.com
 SMOKE_ADMIN_API_KEY=

@@ -251,7 +251,7 @@ Legend:
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
 | Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed cross-device graph analytics, trend thresholds emit operational alerts, and suggested reputation actions are surfaced for operators |
 | Phase 11L | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | Admin DR status, `npm run dr:check`, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; production still needs provider backup proof and a recorded restore drill |
-| Phase 11M | Compliance MVP | 🟡 Planned | See `docs/compliance.md`; next work is name-match scoring, shared payout account detection, high-value manual review, release readiness checks, and ledger entries |
+| Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, release readiness checks, and funding/release/refund ledger entries are implemented. Remaining work is fee-ledger policy and Phase 2 KYC provider abstraction |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
 | Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend and bot smoke checks pass from local env. Remaining work is GitHub/Render secret rotation, recurring incident drills, and recurring DR restore drills |
@@ -292,6 +292,13 @@ The current system already has:
 - ✅ escrow creation idempotency for repeated WhatsApp `YES` confirmations
 - ✅ seller invite notification is asynchronous so Twilio/bot latency does not block escrow creation responses
 - ✅ Paystack bank/account verification for seller payout accounts
+- ✅ fallback Nigerian bank list so WhatsApp bank search can continue when Paystack bank-list lookup is temporarily unavailable
+- ✅ optional Monnify Name Enquiry fallback for payout account-name resolution when configured
+- ✅ seller payout name-match scoring with strong/medium auto approval and weak/failed review outcomes
+- ✅ shared payout account detection using deterministic payout account tokens
+- ✅ high-value release review threshold before payout approval
+- ✅ release readiness checks for payout verification, acceptable name match, and shared-account review
+- ✅ compliance ledger entries for funding, release, and refund events
 - ✅ backend user profile lookup for repeat WhatsApp buyers
 - ✅ guided seller profile setup in WhatsApp: first name, last name, bank search, account number, account verification
 - ✅ Naira escrow acceptance requires payout readiness before payment initialization
@@ -354,6 +361,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab plus `/admin/escrows/:escrowId/events` expose escrow timeline, transactions, and linked support cases |
 | Cross-repo security hardening | ✅ Completed for current pass | Notify auth fails closed, Telegram OTP/session hardening is in place, Paystack HMAC comparison is constant-time, and admin/core local auth bypass requires explicit opt-in |
 | Payout data protection | ✅ Implemented for current backend | New and legacy payout account numbers are tokenized, AES-256-GCM encrypted at rest, masked in API/store responses, and shared logging redacts account/payment/secret-like values. Production must set stable `PAYOUT_ENCRYPTION_KEY` and `PAYOUT_TOKEN_SECRET` before deploy |
+| Compliance MVP | ✅ Completed for risk-gated MVP | Seller payout setup stores resolved account name, name-match score/level, verification provider/time, shared-account count/flag, and release readiness blocks weak/failed/shared/high-value payout paths |
 | Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
 | Telegram admin auth sync | ✅ Build/test clean locally | Current local repo includes session-token hardening and production CORS fail-closed behavior; push/deploy verification remains an operator step |
 | WhatsApp bot sync | ✅ Build/test clean locally | Current local repo includes fail-closed notify auth; push/deploy verification remains an operator step |
@@ -476,6 +484,6 @@ Next production-hardening focus:
 3. 🟡 Run deploy-time incident drills after each Render deploy and store the drill result in the release notes.
 4. 🟡 Run the first live database restore drill on a staging database, update `BACKUP_LAST_RESTORE_TEST_AT`, and store proof in release notes.
 5. ✅ Encrypt/tokenize payout account numbers at rest, mask payout API responses, and redact payout/payment secrets from logs.
-6. 🟡 Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, release readiness gates, and ledger entries.
+6. ✅ Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, release readiness gates, and funding/release/refund ledger entries.
 7. ✅ Add richer user-facing dispute evidence flow in WhatsApp/private API; richer participant screens remain future portal work.
 8. ✅ Add cross-device graph visibility and automated reputation action suggestions; deeper graph investigation UI remains future work.

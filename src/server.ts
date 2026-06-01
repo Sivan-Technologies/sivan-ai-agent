@@ -45,6 +45,9 @@ import { getLatestSettlementVerification, runSettlementVerification } from "./se
 import { ProductionOpsStore } from "./services/productionOpsStore";
 import { AbusePreventionService } from "./services/abusePrevention";
 import { RetryWorker } from "./services/retryWorker";
+import { scoreAccountName } from "./services/nameMatch";
+import { filterBanks } from "./services/bankFallback";
+import { MonnifyClient } from "./services/monnifyClient";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
@@ -64,6 +67,7 @@ void escrowStore.initializeSchema();
 void opsStore.initializeSchema();
 const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 const paystackClient = new PaystackClient();
+const monnifyClient = new MonnifyClient();
 let lastAbuseTrendAlertAt = 0;
 
 const corsOrigin = process.env.FRONTEND_URL || "*";
@@ -351,16 +355,19 @@ async function buildEscrowDetail(escrowId: string) {
   const escrow = await escrowStore.getEscrowById(escrowId);
   if (!escrow) return null;
 
-  const [buyer, seller, transactions, events] = await Promise.all([
+  const [buyer, seller, transactions, events, ledgerEntries] = await Promise.all([
     escrowStore.getUserById(escrow.buyerUserId),
     escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
     escrowStore.listTransactions(escrow.escrowId),
     escrowStore.listEvents(escrow.escrowId, 100),
+    escrowStore.listLedgerEntries(escrow.escrowId),
   ]);
   const payout = escrow.sellerUserId ? await escrowStore.getPayoutAccount(escrow.sellerUserId) : null;
   const buyerProfileComplete = Boolean(buyer?.firstName && buyer?.lastName);
   const sellerProfileComplete = Boolean(seller?.firstName && seller?.lastName);
   const payoutVerified = Boolean(payout && payout.verificationStatus === "verified");
+  const payoutNameMatchAcceptable = Boolean(payout && ["strong", "medium"].includes(payout.nameMatchLevel || ""));
+  const payoutReleaseReady = Boolean(payoutVerified && payoutNameMatchAcceptable && !payout?.sharedAccountFlag);
 
   return {
     escrow,
@@ -369,10 +376,14 @@ async function buildEscrowDetail(escrowId: string) {
     payout,
     transactions,
     events,
+    ledgerEntries,
     readiness: {
       buyerProfileComplete,
       sellerProfileComplete,
       payoutVerified,
+      payoutNameMatchAcceptable,
+      sharedPayoutAccountFlag: Boolean(payout?.sharedAccountFlag),
+      payoutReleaseReady,
       sellerAccepted: !["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status),
       fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
       buyerCompleted: ["COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
@@ -386,6 +397,10 @@ async function buildEscrowDetail(escrowId: string) {
           ? "seller_profile_required"
           : escrow.currency === "NAIRA" && !payoutVerified
           ? "seller_payout_verification_required"
+          : escrow.currency === "NAIRA" && !payoutNameMatchAcceptable
+          ? "seller_payout_name_match_review_required"
+          : escrow.currency === "NAIRA" && payout?.sharedAccountFlag
+          ? "shared_payout_account_review_required"
           : escrow.status === "PENDING_PAYMENT"
           ? "buyer_payment_required"
           : escrow.status === "IN_PROGRESS"
@@ -810,9 +825,24 @@ app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid payout account payload", details: formatZodError(parsed.error) });
   }
   let resolution;
+  let verificationProvider = "paystack_account_resolution";
   try {
     resolution = await paystackClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
   } catch (err: any) {
+    if (monnifyClient.isConfigured()) {
+      try {
+        resolution = await monnifyClient.validateBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+        verificationProvider = "monnify_name_enquiry";
+      } catch (monnifyErr: any) {
+        warn("Paystack and Monnify account verification failed", {
+          paystackError: err?.message || String(err),
+          monnifyError: monnifyErr?.message || String(monnifyErr),
+        });
+      }
+    }
+  }
+
+  if (!resolution) {
     const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
     const payout = await escrowStore.upsertPayoutAccount({
       userId: user.userId,
@@ -822,17 +852,44 @@ app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
       accountName: parsed.data.accountName,
       verificationStatus: "failed",
     });
-    return res.status(422).json({ error: err.message || "Bank account verification failed", payout });
+    return res.status(422).json({ error: "Bank account verification failed", payout });
   }
+
   const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
+  const sellerName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  const nameMatch = scoreAccountName(sellerName, resolution.accountName);
+  const sharedAccountCount = (await escrowStore.countUsersWithPayoutAccountNumber(parsed.data.accountNumber, user.userId)) + 1;
+  const sharedAccountFlag = sharedAccountCount >= Number(process.env.PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT || "2");
+  const verificationStatus =
+    nameMatch.level === "failed"
+      ? "failed"
+      : nameMatch.acceptable && !sharedAccountFlag
+      ? "verified"
+      : "pending";
   const payout = await escrowStore.upsertPayoutAccount({
     userId: user.userId,
     bankName: parsed.data.bankName,
     bankCode: parsed.data.bankCode,
     accountNumber: parsed.data.accountNumber,
     accountName: resolution.accountName,
-    verificationStatus: "verified",
+    resolvedAccountName: resolution.accountName,
+    nameMatchScore: nameMatch.score,
+    nameMatchLevel: nameMatch.level,
+    accountVerifiedAt: verificationStatus === "verified" ? new Date().toISOString() : undefined,
+    accountVerificationProvider: verificationProvider,
+    sharedAccountCount,
+    sharedAccountFlag,
+    verificationStatus,
   });
+  if (verificationStatus !== "verified") {
+    return res.status(nameMatch.level === "failed" ? 422 : 409).json({
+      error: nameMatch.level === "failed" ? "ACCOUNT_NAME_MATCH_FAILED" : "PAYOUT_REQUIRES_REVIEW",
+      message: sharedAccountFlag
+        ? "This payout account is shared by multiple sellers and requires compliance review"
+        : "The resolved account name needs manual compliance review before payout approval",
+      payout,
+    });
+  }
   res.status(200).json(payout);
 });
 
@@ -840,10 +897,7 @@ app.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
   try {
     const query = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
     const banks = await paystackClient.listBanks();
-    const filtered = query
-      ? banks.filter((bank) => bank.name.toLowerCase().includes(query) || bank.code.includes(query) || (bank.slug || "").includes(query)).slice(0, 8)
-      : banks;
-    res.status(200).json(filtered);
+    res.status(200).json(filterBanks(banks, query, query ? 8 : 100));
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to fetch banks" });
   }

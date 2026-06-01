@@ -29,6 +29,11 @@ describe("EscrowStore", () => {
       bankCode: "999",
       accountNumber: "0123456789",
       accountName: "Seller User",
+      resolvedAccountName: "Seller User",
+      nameMatchScore: 100,
+      nameMatchLevel: "strong",
+      accountVerifiedAt: new Date().toISOString(),
+      accountVerificationProvider: "paystack_account_resolution",
       verificationStatus: "verified",
     });
 
@@ -66,11 +71,15 @@ describe("EscrowStore", () => {
     });
     const events = await escrowStore.listEvents(escrow.escrowId);
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const ledgerEntries = await escrowStore.listLedgerEntries(escrow.escrowId);
     const rawPayout = (escrowStore as any).sqlite.prepare(`SELECT account_number, account_number_encrypted, account_number_last4 FROM payout_accounts WHERE payout_account_id = ?`).get(payout.payoutAccountId);
 
     expect(payout.verificationStatus).toBe("verified");
     expect(payout.accountNumber).toBe("****6789");
     expect(payout.accountNumberLast4).toBe("6789");
+    expect(payout.resolvedAccountName).toBe("Seller User");
+    expect(payout.nameMatchLevel).toBe("strong");
+    expect(payout.nameMatchScore).toBe(100);
     expect(rawPayout.account_number).toMatch(/^acct:/);
     expect(rawPayout.account_number).not.toContain("0123456789");
     expect(rawPayout.account_number_encrypted).toMatch(/^enc:v1:/);
@@ -84,6 +93,7 @@ describe("EscrowStore", () => {
     expect(released.status).toBe("RELEASED");
     expect(released.manualPayoutReference).toBe("manual-payout-1");
     expect(transactions.length).toBeGreaterThanOrEqual(2);
+    expect(ledgerEntries.map((entry) => entry.entryType)).toEqual(expect.arrayContaining(["funding", "release"]));
     expect(events.map((event) => event.eventType)).toContain("manual_release_approved");
   });
 
@@ -142,6 +152,44 @@ describe("EscrowStore", () => {
     await expect(escrowStore.requestRelease(escrow.escrowId, seller.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/Only the buyer/);
   });
 
+  it("blocks Naira release when payout name match is not acceptable", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000010101", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000010102", "seller");
+    await escrowStore.upsertPayoutAccount({
+      userId: seller.userId,
+      bankName: "Test Bank",
+      bankCode: "999",
+      accountNumber: "2222222222",
+      accountName: "John Hart",
+      resolvedAccountName: "John Hart",
+      nameMatchScore: 60,
+      nameMatchLevel: "weak",
+      accountVerificationProvider: "paystack_account_resolution",
+      verificationStatus: "verified",
+    });
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 10000,
+      currency: "NAIRA",
+      purpose: "Logo design",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "paystack-name-review",
+      paymentProvider: "paystack",
+      status: "PENDING_PAYMENT",
+    });
+    await escrowStore.markFundedByPaymentReference("paystack-name-review", { status: "success", amount: 10000 });
+    await escrowStore.completeEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
+
+    await expect(escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/name match/i);
+  });
+
   it("marks Paystack funding mismatches for review without activating the escrow", async () => {
     const escrowStore = freshStore();
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000005", "buyer");
@@ -189,6 +237,11 @@ describe("EscrowStore", () => {
       bankCode: "999",
       accountNumber: "0123456789",
       accountName: "Seller User",
+      resolvedAccountName: "Seller User",
+      nameMatchScore: 100,
+      nameMatchLevel: "strong",
+      accountVerifiedAt: new Date().toISOString(),
+      accountVerificationProvider: "paystack_account_resolution",
       verificationStatus: "verified",
     });
     const escrow = await escrowStore.createEscrow({
@@ -208,10 +261,12 @@ describe("EscrowStore", () => {
     });
     const events = await escrowStore.listEvents(escrow.escrowId);
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const ledgerEntries = await escrowStore.listLedgerEntries(escrow.escrowId);
 
     expect(resolved.status).toBe("RELEASED");
     expect(resolved.manualPayoutReference).toBe("dispute-payout-1");
     expect(events.map((event) => event.eventType)).toContain("dispute_resolved");
     expect(transactions.map((transaction) => transaction.status)).toContain("manual_dispute_release");
+    expect(ledgerEntries.map((entry) => entry.entryType)).toContain("release");
   });
 });

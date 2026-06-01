@@ -77,3 +77,19 @@ describe("PaystackClient.initializeTransaction", () => {
     );
   });
 });
+
+describe("PaystackClient.listBanks", () => {
+  it("falls back to built-in Nigerian banks when Paystack bank list is unavailable", async () => {
+    (config.paystack as any).secretKey = "sk_test_secret";
+    (config.paystack as any).baseUrl = "https://api.paystack.co";
+
+    const mockedAxios = vi.mocked(axios);
+    mockedAxios.get.mockRejectedValueOnce(new Error("network unavailable"));
+
+    const client = new PaystackClient();
+    const banks = await client.listBanks();
+
+    expect(banks.some((bank) => bank.code === "058")).toBe(true);
+    expect(banks.some((bank) => /kuda/i.test(bank.name))).toBe(true);
+  });
+});
