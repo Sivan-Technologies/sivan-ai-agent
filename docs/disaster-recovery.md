@@ -14,31 +14,31 @@ This runbook defines the minimum production process for recovering Sivan after d
 
 ## Recommended Backup Provider
 
-Use Render paid managed Postgres point-in-time recovery as the primary MVP backup. Sivan is already hosted on Render and the backend is configured for `DATABASE_PROVIDER=postgres`, so this keeps recovery operationally simple while still supporting isolated restore validation before cutting services over.
+Use Neon Postgres point-in-time restore as the primary MVP backup when production `DATABASE_URL` points at Neon. Sivan can still run the backend on Render, but the database recovery plan must follow the actual database provider, not the app host.
 
 Recommended layers:
 
 | Layer | Use now? | Purpose |
 | --- | --- | --- |
-| Render paid Postgres PITR | ✅ Primary | Fastest recovery path for accidental deletes, bad deploys, corrupt writes, or data-loss incidents |
-| Render logical export | ✅ Manual before major migrations | Portable restore artifact before risky schema/data operations |
+| Neon point-in-time restore | ✅ Primary | Fastest recovery path for accidental deletes, bad deploys, corrupt writes, or data-loss incidents |
+| Neon logical export/direct branch restore | ✅ Manual before major migrations | Portable restore artifact and isolated restore target before risky schema/data operations |
 | S3 scheduled `pg_dump` export | 🟡 Add before higher volume | Longer retention and provider-independent backup copy |
 | SQLite file backup | ❌ Production no | Local development only; not acceptable for real-money escrow recovery |
 
 Production minimum:
 
-1. Use a paid Render Postgres instance. Free Render Postgres does not provide the recovery posture needed for real money.
-2. Keep `BACKUP_PROVIDER=render-postgres-pitr`.
-3. Set `BACKUP_RETENTION_DAYS` to the actual Render recovery window for the workspace plan.
+1. Use a Neon plan with point-in-time restore/backup retention that matches the money risk.
+2. Keep `BACKUP_PROVIDER=neon-postgres-pitr`.
+3. Set `BACKUP_RETENTION_DAYS` to the actual Neon restore window for the project.
 4. Run one staging restore drill before launch, then every 30 days.
-5. Add S3 scheduled exports once escrow volume grows or if regulatory/audit retention must exceed the Render recovery window.
+5. Add S3 scheduled exports once escrow volume grows or if regulatory/audit retention must exceed the Neon restore window.
 
 ## Required Environment
 
 Set these in Render or the production secret manager:
 
 ```env
-BACKUP_PROVIDER=render-postgres-pitr
+BACKUP_PROVIDER=neon-postgres-pitr
 BACKUP_RETENTION_DAYS=7
 BACKUP_POLICY_URL=
 BACKUP_RESTORE_RUNBOOK_URL=docs/disaster-recovery.md
@@ -76,33 +76,34 @@ If DR status fails because no restore drill is fresh, the deployment can remain 
 ## Database Backup Procedure
 
 1. Confirm `DATABASE_PROVIDER=postgres` in production.
-2. Confirm the database is a paid Render Postgres instance with point-in-time recovery enabled.
+2. Confirm the database is a Neon Postgres project with point-in-time restore or equivalent restore capability enabled.
 3. Confirm `BACKUP_RETENTION_DAYS` matches the provider setting.
 4. Confirm backup metadata is visible in the provider dashboard before promotion.
 5. Record the backup policy link or internal note location in `BACKUP_POLICY_URL`.
 
 SQLite is acceptable only for local development. It is not a production disaster-recovery plan.
 
-## Render Setup Checklist
+## Neon Setup Checklist
 
-In the Render database dashboard:
+In the Neon dashboard:
 
 1. Open the production Postgres database.
-2. Confirm it is not on the Free instance type.
-3. Open the Recovery page and confirm point-in-time recovery is available.
+2. Confirm the project plan and branch retention support the target restore window.
+3. Open the restore/recovery controls and confirm point-in-time restore is available.
 4. Record the visible recovery window in `BACKUP_RETENTION_DAYS`.
-5. Create a manual logical export before major schema changes or payment-state migrations.
+5. Create a manual logical export or branch restore target before major schema changes or payment-state migrations.
 6. For a restore drill, restore to a new database instance, never over production.
 
-In the backend Render service:
+In the backend service:
 
 ```env
 DATABASE_PROVIDER=postgres
-DATABASE_URL=<internal-render-postgres-url>
+DATABASE_URL=<neon-pooled-connection-url-for-runtime>
+POSTGRES_DATABASE_URL=<neon-pooled-connection-url-for-runtime>
 POSTGRES_SSL=true
-BACKUP_PROVIDER=render-postgres-pitr
-BACKUP_RETENTION_DAYS=<actual-render-recovery-window-days>
-BACKUP_POLICY_URL=<private-render-recovery-note-or-dashboard-link>
+BACKUP_PROVIDER=neon-postgres-pitr
+BACKUP_RETENTION_DAYS=<actual-neon-restore-window-days>
+BACKUP_POLICY_URL=<private-neon-recovery-note-or-dashboard-link>
 BACKUP_RESTORE_RUNBOOK_URL=docs/disaster-recovery.md
 BACKUP_RESTORE_TEST_MAX_AGE_DAYS=30
 ROLLBACK_RELEASE_URL=<render-service-deploys-or-runbook-url>

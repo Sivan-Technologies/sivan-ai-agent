@@ -54,9 +54,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 
 - `NODE_ENV` - `development` or `production`.
 - `LOG_LEVEL` - `info`, `debug`, `warn`, or `error`.
-- `DATABASE_PROVIDER` - Storage provider. Use `sqlite` locally or `postgres` on Render.
-- `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or Render internal Postgres URL when `DATABASE_PROVIDER=postgres`.
-- `POSTGRES_DATABASE_URL` - Optional Render internal Postgres URL fallback used when `DATABASE_PROVIDER=postgres` and `DATABASE_URL` is blank or still a placeholder.
+- `DATABASE_PROVIDER` - Storage provider. Use `sqlite` locally or `postgres` for production managed Postgres.
+- `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or the production managed Postgres URL when `DATABASE_PROVIDER=postgres`.
+- `POSTGRES_DATABASE_URL` - Optional managed Postgres URL fallback used when `DATABASE_PROVIDER=postgres` and `DATABASE_URL` is blank or still a placeholder.
 - `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
 - `SENTRY_DSN` - Optional Sentry DSN for production error, log, trace, and profiling telemetry. Set this in Render for the backend service.
 - `SENTRY_ENVIRONMENT` - Sentry environment name. Use `production`, `staging`, or `development`.
@@ -79,7 +79,7 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
 - `SMOKE_REQUIRE_SETTLEMENT_PROOF` - Set `true` to make smoke checks require a previously run settlement verification proof.
-- `BACKUP_PROVIDER` - Human-readable backup provider label shown in admin DR status. Use `render-postgres-pitr` for the production Render Postgres backup plan.
+- `BACKUP_PROVIDER` - Human-readable backup provider label shown in admin DR status. Use `neon-postgres-pitr` when production uses Neon Postgres.
 - `BACKUP_RETENTION_DAYS` - Number of days production database backups are retained. Use the real managed database retention, not an aspirational value.
 - `BACKUP_POLICY_URL` - Optional private runbook/provider URL proving where backup policy is documented.
 - `BACKUP_RESTORE_RUNBOOK_URL` - Runbook path or URL for restore testing. Defaults to `docs/disaster-recovery.md`.
@@ -193,15 +193,15 @@ PAYMENT_AMOUNT=50
 TASK_INSTRUCTIONS=Write a product description for a trustless escrow service.
 ```
 
-## Render Postgres
+## Production Postgres
 
-For Render production, set the backend service to use the internal database URL:
+For production, set the backend service to use the managed Postgres URL. With Neon, use the pooled connection string for app runtime. For schema migrations, restore drills, exports, or tools that need session-level behavior, use the direct non-pooled Neon connection string.
 
 ```env
 DATABASE_PROVIDER=postgres
-DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
-POSTGRES_DATABASE_URL=postgresql://sivan_user:password@internal-render-host/sivan_db
+DATABASE_URL=postgresql://user:password@neon-pooler-host/db?sslmode=require&channel_binding=require
+POSTGRES_DATABASE_URL=postgresql://user:password@neon-pooler-host/db?sslmode=require&channel_binding=require
 POSTGRES_SSL=true
 ```
 
-Use the external database URL only from your local machine or database tools.
+Do not commit real database URLs. Store them only in `.env`, Render env vars, GitHub Actions secrets, or the selected secret manager.
