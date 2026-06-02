@@ -1,3 +1,7 @@
+import dotenv from "dotenv";
+
+dotenv.config();
+
 type DrillResult = {
   name: string;
   ok: boolean;
