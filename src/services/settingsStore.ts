@@ -60,6 +60,8 @@ export class SettingsStore {
     } else {
       this.pool = new Pool({
         connectionString: databaseUrl,
+        connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "5000"),
+        query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "8000"),
         ssl: process.env.POSTGRES_SSL === "false" ? false : { rejectUnauthorized: false },
       });
     }

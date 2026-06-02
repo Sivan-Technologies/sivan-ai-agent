@@ -864,13 +864,18 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
 });
 
 app.post("/api/users/profile", requireCoreApiAuth, async (req, res) => {
-  const parsed = userProfileSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid profile payload", details: formatZodError(parsed.error) });
+  try {
+    const parsed = userProfileSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid profile payload", details: formatZodError(parsed.error) });
+    }
+    const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber);
+    const updated = await escrowStore.updateUserProfile(user.userId, parsed.data.firstName, parsed.data.lastName);
+    res.status(200).json(updated);
+  } catch (err: any) {
+    captureOperationalError("Failed to save user profile", err, { whatsappNumber: req.body?.whatsappNumber });
+    res.status(503).json({ error: "PROFILE_SAVE_UNAVAILABLE", message: "Profile save is temporarily unavailable" });
   }
-  const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber);
-  const updated = await escrowStore.updateUserProfile(user.userId, parsed.data.firstName, parsed.data.lastName);
-  res.status(200).json(updated);
 });
 
 app.get("/api/users/profile", requireCoreApiAuth, async (req, res) => {
