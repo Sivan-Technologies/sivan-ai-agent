@@ -54,7 +54,7 @@ Checked surfaces:
 - webhook ledger
 - reconciliation
 
-## Disaster Recovery Check
+## Production Disaster Recovery Check
 
 Command:
 
@@ -62,7 +62,7 @@ Command:
 npm run dr:check
 ```
 
-Result: failed only on restore freshness.
+Result before restore proof was recorded: failed only on restore freshness.
 
 Passing:
 
@@ -74,11 +74,54 @@ Passing:
 - rollback configured
 - outage contacts configured
 
-Open:
+Previously open:
 
 - `restoreFresh=false`
 - `BACKUP_LAST_RESTORE_TEST_AT` is not recorded
 - first Neon restore drill still needs a staging/restore database target
+
+## Neon Restore Drill
+
+Restore branch:
+
+```text
+sivan-restore-drill-2026-06-02
+```
+
+Restore test target:
+
+```text
+local backend pointed at the Neon restore branch
+```
+
+Result: passed.
+
+Commands:
+
+```bash
+npm run serve
+npm run smoke
+npm run dr:check
+```
+
+Verified:
+
+- backend booted with the restored Neon branch
+- public health passed
+- readiness passed
+- admin database status passed
+- disaster recovery status passed with `DR_REQUIRE_FRESH_RESTORE=false`
+- operations status passed
+- queue, webhook, reconciliation, support, abuse, disputes, and operational event surfaces passed
+
+Production restore proof recorded locally:
+
+```env
+BACKUP_LAST_RESTORE_TEST_AT=2026-06-02T09:27:13Z
+BACKUP_LAST_RESTORE_TEST_STATUS=passed
+```
+
+Render backend env must be updated with the same restore proof values, then production should be redeployed and `npm run dr:check` should be rerun until `restoreFresh=true`.
 
 ## GitHub Secrets
 
@@ -97,14 +140,9 @@ gh variable set SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF --body "false"
 gh workflow run production-smoke.yml
 ```
 
-## Restore Drill Blocker
+## Remaining Production Follow-Up
 
-The first live database restore drill was not completed in this run because no staging/restore database URL or Neon API credentials were configured locally.
-
-Needed before marking restore proof complete:
-
-- Neon restore branch/database created from production backup/PITR
-- staging backend pointed at the restored database
-- `npm run smoke` passing against staging
-- `npm run dr:check` passing against staging
-- production env updated with `BACKUP_LAST_RESTORE_TEST_AT=<ISO timestamp>` and `BACKUP_LAST_RESTORE_TEST_STATUS=passed`
+- Update Render backend env with the restore proof timestamp/status.
+- Redeploy the Render backend.
+- Run `npm run dr:check` against production and confirm `restoreFresh=true`.
+- Re-authenticate GitHub CLI and verify GitHub Actions smoke secrets.
