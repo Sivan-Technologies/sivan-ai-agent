@@ -46,6 +46,11 @@ SENTRY_PROFILE_SESSION_SAMPLE_RATE=0
 SENTRY_ENABLE_LOGS=true
 SENTRY_SEND_DEFAULT_PII=false
 SENTRY_DEBUG_ENDPOINT_ENABLED=false
+OPERATIONS_ALERT_PROVIDER=telegram
+TELEGRAM_ALERT_BOT_TOKEN=<telegram-alert-bot-token>
+TELEGRAM_ALERT_CHAT_ID=<telegram-alert-chat-id>
+OPERATIONS_ALERT_WEBHOOK_URL=
+OPERATIONS_ALERT_WEBHOOK_SECRET=<rotated-alert-shared-secret>
 ```
 
 Also rotate provider secrets if they have been exposed: Paystack, Synapse/SAP, database password, and operations alert secrets.

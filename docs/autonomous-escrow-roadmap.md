@@ -239,7 +239,7 @@ Legend:
 | Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
-| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
+| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, Telegram/direct alert routing, generic alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
 | Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, stricter admin/API auth gates, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, and operator analytics |
@@ -320,7 +320,7 @@ The current system already has:
 - ✅ Render deployment for backend and bot
 - ✅ documentation for WhatsApp escrow MVP flow
 - ✅ admin operations visibility endpoints for database, alert, Sentry, and recent operational-event status
-- ✅ operations alert webhook routing for payment and operational warnings
+- ✅ operations alert routing for payment and operational warnings through Telegram or a generic webhook
 - ✅ production Sentry instrumentation for backend and WhatsApp bot with early SDK init, Express error handler, env-driven tracing/profiling/logs, source maps, and event redaction
 - ✅ admin Operations tab for database, Sentry, alert, queue, abuse, support, event, and settlement-verification visibility
 - ✅ operator smoke-check script for live Render/backend health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
@@ -352,7 +352,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | --- | --- | --- |
 | Smoke checks | ✅ Completed for operator script | `npm run smoke` checks public health/readiness plus admin database, operations, queue, webhook, reconciliation, support, and abuse surfaces when an admin key is supplied |
 | Monitoring/operational visibility | ✅ Completed for MVP | Admin operations endpoints expose database status, alert configuration, Sentry configuration, and recent operational events; backend and WhatsApp bot both have production Sentry SDK setup |
-| Alert routing | ✅ Completed for webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to `OPERATIONS_ALERT_WEBHOOK_URL` |
+| Alert routing | ✅ Completed for Telegram/webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to Telegram with `OPERATIONS_ALERT_PROVIDER=telegram` or to `OPERATIONS_ALERT_WEBHOOK_URL` |
 | Queue resilience foundation | ✅ Completed for MVP | Durable queue jobs, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility exist |
 | Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, request/device fingerprint metadata, abuse signal persistence, high-risk blocking, reputation watchlist, velocity dashboard, and operator analytics exist |
 | Support workflow foundation | ✅ Completed for MVP | Admin Support tab, cases, notes, assignment/status updates, search, dispute case creation, and support queue visibility exist |

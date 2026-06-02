@@ -64,7 +64,7 @@
 - Paystack `charge.success` processing uses an atomic workflow status claim so duplicate webhook delivery cannot double-run Naira execution.
 - Payment/webhook anomalies are routed through monitoring helpers and can be reported to Sentry when `SENTRY_DSN` is configured.
 - Operations status endpoints expose database readiness, backup/disaster recovery posture, Sentry/alert configuration, and recent operational warnings/errors.
-- Payment and operational warnings can be forwarded to an operations alert webhook through `OPERATIONS_ALERT_WEBHOOK_URL`.
+- Payment and operational warnings can be forwarded directly to Telegram with `OPERATIONS_ALERT_PROVIDER=telegram` or to an operations alert webhook through `OPERATIONS_ALERT_WEBHOOK_URL`.
 - Escrow release requires explicit buyer completion before release request; non-admin disputes require buyer/seller participation.
 
 ## Progress Summary (Percent Complete)
@@ -101,7 +101,7 @@
    - Implement on-chain SAP escrow full flow (create, monitor, release) with testnet coverage.
    - Add request/response schema validation, contract tests for payment clients, and unit tests for orchestrator logic.
    - Add CI (GitHub Actions) that runs lint, typecheck, and tests; add pre-commit formatting rules.
-   - Configure live monitoring and alerting destinations (Sentry project, operations alert webhook, Prometheus/Cloudwatch metrics, basic dashboards).
+   - Configure live monitoring and alerting destinations (Sentry project, Telegram or operations alert webhook, Prometheus/Cloudwatch metrics, basic dashboards).
    - Add database migrations (or simple versioning) for the SQLite store or migrate to a managed datastore.
 
 - Long-term / scaling:
@@ -131,4 +131,3 @@ If you want, I can:
 - Add unit tests for the core services and a minimal GitHub Actions CI pipeline.
 
 Which should I do next? (I suggest starting with the end-to-end demo + ngrok guide so we can validate payment paths.)
-

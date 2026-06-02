@@ -14,6 +14,7 @@ export interface OperationalEvent {
 
 const MAX_EVENTS = 100;
 const operationalEvents: OperationalEvent[] = [];
+const SENSITIVE_CONTEXT_KEY = /(secret|token|password|authorization|signature|accountnumber|account_number|bvn|nin|document_number)/i;
 
 function pushOperationalEvent(event: Omit<OperationalEvent, "id" | "createdAt">) {
   const record: OperationalEvent = {
@@ -32,6 +33,64 @@ function pushOperationalEvent(event: Omit<OperationalEvent, "id" | "createdAt">)
 }
 
 async function sendAlert(event: OperationalEvent) {
+  const provider = process.env.OPERATIONS_ALERT_PROVIDER || (process.env.TELEGRAM_ALERT_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID ? "telegram" : "webhook");
+  if (provider === "telegram") {
+    await sendTelegramAlert(event);
+    return;
+  }
+
+  await sendWebhookAlert(event);
+}
+
+function redactAlertValue(key: string, value: any): any {
+  if (SENSITIVE_CONTEXT_KEY.test(key)) return "[Filtered]";
+  if (Array.isArray(value)) return value.map((item) => redactAlertValue(key, item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, redactAlertValue(childKey, childValue)]));
+  }
+  return value;
+}
+
+function safeAlertContext(context: Record<string, any>) {
+  return Object.fromEntries(Object.entries(context || {}).map(([key, value]) => [key, redactAlertValue(key, value)]));
+}
+
+function formatTelegramAlert(event: OperationalEvent) {
+  const context = safeAlertContext(event.context);
+  const lines = [
+    `Sivan ${event.level.toUpperCase()} alert`,
+    event.message,
+    `Time: ${event.createdAt}`,
+  ];
+  if (event.error) lines.push(`Error: ${event.error}`);
+  if (Object.keys(context).length) lines.push(`Context: ${JSON.stringify(context).slice(0, 1500)}`);
+  return lines.join("\n");
+}
+
+async function sendTelegramAlert(event: OperationalEvent) {
+  const token = process.env.TELEGRAM_ALERT_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_ALERT_CHAT_ID;
+  if (!token || !chatId) return;
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: formatTelegramAlert(event),
+        disable_web_page_preview: true,
+      }),
+    });
+    if (!response.ok) {
+      warn("Failed to send Telegram operations alert", response.status, await response.text());
+    }
+  } catch (err) {
+    warn("Failed to send Telegram operations alert", err instanceof Error ? err.message : err);
+  }
+}
+
+async function sendWebhookAlert(event: OperationalEvent) {
   const webhookUrl = process.env.OPERATIONS_ALERT_WEBHOOK_URL;
   if (!webhookUrl) return;
 
@@ -47,6 +106,7 @@ async function sendAlert(event: OperationalEvent) {
       body: JSON.stringify({
         service: "sivan-escrow-agent",
         ...event,
+        context: safeAlertContext(event.context),
       }),
     });
   } catch (err) {
@@ -94,7 +154,8 @@ export function buildOperationalVisibility() {
 
   return {
     status: lastHour.some((event) => event.level === "error") ? "attention" : "ok",
-    alertsConfigured: Boolean(process.env.OPERATIONS_ALERT_WEBHOOK_URL),
+    alertsConfigured: Boolean(process.env.OPERATIONS_ALERT_WEBHOOK_URL || (process.env.TELEGRAM_ALERT_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID)),
+    alertProvider: process.env.OPERATIONS_ALERT_PROVIDER || (process.env.TELEGRAM_ALERT_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID ? "telegram" : process.env.OPERATIONS_ALERT_WEBHOOK_URL ? "webhook" : "none"),
     sentryConfigured: Boolean(process.env.SENTRY_DSN),
     recentWarnings: lastHour.filter((event) => event.level === "warning").length,
     recentErrors: lastHour.filter((event) => event.level === "error").length,

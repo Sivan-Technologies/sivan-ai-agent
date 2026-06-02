@@ -68,6 +68,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `SENTRY_DEBUG_ENDPOINT_ENABLED` - Set `true` only for a short verification window to expose `/debug-sentry`; return it to `false` immediately after confirming events arrive.
 - `OPERATIONS_ALERT_WEBHOOK_URL` - Optional HTTPS endpoint that receives operational/payment warning events as JSON.
 - `OPERATIONS_ALERT_WEBHOOK_SECRET` - Optional shared secret sent as `x-sivan-alert-secret` to the operations alert webhook.
+- `OPERATIONS_ALERT_PROVIDER` - Optional alert transport selector. Use `telegram` to send operations alerts directly through Telegram Bot API, or leave blank to use the generic webhook when `OPERATIONS_ALERT_WEBHOOK_URL` is set.
+- `TELEGRAM_ALERT_BOT_TOKEN` - Telegram bot token used for direct operations alerts when `OPERATIONS_ALERT_PROVIDER=telegram`.
+- `TELEGRAM_ALERT_CHAT_ID` - Telegram user/group/channel chat id that receives direct operations alerts.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
 - `PAYOUT_ENCRYPTION_KEY` - Required in production. Used to AES-256-GCM encrypt payout account numbers at rest. Generate a 32-byte random secret and keep it stable across deploys; rotating it requires a planned data re-encryption migration.
@@ -169,6 +172,9 @@ SENTRY_SEND_DEFAULT_PII=false
 SENTRY_DEBUG_ENDPOINT_ENABLED=false
 OPERATIONS_ALERT_WEBHOOK_URL=
 OPERATIONS_ALERT_WEBHOOK_SECRET=
+OPERATIONS_ALERT_PROVIDER=
+TELEGRAM_ALERT_BOT_TOKEN=
+TELEGRAM_ALERT_CHAT_ID=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
 PAYOUT_ENCRYPTION_KEY=change-me-32-byte-random-secret
