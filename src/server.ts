@@ -11,7 +11,7 @@ import { SapAgent } from "./services/sapAgent";
 import { AceDataClient } from "./services/aceData";
 import { PaymentRouter } from "./services/paymentRouter";
 import { AgentOrchestrator, TaskRequest } from "./services/agentOrchestrator";
-import { notifyWhatsAppBot, notifyWhatsAppBotStrict, formatTaskSummary } from "./services/notificationService";
+import { getWhatsAppProviderStatus, notifyWhatsAppBot, notifyWhatsAppBotStrict, formatTaskSummary, switchWhatsAppProvider } from "./services/notificationService";
 import { WorkflowStore } from "./services/workflowStore";
 import { FeeCalculation, SettingsStore } from "./services/settingsStore";
 import { EscrowCurrency, EscrowRecord, EscrowStore } from "./services/escrowStore";
@@ -39,6 +39,7 @@ import {
   queueRunSchema,
   taskRequestSchema,
   userProfileSchema,
+  whatsappProviderSwitchSchema,
 } from "./validation";
 import { buildOperationalVisibility, captureOperationalError, capturePaymentWarning, listOperationalEvents } from "./services/monitoring";
 import { getLatestSettlementVerification, runSettlementVerification } from "./services/settlementVerification";
@@ -1523,6 +1524,29 @@ app.get("/admin/ops/status", requireAdminAuth, async (_req, res) => {
   } catch (err: any) {
     captureOperationalError("Operations status check failed", err);
     res.status(503).json({ status: "error", error: err.message || "Operations status check failed" });
+  }
+});
+
+app.get("/admin/whatsapp-provider", requireAdminAuth, async (_req, res) => {
+  try {
+    res.status(200).json(await getWhatsAppProviderStatus());
+  } catch (err: any) {
+    captureOperationalError("WhatsApp provider status check failed", err);
+    res.status(502).json({ error: err.message || "WhatsApp provider status check failed" });
+  }
+});
+
+app.post("/admin/whatsapp-provider", requireAdminAuth, logAdminAction("switch_whatsapp_provider"), async (req, res) => {
+  const parsed = whatsappProviderSwitchSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid WhatsApp provider payload", details: formatZodError(parsed.error) });
+  }
+
+  try {
+    res.status(200).json(await switchWhatsAppProvider(parsed.data.provider));
+  } catch (err: any) {
+    captureOperationalError("WhatsApp provider switch failed", err, { provider: parsed.data.provider });
+    res.status(502).json({ error: err.message || "WhatsApp provider switch failed" });
   }
 });
 

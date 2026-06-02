@@ -229,7 +229,7 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
-| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, outbound messages work, webhook route exists, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
+| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, Meta Cloud API foundation now exists as a second transport, outbound messages work, webhook routes exist, optional Meta app-secret signature verification is wired, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
 | Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, buyer profiles can be fetched for repeat WhatsApp deals, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
@@ -239,7 +239,7 @@ Legend:
 | Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
-| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
+| Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, Telegram/direct alert routing, generic alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
 | Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, stricter admin/API auth gates, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, and operator analytics |
@@ -250,11 +250,11 @@ Legend:
 | Phase 11I | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` validates queue replay, webhook recovery readiness, and payout failure review paths after deploys, with execute mode for controlled recovery job creation |
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
 | Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed cross-device graph analytics, trend thresholds emit operational alerts, and suggested reputation actions are surfaced for operators |
-| Phase 11L | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | Admin DR status, `npm run dr:check`, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; production still needs provider backup proof and a recorded restore drill |
+| Phase 11L | Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | Admin DR status, `.env`-aware `npm run dr:check`, Neon Postgres PITR backup plan, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; production still needs provider backup proof and a recorded restore drill |
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, release readiness checks, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Remaining work is Phase 2 KYC provider abstraction |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend and bot smoke checks pass from local env. Remaining work is GitHub/Render secret rotation, recurring incident drills, and recurring DR restore drills |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend and bot smoke checks pass from local env; admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is GitHub/Render secret rotation, Meta live webhook verification, recurring incident drills, and recurring DR restore drills |
 
 ## What Is Completed So Far
 
@@ -320,7 +320,7 @@ The current system already has:
 - ✅ Render deployment for backend and bot
 - ✅ documentation for WhatsApp escrow MVP flow
 - ✅ admin operations visibility endpoints for database, alert, Sentry, and recent operational-event status
-- ✅ operations alert webhook routing for payment and operational warnings
+- ✅ operations alert routing for payment and operational warnings through Telegram or a generic webhook
 - ✅ production Sentry instrumentation for backend and WhatsApp bot with early SDK init, Express error handler, env-driven tracing/profiling/logs, source maps, and event redaction
 - ✅ admin Operations tab for database, Sentry, alert, queue, abuse, support, event, and settlement-verification visibility
 - ✅ operator smoke-check script for live Render/backend health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
@@ -352,7 +352,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | --- | --- | --- |
 | Smoke checks | ✅ Completed for operator script | `npm run smoke` checks public health/readiness plus admin database, operations, queue, webhook, reconciliation, support, and abuse surfaces when an admin key is supplied |
 | Monitoring/operational visibility | ✅ Completed for MVP | Admin operations endpoints expose database status, alert configuration, Sentry configuration, and recent operational events; backend and WhatsApp bot both have production Sentry SDK setup |
-| Alert routing | ✅ Completed for webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to `OPERATIONS_ALERT_WEBHOOK_URL` |
+| Alert routing | ✅ Completed for Telegram/webhook/Sentry MVP | Payment and operational warnings are captured in memory, sent to Sentry when configured, and can be forwarded to Telegram with `OPERATIONS_ALERT_PROVIDER=telegram` or to `OPERATIONS_ALERT_WEBHOOK_URL` |
 | Queue resilience foundation | ✅ Completed for MVP | Durable queue jobs, worker claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility exist |
 | Abuse prevention foundation | ✅ Completed for MVP | Escrow creation risk scoring, request/device fingerprint metadata, abuse signal persistence, high-risk blocking, reputation watchlist, velocity dashboard, and operator analytics exist |
 | Support workflow foundation | ✅ Completed for MVP | Admin Support tab, cases, notes, assignment/status updates, search, dispute case creation, and support queue visibility exist |
@@ -370,7 +370,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Dispute evidence and resolution | ✅ Completed for API/manual-resolution MVP | Dispute state, support cases, evidence capture, admin resolution, refund/release/cancel outcomes, audit history, and participant-visible dispute history API exist |
 | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | `/api/escrows/:escrowId/dispute-history` exposes participant-visible dispute history, and admin dispute evidence/resolution actions can notify participants |
 | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` supports read-only and controlled execute-mode drills for queue replay, webhook recovery, and payout failure recovery |
-| Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | `/admin/dr/status`, Admin Ops DR visibility, `npm run dr:check`, and `docs/disaster-recovery.md` exist; next step is enabling provider backups, performing a staging restore, and recording proof in release notes |
+| Backup and disaster recovery | ✅ Foundation completed / 🟡 live restore drill required | `/admin/dr/status`, Admin Ops DR visibility, `.env`-aware `npm run dr:check`, and `docs/disaster-recovery.md` exist; next step is confirming Neon PITR/restore retention, performing a staging restore, and recording proof in release notes |
 | Stronger fraud controls beyond MVP | ✅ Completed for operator-action MVP | Persistent abuse actions, active-action risk scoring, cross-device graph visibility, fingerprint watch analytics, automated reputation action suggestions, and automated abuse trend alerts now exist; deeper graph investigation UI remains future work |
 
 Only after these are solid should Sivan add autonomous release rules or dispute AI.

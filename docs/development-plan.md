@@ -16,7 +16,7 @@
    - Manual Naira release approval and reconciliation tracking are implemented.
 4. Production hardening underway
    - Operations status endpoints expose database, disaster recovery, Sentry, alert, and recent warning/error state.
-   - Payment and operational warnings can be routed to Sentry and an operations alert webhook.
+   - Payment and operational warnings can be routed to Sentry, Telegram, or an operations alert webhook.
    - `npm run smoke` provides deploy smoke checks for health, readiness, database, disaster recovery, and operations status.
    - `npm run dr:check` validates backup, restore-test freshness, rollback, and outage-readiness configuration after deploys.
 
@@ -53,7 +53,7 @@
 4. Finalize x402 production integration.
    - confirm `createPaymentFacility`, `settlePayment`, and `getPaymentStatus` endpoints.
 5. Continue observability.
-   - keep Sentry and operations alert webhook configured.
+   - keep Sentry and Telegram or operations alert webhook configured.
    - add metrics or status output for scaling.
 
 ## Phase 4: Scaling and automation

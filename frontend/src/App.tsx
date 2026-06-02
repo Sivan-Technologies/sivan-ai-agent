@@ -141,6 +141,16 @@ type OperationsStatus = {
   };
 };
 
+type WhatsAppProviderStatus = {
+  activeProvider: "twilio" | "meta" | "unknown";
+  configured?: boolean;
+  warning?: string;
+  providers: {
+    twilio?: { configured: boolean };
+    meta?: { configured: boolean; graphApiVersion?: string };
+  };
+};
+
 type DisasterRecoveryStatus = {
   status: string;
   checkedAt: string;
@@ -391,6 +401,7 @@ function App() {
   const [authStats, setAuthStats] = useState<AuthStats | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [whatsappProviderStatus, setWhatsappProviderStatus] = useState<WhatsAppProviderStatus | null>(null);
 
   const authHeaders = () => {
     const headers: any = { "Content-Type": "application/json" };
@@ -617,7 +628,7 @@ function App() {
 
   const loadOperations = async () => {
     if (!adminKey) return;
-    const [statusResponse, drResponse, eventsResponse, settlementResponse, queueResponse, queueJobsResponse, abuseResponse, abuseAnalyticsResponse, supportResponse] = await Promise.all([
+    const [statusResponse, drResponse, eventsResponse, settlementResponse, queueResponse, queueJobsResponse, abuseResponse, abuseAnalyticsResponse, supportResponse, whatsappProviderResponse] = await Promise.all([
       fetch(`${apiBase}/admin/ops/status`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/dr/status`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/ops/events?limit=50`, { headers: authHeaders() }),
@@ -627,6 +638,7 @@ function App() {
       fetch(`${apiBase}/admin/abuse/signals?limit=100`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/abuse/analytics?limit=500`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/support/cases?limit=100`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/whatsapp-provider`, { headers: authHeaders() }),
     ]);
     if (!statusResponse.ok) throw new Error(await parseError(statusResponse, "Failed to load operations status"));
     if (!drResponse.ok) throw new Error(await parseError(drResponse, "Failed to load disaster recovery status"));
@@ -641,6 +653,23 @@ function App() {
     setAbuseSignals(abuseResponse.ok ? await abuseResponse.json() : []);
     setAbuseAnalytics(abuseAnalyticsResponse.ok ? await abuseAnalyticsResponse.json() : null);
     setSupportCases(supportResponse.ok ? await supportResponse.json() : []);
+    setWhatsappProviderStatus(whatsappProviderResponse.ok ? await whatsappProviderResponse.json() : null);
+  };
+
+  const switchWhatsAppProvider = async (provider: "twilio" | "meta") => {
+    setActionBusy(true);
+    try {
+      const response = await fetch(`${apiBase}/admin/whatsapp-provider`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ provider }),
+      });
+      if (!response.ok) throw new Error(await parseError(response, "Failed to switch WhatsApp provider"));
+      setWhatsappProviderStatus(await response.json());
+      await loadOperations();
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const runSettlementVerification = async () => {
@@ -2019,6 +2048,46 @@ function App() {
               <div className="detail-row"><span>DB latency</span><strong>{operationsStatus?.database.latencyMs ?? "-"} ms</strong></div>
               <div className="detail-row"><span>Settings version</span><strong>{operationsStatus?.database.settingsVersion || "-"}</strong></div>
               <div className="detail-row"><span>Recent warnings</span><strong>{operationsStatus?.operations.recentWarnings ?? 0}</strong></div>
+            </div>
+            <div className="section-head ops-subhead">
+              <h2>WhatsApp Provider</h2>
+              <span>{whatsappProviderStatus?.activeProvider || "unknown"}</span>
+            </div>
+            <div className="detail-stack">
+              <div className="detail-row"><span>Active outbound</span><strong>{whatsappProviderStatus?.activeProvider || "unknown"}</strong></div>
+              <div className="detail-row"><span>Twilio</span><strong>{whatsappProviderStatus?.providers?.twilio?.configured ? "Configured" : "Not configured"}</strong></div>
+              <div className="detail-row"><span>Meta Cloud API</span><strong>{whatsappProviderStatus?.providers?.meta?.configured ? "Configured" : "Not configured"}</strong></div>
+              <div className="detail-row"><span>Meta Graph</span><strong>{whatsappProviderStatus?.providers?.meta?.graphApiVersion || "not set"}</strong></div>
+              {whatsappProviderStatus?.warning ? <div className="detail-note critical-note">{whatsappProviderStatus.warning}</div> : null}
+              <div className="toolbar-row">
+                <button
+                  className="button secondary"
+                  disabled={actionBusy || !whatsappProviderStatus?.providers?.twilio?.configured || whatsappProviderStatus?.activeProvider === "twilio"}
+                  onClick={async () => {
+                    try {
+                      await switchWhatsAppProvider("twilio");
+                    } catch (err: any) {
+                      setError(err.message || "WhatsApp provider switch failed");
+                    }
+                  }}
+                >
+                  Use Twilio
+                </button>
+                <button
+                  className="button secondary"
+                  disabled={actionBusy || !whatsappProviderStatus?.providers?.meta?.configured || whatsappProviderStatus?.activeProvider === "meta"}
+                  onClick={async () => {
+                    try {
+                      await switchWhatsAppProvider("meta");
+                    } catch (err: any) {
+                      setError(err.message || "WhatsApp provider switch failed");
+                    }
+                  }}
+                >
+                  Use Meta
+                </button>
+              </div>
+              <div className="detail-note">Runtime switching changes the current bot process. Update Render env `WHATSAPP_PROVIDER` for the permanent deploy default.</div>
             </div>
             <div className="section-head ops-subhead">
               <h2>Backup and Recovery</h2>
