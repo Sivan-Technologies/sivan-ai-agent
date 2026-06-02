@@ -62,7 +62,7 @@ Command:
 npm run dr:check
 ```
 
-Result before restore proof was recorded: failed only on restore freshness.
+Initial result before restore proof was recorded: failed only on restore freshness.
 
 Passing:
 
@@ -123,6 +123,25 @@ BACKUP_LAST_RESTORE_TEST_STATUS=passed
 
 Render backend env must be updated with the same restore proof values, then production should be redeployed and `npm run dr:check` should be rerun until `restoreFresh=true`.
 
+## Final Production DR Confirmation
+
+After the restore proof values were added to the production backend environment, `npm run dr:check` was run twice against:
+
+```text
+https://sivan-escrow-agent.onrender.com
+```
+
+Final result: passed.
+
+Passing:
+
+- public health
+- readiness
+- database status
+- operations status
+- disaster recovery status
+- restore freshness
+
 ## GitHub Secrets
 
 GitHub CLI could not update secrets from this machine because the saved GitHub token is invalid. Re-authenticate with:
@@ -142,7 +161,4 @@ gh workflow run production-smoke.yml
 
 ## Remaining Production Follow-Up
 
-- Update Render backend env with the restore proof timestamp/status.
-- Redeploy the Render backend.
-- Run `npm run dr:check` against production and confirm `restoreFresh=true`.
 - Re-authenticate GitHub CLI and verify GitHub Actions smoke secrets.
