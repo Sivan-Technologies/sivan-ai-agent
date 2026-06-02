@@ -58,6 +58,8 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `DATABASE_URL` - SQLite file path when `DATABASE_PROVIDER=sqlite`, or the production managed Postgres URL when `DATABASE_PROVIDER=postgres`.
 - `POSTGRES_DATABASE_URL` - Optional managed Postgres URL fallback used when `DATABASE_PROVIDER=postgres` and `DATABASE_URL` is blank or still a placeholder.
 - `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
+- `POSTGRES_CONNECTION_TIMEOUT_MS` - Postgres connection timeout for backend pools. Defaults to `5000`; keep bounded so WhatsApp requests fail cleanly instead of surfacing Render 502s.
+- `POSTGRES_QUERY_TIMEOUT_MS` - Postgres query timeout for backend pools. Defaults to `8000`; keep near or below `CORE_API_TIMEOUT_MS` used by the WhatsApp bot.
 - `SENTRY_DSN` - Optional Sentry DSN for production error, log, trace, and profiling telemetry. Set this in Render for the backend service.
 - `SENTRY_ENVIRONMENT` - Sentry environment name. Use `production`, `staging`, or `development`.
 - `SENTRY_RELEASE` - Optional release identifier. Use a git SHA, deploy ID, or semantic version so Sentry can group issues by release.
@@ -162,6 +164,8 @@ DATABASE_PROVIDER=sqlite
 DATABASE_URL=./data/sivan-escrow-agent.db
 POSTGRES_DATABASE_URL=
 POSTGRES_SSL=true
+POSTGRES_CONNECTION_TIMEOUT_MS=5000
+POSTGRES_QUERY_TIMEOUT_MS=8000
 SENTRY_DSN=
 SENTRY_ENVIRONMENT=development
 SENTRY_RELEASE=
