@@ -25,11 +25,11 @@ Full BVN/NIN/selfie verification should be added only when transaction size, fra
 | Layer | Status | Summary |
 | --- | --- | --- |
 | Layer 1: Financial Compliance | 🟡 Partially complete | MVP phone/profile/bank resolution/name-match controls are implemented; full BVN/NIN/selfie KYC is not yet implemented |
-| Layer 1C: AML MVP | 🟡 Partially complete | Velocity, high-value, shared-account, abuse signals, and operator review foundations exist; deeper dispute-ratio/user-level AML scoring remains next |
-| Layer 1D: Release Controls | 🟡 Partially complete | Manual Naira payout approval, escrow-derived payout amount, payout verification, name-match, shared-account, and high-value gates exist; aggregate compliance risk gate and support-case automation remain next |
+| Layer 1C: AML MVP | ✅ Complete for MVP | Velocity, high-value, shared-account, new-seller, seller dispute-ratio, abuse signals, and operator review foundations exist; deeper graph scoring remains future work |
+| Layer 1D: Release Controls | ✅ Complete for MVP | Manual Naira payout approval, escrow-derived payout amount, payout verification, name-match, shared-account, high-value, aggregate compliance risk gate, and support-case automation exist |
 | Layer 2: Data Protection | ✅ Complete for MVP | Payout account tokenization, AES-256-GCM encryption, masking, and log redaction are implemented |
 | Layer 3: Escrow Accounting | ✅ Complete for MVP | Funding, seller-net release, refund, and fee-capture ledger entries exist; full finance export/reconciliation reports remain future work |
-| Layer 4: Fraud Engine | 🟡 Partially complete | Abuse signals, reputation actions, velocity/high-amount checks, shared-account/name-match release gates exist; deeper graph/dispute scoring remains next |
+| Layer 4: Fraud Engine | 🟡 Partially complete | Abuse signals, reputation actions, velocity/high-amount checks, shared-account/name-match release gates, new-seller scoring, and seller dispute-ratio gates exist; deeper graph scoring remains future work |
 | Phase 2 KYC | 🔴 Not started | Prembly/Smile/Paystack identity-document validation abstraction is still future work |
 
 Legend: ✅ complete for MVP, 🟡 partially complete, 🔴 not started, 🔮 future.
@@ -134,7 +134,7 @@ Provider path:
 
 Paystack's customer validation flow can validate bank-account details with identity documents, but bank support is country/bank dependent and the documented Validate Account flow is not the same low-friction Nigerian `/bank/resolve` lookup. Use it for higher-risk Paystack-backed flows where the required identity document is available, not as the first MVP gate.
 
-## Layer 1C: AML MVP 🟡
+## Layer 1C: AML MVP ✅
 
 Sivan does not need bank-grade AML on day one, but every escrow should produce risk signals.
 
@@ -145,8 +145,8 @@ Track these signals:
 | Velocity | 10 escrows today | ✅ Increases risk score |
 | Large transaction | Amount above `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` | ✅ Implemented release review gate |
 | Shared payout account | Multiple sellers use same account token | ✅ Implemented payout review gate |
-| High dispute rate | Seller dispute ratio above 30% | 🔴 Manual review/account limit scoring not yet implemented |
-| New user | First transaction | 🟡 Basic user history exists; explicit new-user score still pending |
+| High dispute rate | Seller dispute ratio above 30% after minimum history | ✅ Blocks payout approval through aggregate compliance risk gate |
+| New user | First seller transaction | ✅ Adds explicit compliance risk score |
 | Repeated device/fingerprint | Same device across many accounts | ✅ Risk/action foundation exists |
 
 Store per escrow and per user:
@@ -165,9 +165,9 @@ Risk levels:
 | 0-20 | Low | Normal flow |
 | 21-50 | Medium | Allow, record signal |
 | 51-79 | High | Manual review before release |
-| 80-100 | Critical | Block or require enhanced KYC |
+| 80-100 | Critical | Block and require operator compliance review |
 
-## Layer 1D: Release Controls 🟡
+## Layer 1D: Release Controls ✅
 
 Before any payout, Sivan should verify:
 
@@ -182,7 +182,7 @@ Before any payout, Sivan should verify:
 | No active dispute | ✅ Yes |
 | High-value review threshold | ✅ Yes |
 | Shared payout account review | ✅ Yes |
-| Aggregate user risk below release threshold | 🟡 Partial; deeper aggregate user risk is next |
+| Aggregate user risk below release threshold | ✅ Yes |
 | Admin approved Naira payout | ✅ Yes |
 | Amount comes from escrow record | ✅ Yes |
 | Admin enters payout amount manually | ❌ No |
@@ -199,7 +199,7 @@ PENDING_RELEASE
   -> RELEASED
 ```
 
-If a release check fails, keep the escrow in `REVIEW_REQUIRED` or block the release action with a specific compliance reason. Current release checks block weak/failed account-name matches, shared payout accounts, and high-value releases before admin payout approval.
+If a release check fails, keep the escrow in `REVIEW_REQUIRED` or block the release action with a specific compliance reason. Current release checks block weak/failed account-name matches, shared payout accounts, high-value releases, high/critical aggregate compliance risk, and seller high-dispute-ratio risk before admin payout approval.
 
 Current payout approval behavior:
 
@@ -209,6 +209,8 @@ Current payout approval behavior:
 - ✅ Release transactions and ledger entries record seller net payout.
 - ✅ Fee-capture ledger entries record the platform fee when fee settings produce a positive fee.
 - ✅ Admin Payout Safety shows gross amount, platform fee, seller net payout, masked payout account, resolved account name, and risk level.
+- ✅ Escrow detail readiness includes aggregate compliance risk, seller dispute ratio, new-seller signal, and release-risk readiness.
+- ✅ Admin payout approval blocks high/critical aggregate compliance risk or seller high-dispute-ratio risk and opens a support case for manual review.
 
 ## Layer 2: Data Protection ✅
 
@@ -269,11 +271,11 @@ Initial scoring:
 
 | Event | Score |
 | --- | ---: |
-| New user | 🔴 +5 pending |
+| New user | ✅ +5 implemented |
 | Large amount | ✅ +20/review gate implemented |
 | Velocity spike | ✅ +20/risk scoring implemented |
 | Multiple devices | ✅ +15/action foundation implemented |
-| Multiple disputes | 🔴 +30 pending |
+| Multiple disputes | ✅ +30 via seller dispute-ratio gate |
 | Shared payout account | ✅ +25/review gate implemented |
 | Account name weak match | ✅ +25/review gate implemented |
 | Account name failed match | ✅ +60/rejection gate implemented |
@@ -292,7 +294,7 @@ Output:
 }
 ```
 
-High risk should trigger manual review before release. Critical risk should block payout until compliance review or enhanced KYC is complete.
+High risk should trigger manual review before release. Critical risk should block payout until operator compliance review is complete.
 
 ## Recommended Next Engineering Sequence
 
@@ -304,7 +306,8 @@ High risk should trigger manual review before release. Critical risk should bloc
 6. ✅ Add compliance fields to escrow detail through payout/readiness payloads.
 7. ✅ Add ledger entries for funding, release, and refund.
 8. ✅ Add fee ledger entries for admin-approved seller payouts.
-9. 🟡 Add Phase 2 KYC provider abstraction for Prembly/Smile/Paystack identity validation.
+9. ✅ Add aggregate compliance risk gate before admin payout approval.
+10. 🔮 Phase 2 KYC provider abstraction remains future work and is intentionally not part of the MVP hardening pass.
 
 ## Sources
 

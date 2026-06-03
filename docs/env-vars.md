@@ -83,6 +83,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT` - Number of distinct sellers using the same payout account token that triggers manual compliance review. Defaults to `2`.
 - `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` - Naira release amount threshold that moves release to compliance review before payout approval. Defaults to `500000`.
 - `USDC_HIGH_VALUE_REVIEW_AMOUNT` - USDC release amount threshold that blocks autonomous release for manual review. Defaults to `2500`.
+- `COMPLIANCE_NEW_SELLER_ESCROW_COUNT` - Seller escrow count threshold treated as a new-seller risk signal. Defaults to `1`.
+- `COMPLIANCE_HIGH_DISPUTE_RATIO` - Seller dispute-ratio threshold that blocks payout approval through aggregate compliance risk. Defaults to `0.3`.
+- `COMPLIANCE_HIGH_DISPUTE_MIN_ESCROWS` - Minimum seller escrow history before high-dispute-ratio scoring is applied. Defaults to `3`.
 - `WEBHOOK_URL` - Public URL for webhook callbacks.
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
@@ -192,6 +195,9 @@ PAYOUT_TOKEN_SECRET=change-me-separate-hmac-secret
 PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT=2
 NAIRA_HIGH_VALUE_REVIEW_AMOUNT=500000
 USDC_HIGH_VALUE_REVIEW_AMOUNT=2500
+COMPLIANCE_NEW_SELLER_ESCROW_COUNT=1
+COMPLIANCE_HIGH_DISPUTE_RATIO=0.3
+COMPLIANCE_HIGH_DISPUTE_MIN_ESCROWS=3
 WEBHOOK_URL=https://yourapp.example.com/webhooks
 SMOKE_BASE_URL=https://yourapp.example.com
 SMOKE_ADMIN_API_KEY=
