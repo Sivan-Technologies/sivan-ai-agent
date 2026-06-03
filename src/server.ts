@@ -55,6 +55,7 @@ import type { PaystackTransactionStatus } from "./services/paystackClient";
 validateConfig();
 
 const app = express();
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || "1"));
 const sapAgent = new SapAgent(config.sap.rpcUrl, config.synapse.apiKey);
 const aceData = new AceDataClient(config.aceData.baseUrl, config.aceData.apiKey);
 const paymentRouter = new PaymentRouter(sapAgent);

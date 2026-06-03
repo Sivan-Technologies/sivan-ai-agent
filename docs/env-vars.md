@@ -60,6 +60,7 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `POSTGRES_SSL` - Optional Postgres SSL toggle. Defaults to SSL for Postgres. Set `false` only for local non-SSL Postgres.
 - `POSTGRES_CONNECTION_TIMEOUT_MS` - Postgres connection timeout for backend pools. Defaults to `5000`; keep bounded so WhatsApp requests fail cleanly instead of surfacing Render 502s.
 - `POSTGRES_QUERY_TIMEOUT_MS` - Postgres query timeout for backend pools. Defaults to `8000`; keep near or below `CORE_API_TIMEOUT_MS` used by the WhatsApp bot.
+- `TRUST_PROXY_HOPS` - Number of reverse-proxy hops Express should trust for `req.ip`. Use `1` on Render so IP controls read the client IP from forwarded headers.
 - `SENTRY_DSN` - Optional Sentry DSN for production error, log, trace, and profiling telemetry. Set this in Render for the backend service.
 - `SENTRY_ENVIRONMENT` - Sentry environment name. Use `production`, `staging`, or `development`.
 - `SENTRY_RELEASE` - Optional release identifier. Use a git SHA, deploy ID, or semantic version so Sentry can group issues by release.
@@ -74,7 +75,9 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `TELEGRAM_ALERT_BOT_TOKEN` - Telegram bot token used for direct operations alerts when `OPERATIONS_ALERT_PROVIDER=telegram`.
 - `TELEGRAM_ALERT_CHAT_ID` - Telegram user/group/channel chat id that receives direct operations alerts.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
+- `ADMIN_IP_ALLOWLIST` - Optional comma-separated admin network allowlist. Supports exact IPs and IPv4 CIDR ranges, for example `203.0.113.10,198.51.100.0/24`. Leave blank until you know the operator/VPN/static IPs.
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
+- `CORE_API_IP_ALLOWLIST` - Optional comma-separated allowlist for core API callers such as the WhatsApp bot. Supports exact IPs and IPv4 CIDR ranges. Leave blank if the caller runs from dynamic egress without a stable IP.
 - `PAYOUT_ENCRYPTION_KEY` - Required in production. Used to AES-256-GCM encrypt payout account numbers at rest. Generate a 32-byte random secret and keep it stable across deploys; rotating it requires a planned data re-encryption migration.
 - `PAYOUT_TOKEN_SECRET` - Optional separate HMAC secret used to derive deterministic payout account tokens for uniqueness/lookups without storing raw account numbers. If blank, the app falls back to `PAYOUT_ENCRYPTION_KEY`.
 - `PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT` - Number of distinct sellers using the same payout account token that triggers manual compliance review. Defaults to `2`.
@@ -166,6 +169,7 @@ POSTGRES_DATABASE_URL=
 POSTGRES_SSL=true
 POSTGRES_CONNECTION_TIMEOUT_MS=5000
 POSTGRES_QUERY_TIMEOUT_MS=8000
+TRUST_PROXY_HOPS=1
 SENTRY_DSN=
 SENTRY_ENVIRONMENT=development
 SENTRY_RELEASE=
@@ -180,7 +184,9 @@ OPERATIONS_ALERT_PROVIDER=
 TELEGRAM_ALERT_BOT_TOKEN=
 TELEGRAM_ALERT_CHAT_ID=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
+ADMIN_IP_ALLOWLIST=
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot
+CORE_API_IP_ALLOWLIST=
 PAYOUT_ENCRYPTION_KEY=change-me-32-byte-random-secret
 PAYOUT_TOKEN_SECRET=change-me-separate-hmac-secret
 PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT=2
