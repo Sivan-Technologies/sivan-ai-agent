@@ -301,11 +301,29 @@ type AuthStats = {
   timestamp?: string;
 };
 
+type AuthIdentity = {
+  adminUsername?: string;
+  adminIdentifier?: string;
+  expiresAt?: string;
+  issuedAt?: string;
+};
+
+type AuthAuditEvent = {
+  eventId: string;
+  eventType: string;
+  adminUsername?: string;
+  status: string;
+  reason?: string;
+  ip?: string;
+  createdAt: string;
+};
+
 type Tab = "escrows" | "disputes" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
 const storedAdminKey = "sivan.adminToken";
+const storedAdminUsername = "sivan.adminUsername";
 const adminAuthBase = (import.meta as any).env.VITE_ADMIN_AUTH_BASE_URL || "http://localhost:3600";
 
 const money = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
@@ -346,6 +364,7 @@ function formatTime(value?: string) {
 function App() {
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem(storedAdminKey) || "");
   const [adminKeyInput, setAdminKeyInput] = useState("");
+  const [adminUsernameInput, setAdminUsernameInput] = useState(() => sessionStorage.getItem(storedAdminUsername) || "");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [escrows, setEscrows] = useState<EscrowRecord[]>([]);
   const [reconciliationRows, setReconciliationRows] = useState<ReconciliationRow[]>([]);
@@ -399,6 +418,8 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [authSessions, setAuthSessions] = useState<AuthSessionRecord[]>([]);
   const [authStats, setAuthStats] = useState<AuthStats | null>(null);
+  const [authIdentity, setAuthIdentity] = useState<AuthIdentity | null>(null);
+  const [authAuditEvents, setAuthAuditEvents] = useState<AuthAuditEvent[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [whatsappProviderStatus, setWhatsappProviderStatus] = useState<WhatsAppProviderStatus | null>(null);
@@ -447,6 +468,8 @@ function App() {
     setAuditHistory([]);
     setAuthSessions([]);
     setAuthStats(null);
+    setAuthIdentity(null);
+    setAuthAuditEvents([]);
     setAuthError(null);
     setOperationsStatus(null);
     setDisasterRecoveryStatus(null);
@@ -483,6 +506,11 @@ function App() {
   };
 
   const requestTelegramToken = async () => {
+    const adminUsername = adminUsernameInput.trim();
+    if (!adminUsername) {
+      setError("Admin username is required.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -492,12 +520,47 @@ function App() {
           "Content-Type": "application/json",
           "x-admin-request-secret": (import.meta as any).env.VITE_ADMIN_REQUEST_SECRET || "",
         },
-        body: JSON.stringify({ adminIdentifier: "frontend" }),
+        body: JSON.stringify({ adminUsername }),
       });
       if (!resp.ok) throw new Error(await parseError(resp, "Failed to request session"));
-      alert("Token requested. Check Telegram for the 6-digit code.");
+      sessionStorage.setItem(storedAdminUsername, adminUsername);
+      alert("Token requested. Check Telegram for the login code.");
     } catch (err: any) {
       setError(err.message || "Failed to request token");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyTelegramToken = async () => {
+    const adminUsername = adminUsernameInput.trim();
+    const token = adminKeyInput.trim();
+    if (!adminUsername) {
+      setError("Admin username is required.");
+      return;
+    }
+    if (!token) {
+      setError("Telegram token is required.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(`${adminAuthBase}/auth/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminUsername, token }),
+      });
+      if (!resp.ok) throw new Error(await parseError(resp, "Invalid token"));
+      const body = await resp.json();
+      sessionStorage.setItem(storedAdminKey, body.accessToken);
+      sessionStorage.setItem(storedAdminUsername, adminUsername);
+      setAdminKey(body.accessToken);
+      setAdminKeyInput("");
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || "Token verification failed");
     } finally {
       setLoading(false);
     }
@@ -531,10 +594,31 @@ function App() {
       } else {
         setAuthSessions([]);
       }
+
+      const identityResponse = await fetch(`${adminAuthBase}/auth/me`, {
+        headers: authHeaders(),
+      });
+      if (identityResponse.ok) {
+        setAuthIdentity(await identityResponse.json());
+      } else {
+        setAuthIdentity(null);
+      }
+
+      const auditResponse = await fetch(`${adminAuthBase}/admin/auth-audit?limit=25`, {
+        headers: authHeaders(),
+      });
+      if (auditResponse.ok) {
+        const payload = await auditResponse.json();
+        setAuthAuditEvents(payload.events || []);
+      } else {
+        setAuthAuditEvents([]);
+      }
     } catch (err: any) {
       setAuthError(err.message || "Unable to load auth activity");
       setAuthSessions([]);
       setAuthStats(null);
+      setAuthIdentity(null);
+      setAuthAuditEvents([]);
     } finally {
       setAuthLoading(false);
     }
@@ -1000,10 +1084,21 @@ function App() {
           <h1>Sivan Escrow Admin</h1>
           <p className="muted">Secure operations console</p>
           {error && <div className="error-banner">{error}</div>}
+          <label className="field">
+            <span>Admin username</span>
+            <input
+              type="text"
+              value={adminUsernameInput}
+              onChange={(event) => setAdminUsernameInput(event.target.value)}
+              autoComplete="username"
+              placeholder="solia admin"
+            />
+          </label>
           <div style={{ marginBottom: 12 }}>
             <button
               className="button primary full"
               onClick={requestTelegramToken}
+              disabled={loading}
             >Request token via Telegram</button>
           </div>
 
@@ -1015,32 +1110,14 @@ function App() {
               onChange={(event) => setAdminKeyInput(event.target.value)}
               onKeyDown={async (event) => {
                 if (event.key === "Enter") {
-                  // verify token
-                  setLoading(true);
-                  try {
-                    const resp = await fetch(`${adminAuthBase}/auth/verify`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ token: adminKeyInput.trim() }),
-                    });
-                    if (!resp.ok) throw new Error("Invalid token");
-                    const body = await resp.json();
-                    sessionStorage.setItem(storedAdminKey, body.accessToken);
-                    setAdminKey(body.accessToken);
-                    setAdminKeyInput("");
-                    setError(null);
-                  } catch (err: any) {
-                    setError(err.message || "Token verification failed");
-                  } finally {
-                    setLoading(false);
-                  }
+                  await verifyTelegramToken();
                 }
               }}
               autoComplete="off"
             />
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="button primary full" onClick={async () => { saveAdminKey(); }}>Verify</button>
+            <button className="button primary full" onClick={verifyTelegramToken} disabled={loading}>Verify</button>
             <button className="button" onClick={() => { setAdminKeyInput(''); setError(null); }}>Clear</button>
           </div>
           <div className="endpoint-chip">{apiBase}</div>
@@ -2293,7 +2370,7 @@ function App() {
                   const payload = decodeJwtPayload(adminKey);
                   return payload ? (
                     <>
-                      <div className="detail-row"><span>Admin</span><strong>{payload.adminIdentifier || payload.sub || "admin"}</strong></div>
+                      <div className="detail-row"><span>Admin</span><strong>{authIdentity?.adminUsername || payload.adminUsername || payload.adminIdentifier || payload.sub || "admin"}</strong></div>
                       <div className="detail-row"><span>Expires</span><strong>{payload.exp ? new Date(payload.exp * 1000).toLocaleString() : "unknown"}</strong></div>
                     </>
                   ) : null;
@@ -2325,6 +2402,7 @@ function App() {
                   </button>
                   {authStats ? (
                     <div className="preview-list" style={{ marginTop: 16 }}>
+                      <div className="preview-row"><span>Current admin</span><strong>{authIdentity?.adminUsername || "-"}</strong></div>
                       <div className="preview-row"><span>Total requests</span><strong>{authStats.total_requests ?? "-"}</strong></div>
                       <div className="preview-row"><span>Successful verifications</span><strong>{authStats.successful_verifications ?? "-"}</strong></div>
                       <div className="preview-row"><span>Failed verifications</span><strong>{authStats.failed_verifications ?? "-"}</strong></div>
@@ -2338,6 +2416,38 @@ function App() {
                 </>
               )}
             </div>
+          </div>
+
+          <div className="surface auth-card">
+            <h3>Auth Audit</h3>
+            {authAuditEvents.length === 0 ? (
+              <p className="muted">No auth audit events to display.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Event</th>
+                      <th>Admin</th>
+                      <th>Status</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {authAuditEvents.map((event) => (
+                      <tr key={event.eventId}>
+                        <td>{formatTime(event.createdAt)}</td>
+                        <td>{event.eventType}</td>
+                        <td>{event.adminUsername || "-"}</td>
+                        <td>{event.status}</td>
+                        <td>{event.reason || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="surface auth-card">
