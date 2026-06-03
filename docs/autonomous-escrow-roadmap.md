@@ -215,7 +215,7 @@ Current estimate:
 ```text
 MVP escrow-core readiness: 94%
 Production financial-readiness: 91%
-Cross-repo production-readiness: 90%
+Cross-repo production-readiness: 91%
 ```
 
 Legend:
@@ -241,7 +241,7 @@ Legend:
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, Telegram/direct alert routing, generic alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
 | Phase 11B | Live smoke testing pipeline | ✅ Completed for operator-run pipeline | Smoke checks cover health, readiness, database, operations, queue, webhooks, reconciliation, support, abuse, and optional settlement proof checks |
-| Phase 11C | Production environment hardening | ✅ Foundation completed / 🟡 live ops required | Env docs, secret placeholders, stricter admin/API auth gates, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, and DR env checks exist; real secret rotation/IP controls and live restore proof are deployment tasks |
+| Phase 11C | Production environment hardening | ✅ Completed for MVP / 🟡 rotation cadence required | Env docs, secret placeholders, stricter admin/API auth gates, optional admin/core IP allowlists, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, DR env checks, and live Neon restore proof exist. Remaining operator work is recurring secret rotation plus setting allowlist values only after stable operator/bot egress IPs are known |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, and operator analytics |
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
 | Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
@@ -251,10 +251,10 @@ Legend:
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
 | Phase 11K | Stronger fraud controls | ✅ Completed for operator-action MVP | Abuse actions persist watch/warn/limit/block/clear decisions, active actions affect escrow creation risk scoring, repeated fingerprints feed cross-device graph analytics, trend thresholds emit operational alerts, and suggested reputation actions are surfaced for operators |
 | Phase 11L | Backup and disaster recovery | ✅ Completed for MVP | Admin DR status, `.env`-aware `npm run dr:check`, Neon Postgres PITR backup plan, backup/restore/rollback/outage env docs, and a disaster-recovery runbook now exist; the first Neon restore branch drill passed on 2026-06-02, restore proof was recorded, and production `npm run dr:check` now passes with restore freshness |
-| Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, release readiness checks, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Remaining work is Phase 2 KYC provider abstraction |
+| Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, new-seller scoring, seller dispute-ratio gates, aggregate risk release checks, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Phase 2 KYC remains intentionally out of MVP scope |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend smoke, incident drill, and production DR checks passed on 2026-06-02; admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is GitHub CLI re-auth/secret verification, Meta live webhook verification, and recurring smoke/incident/DR cadence after deploys |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend smoke, incident drill, production DR checks, and Neon/Postgres deploy verification have passed; latest live backend smoke passed again on 2026-06-03. Admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is local GitHub CLI re-auth for machine-side secret verification, Meta live webhook verification, and keeping smoke/incident/DR proof current after every deploy |
 
 ## What Is Completed So Far
 
@@ -362,7 +362,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Cross-repo security hardening | ✅ Completed for current pass | Notify auth fails closed, Telegram OTP/session hardening is in place, Paystack HMAC comparison is constant-time, and admin/core local auth bypass requires explicit opt-in |
 | Payout data protection | ✅ Implemented for current backend | New and legacy payout account numbers are tokenized, AES-256-GCM encrypted at rest, masked in API/store responses, and shared logging redacts account/payment/secret-like values. Production must set stable `PAYOUT_ENCRYPTION_KEY` and `PAYOUT_TOKEN_SECRET` before deploy |
 | Compliance MVP | ✅ Completed for risk-gated MVP | Seller payout setup stores resolved account name, name-match score/level, verification provider/time, shared-account count/flag, and release readiness blocks weak/failed/shared/high-value payout paths |
-| Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
+| Production Postgres migration | ✅ Completed for MVP | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; Render is configured for Postgres/Neon runtime, production readiness and smoke checks pass, and the Neon restore drill/DR check proof was recorded on 2026-06-02 |
 | Telegram admin auth sync | ✅ Build/test clean locally | Current local repo includes session-token hardening and production CORS fail-closed behavior; push/deploy verification remains an operator step |
 | WhatsApp bot sync | ✅ Build/test clean locally | Current local repo includes fail-closed notify auth; push/deploy verification remains an operator step |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
@@ -468,7 +468,7 @@ Completed from the prior immediate implementation order:
 9. ✅ production-hardening visibility: monitoring, alerts, and smoke checks
 10. ✅ retry worker system: queue claims, exponential backoff, stale lock recovery, manual replay, and dead-letter visibility
 11. ✅ live smoke testing surface: health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
-12. ✅ production environment hardening foundation: env docs, secret placeholders, stricter admin/API auth gates, explicit local-auth opt-in, rate limiting, CORS, and HTTPS deploy assumptions
+12. ✅ production environment hardening for MVP: env docs, secret placeholders, stricter admin/API auth gates, optional admin/core IP allowlists, explicit local-auth opt-in, rate limiting, CORS, HTTPS deploy assumptions, Postgres config guidance, DR env checks, and live restore proof
 13. ✅ abuse prevention expansion for MVP: velocity checks, self-dealing checks, high-amount checks, scam keyword scoring, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, velocity dashboard, and operator visibility
 14. ✅ transaction recovery procedures: payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund, and queue recovery runbook
 15. ✅ support operations workflow: Admin Support tab, support inbox, status tracking, internal notes, assignment, search, and dispute-linked support cases
@@ -479,11 +479,11 @@ Completed from the prior immediate implementation order:
 
 Next production-hardening focus:
 
-1. ✅ Latest live smoke checks against the deployed Render backend passed on 2026-06-02; 🟡 GitHub CLI re-auth is still needed before secrets/workflow wiring can be verified from this machine.
+1. ✅ Latest live smoke checks against the deployed Render backend passed again on 2026-06-03; 🟡 GitHub CLI on this machine still has an invalid saved token, so local `gh`-based secret verification requires `gh auth login -h github.com`.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. ✅ Latest deploy-time incident drill passed on 2026-06-02 and proof was stored in `docs/release-notes/2026-06-02-production-checks.md`; repeat after each Render deploy.
 4. ✅ First Neon restore branch drill passed on 2026-06-02, `BACKUP_LAST_RESTORE_TEST_AT=2026-06-02T09:27:13Z` was recorded, proof was stored in `docs/release-notes/2026-06-02-production-checks.md`, Render env was updated, and production `npm run dr:check` now passes.
 5. ✅ Encrypt/tokenize payout account numbers at rest, mask payout API responses, and redact payout/payment secrets from logs.
-6. ✅ Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, release readiness gates, and funding/release/refund ledger entries.
+6. ✅ Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, new-seller scoring, seller dispute-ratio gates, aggregate release readiness gates, and funding/release/refund ledger entries.
 7. ✅ Add richer user-facing dispute evidence flow in WhatsApp/private API; richer participant screens remain future portal work.
 8. ✅ Add cross-device graph visibility and automated reputation action suggestions; deeper graph investigation UI remains future work.

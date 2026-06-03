@@ -49,12 +49,14 @@ import { RetryWorker } from "./services/retryWorker";
 import { scoreAccountName } from "./services/nameMatch";
 import { filterBanks } from "./services/bankFallback";
 import { MonnifyClient } from "./services/monnifyClient";
+import { ComplianceRisk, hasBlockingComplianceRisk, highValueReviewAmount, scoreComplianceRisk } from "./services/complianceRisk";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
 validateConfig();
 
 const app = express();
+app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || "1"));
 const sapAgent = new SapAgent(config.sap.rpcUrl, config.synapse.apiKey);
 const aceData = new AceDataClient(config.aceData.baseUrl, config.aceData.apiKey);
 const paymentRouter = new PaymentRouter(sapAgent);
@@ -379,6 +381,26 @@ async function calculateEscrowPayoutQuote(amount: number, currency: EscrowCurren
   };
 }
 
+async function calculateComplianceRisk(escrow: EscrowRecord): Promise<ComplianceRisk> {
+  const sellerEscrows = escrow.sellerUserId
+    ? (await escrowStore.listEscrows(500)).filter((row) => row.sellerUserId === escrow.sellerUserId || row.sellerWhatsapp === escrow.sellerWhatsapp)
+    : [];
+  const sellerEscrowCount = sellerEscrows.length;
+  const disputedStatuses = sellerEscrows.filter((row) => row.status === "DISPUTED").length;
+  const disputedByEvent = await Promise.all(sellerEscrows.map(async (row) => {
+    const events = await escrowStore.listEvents(row.escrowId, 50);
+    return events.some((event) => event.eventType === "dispute_opened");
+  }));
+  const sellerDisputeCount = Math.max(disputedStatuses, disputedByEvent.filter(Boolean).length);
+
+  return scoreComplianceRisk({
+    amount: escrow.amount,
+    currency: escrow.currency,
+    sellerDisputeCount,
+    sellerEscrowCount,
+  });
+}
+
 async function buildEscrowDetail(escrowId: string) {
   const escrow = await escrowStore.getEscrowById(escrowId);
   if (!escrow) return null;
@@ -397,6 +419,8 @@ async function buildEscrowDetail(escrowId: string) {
   const payoutNameMatchAcceptable = Boolean(payout && ["strong", "medium"].includes(payout.nameMatchLevel || ""));
   const payoutReleaseReady = Boolean(payoutVerified && payoutNameMatchAcceptable && !payout?.sharedAccountFlag);
   const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const complianceRisk = await calculateComplianceRisk(escrow);
+  const aggregateRiskReleaseReady = !hasBlockingComplianceRisk(complianceRisk);
 
   return {
     escrow,
@@ -407,6 +431,7 @@ async function buildEscrowDetail(escrowId: string) {
     transactions,
     events,
     ledgerEntries,
+    complianceRisk,
     readiness: {
       buyerProfileComplete,
       sellerProfileComplete,
@@ -414,6 +439,7 @@ async function buildEscrowDetail(escrowId: string) {
       payoutNameMatchAcceptable,
       sharedPayoutAccountFlag: Boolean(payout?.sharedAccountFlag),
       payoutReleaseReady,
+      aggregateRiskReleaseReady,
       sellerAccepted: !["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status),
       fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
       buyerCompleted: ["COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
@@ -1324,6 +1350,27 @@ app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminA
     const escrow = await escrowStore.getEscrowById(req.params.escrowId);
     if (!escrow) {
       return res.status(404).json({ error: "Escrow not found" });
+    }
+    const detailBeforeApproval = await buildEscrowDetail(req.params.escrowId);
+    if (!detailBeforeApproval?.readiness.aggregateRiskReleaseReady) {
+      const risk = detailBeforeApproval?.complianceRisk;
+      capturePaymentWarning("Manual payout approval blocked by aggregate compliance risk", {
+        escrowId: req.params.escrowId,
+        risk,
+      });
+      await opsStore.createSupportCase({
+        subject: `Compliance review required for ${req.params.escrowId}`,
+        priority: risk?.riskLevel === "CRITICAL" ? "urgent" : "high",
+        relatedEscrowId: req.params.escrowId,
+        source: "compliance_release_gate",
+        createdBy: adminUser,
+        note: `Aggregate compliance risk blocked payout approval: ${(risk?.riskReasons || []).join(", ") || "risk threshold exceeded"}`,
+      });
+      return res.status(409).json({
+        error: "COMPLIANCE_RISK_REVIEW_REQUIRED",
+        message: "Aggregate compliance risk requires support review before payout approval",
+        complianceRisk: risk,
+      });
     }
     const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
     const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, {

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { error, warn } from "../lib/logger";
 import jwt from "jsonwebtoken";
+import { getRequestIp, isIpAllowed } from "./ipAllowlist";
 
 function allowInsecureLocalAuth() {
   return process.env.NODE_ENV !== "production" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
@@ -13,6 +14,13 @@ function allowInsecureLocalAuth() {
 export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const adminApiKey = process.env.ADMIN_API_KEY;
   const adminJwtSecret = process.env.ADMIN_JWT_SECRET || process.env.SESSION_TOKEN_SECRET || "";
+  const adminIpAllowlist = process.env.ADMIN_IP_ALLOWLIST || process.env.ADMIN_ALLOWED_IPS || "";
+  const requestIp = getRequestIp(req);
+
+  if (!isIpAllowed(requestIp, adminIpAllowlist)) {
+    warn("Admin request blocked by IP allowlist", { requestIp });
+    return res.status(403).json({ error: "Admin access is not allowed from this network" });
+  }
 
   // 1) If Authorization: Bearer <jwt> provided, validate JWT first
   const authHeader = (req.headers["authorization"] || "") as string;
@@ -58,7 +66,7 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
 export function logAdminAction(actionName: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const adminUser = (req as any).adminUser || "unknown";
-    const ip = req.ip || "unknown";
+    const ip = getRequestIp(req) || "unknown";
     console.log(`[ADMIN_ACTION] ${actionName} by ${adminUser} from ${ip}`);
     next();
   };
