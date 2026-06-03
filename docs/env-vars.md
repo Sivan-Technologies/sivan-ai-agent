@@ -90,6 +90,11 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `SMOKE_BASE_URL` - Base URL used by `npm run smoke`; use the Render backend URL in production checks.
 - `SMOKE_ADMIN_API_KEY` - Optional admin key used by `npm run smoke` for protected database and operations checks. Falls back to `ADMIN_API_KEY`.
 - `SMOKE_REQUIRE_SETTLEMENT_PROOF` - Set `true` to make smoke checks require a previously run settlement verification proof.
+- `ADMIN_PAGE_SMOKE_BASE_URL` - Base URL used by `npm run smoke:admin-page`; falls back to `SMOKE_BASE_URL`, `VITE_API_BASE_URL`, or `http://localhost:4000`.
+- `ADMIN_PAGE_SMOKE_ADMIN_API_KEY` - Admin key used by `npm run smoke:admin-page`; falls back to `SMOKE_ADMIN_API_KEY` or `ADMIN_API_KEY`.
+- `ADMIN_PAGE_AUTH_BASE_URL` - Optional Telegram admin auth service URL used by `npm run smoke:admin-page`; falls back to `VITE_ADMIN_AUTH_BASE_URL`.
+- `ADMIN_PAGE_AUTH_JWT` - Optional pre-issued Telegram admin JWT for smoke checking `/auth/me`, `/admin/stats`, `/admin/sessions`, and `/admin/auth-audit`.
+- `ADMIN_PAGE_AUTH_JWT_SECRET` - Optional secret used to mint a short-lived smoke JWT when `ADMIN_PAGE_AUTH_JWT` is not provided. It must match the Telegram auth service `SESSION_TOKEN_SECRET`.
 - `BACKUP_PROVIDER` - Human-readable backup provider label shown in admin DR status. Use `neon-postgres-pitr` when production uses Neon Postgres.
 - `BACKUP_RETENTION_DAYS` - Number of days production database backups are retained. Use the real managed database retention, not an aspirational value.
 - `BACKUP_POLICY_URL` - Optional private runbook/provider URL proving where backup policy is documented.
@@ -202,6 +207,11 @@ WEBHOOK_URL=https://yourapp.example.com/webhooks
 SMOKE_BASE_URL=https://yourapp.example.com
 SMOKE_ADMIN_API_KEY=
 SMOKE_REQUIRE_SETTLEMENT_PROOF=false
+ADMIN_PAGE_SMOKE_BASE_URL=https://yourapp.example.com
+ADMIN_PAGE_SMOKE_ADMIN_API_KEY=
+ADMIN_PAGE_AUTH_BASE_URL=https://telegram-admin-auth.example.com
+ADMIN_PAGE_AUTH_JWT=
+ADMIN_PAGE_AUTH_JWT_SECRET=
 ABUSE_BLOCK_SCORE=95
 ABUSE_REVIEW_SCORE=60
 ABUSE_ESCROW_VELOCITY_LIMIT=8

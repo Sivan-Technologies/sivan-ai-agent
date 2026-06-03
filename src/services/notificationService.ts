@@ -56,7 +56,16 @@ export async function getWhatsAppProviderStatus() {
 
   if (!response.ok) {
     const payload = await response.text();
-    throw new Error(`WhatsApp provider status failed: ${response.status} ${payload}`);
+    return {
+      activeProvider: "unknown",
+      configured: false,
+      providers: {
+        twilio: { configured: false },
+        meta: { configured: false },
+      },
+      warning: `WhatsApp provider status failed: ${response.status}`,
+      detail: payload.slice(0, 500),
+    };
   }
 
   return response.json();

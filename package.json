@@ -10,6 +10,7 @@
     "serve": "ts-node-dev --respawn --transpile-only src/server.ts",
     "demo": "ts-node src/scripts/run-demo.ts",
     "smoke": "ts-node src/scripts/smoke-check.ts",
+    "smoke:admin-page": "ts-node src/scripts/admin-page-smoke.ts",
     "dr:check": "ts-node src/scripts/disaster-recovery-check.ts",
     "drill:incident": "ts-node src/scripts/incident-drill.ts",
     "verify:settlement": "ts-node src/scripts/verify-settlement.ts",

@@ -720,7 +720,7 @@ function App() {
       fetch(`${apiBase}/admin/queue/status`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/queue/jobs?limit=50`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/abuse/signals?limit=100`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/abuse/analytics?limit=500`, { headers: authHeaders() }),
+      fetch(`${apiBase}/admin/abuse/analytics?limit=250`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/support/cases?limit=100`, { headers: authHeaders() }),
       fetch(`${apiBase}/admin/whatsapp-provider`, { headers: authHeaders() }),
     ]);
