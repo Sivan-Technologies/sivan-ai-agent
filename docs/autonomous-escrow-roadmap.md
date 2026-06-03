@@ -215,7 +215,7 @@ Current estimate:
 ```text
 MVP escrow-core readiness: 94%
 Production financial-readiness: 91%
-Cross-repo production-readiness: 90%
+Cross-repo production-readiness: 91%
 ```
 
 Legend:
@@ -254,7 +254,7 @@ Legend:
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, release readiness checks, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Remaining work is Phase 2 KYC provider abstraction |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend smoke, incident drill, and production DR checks passed on 2026-06-02; admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is GitHub CLI re-auth/secret verification, Meta live webhook verification, and recurring smoke/incident/DR cadence after deploys |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend smoke, incident drill, production DR checks, and Neon/Postgres deploy verification have passed; latest live backend smoke passed again on 2026-06-03. Admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is local GitHub CLI re-auth for machine-side secret verification, Meta live webhook verification, and keeping smoke/incident/DR proof current after every deploy |
 
 ## What Is Completed So Far
 
@@ -362,7 +362,7 @@ Sivan is now actively in production-hardening mode around deterministic settleme
 | Cross-repo security hardening | ✅ Completed for current pass | Notify auth fails closed, Telegram OTP/session hardening is in place, Paystack HMAC comparison is constant-time, and admin/core local auth bypass requires explicit opt-in |
 | Payout data protection | ✅ Implemented for current backend | New and legacy payout account numbers are tokenized, AES-256-GCM encrypted at rest, masked in API/store responses, and shared logging redacts account/payment/secret-like values. Production must set stable `PAYOUT_ENCRYPTION_KEY` and `PAYOUT_TOKEN_SECRET` before deploy |
 | Compliance MVP | ✅ Completed for risk-gated MVP | Seller payout setup stores resolved account name, name-match score/level, verification provider/time, shared-account count/flag, and release readiness blocks weak/failed/shared/high-value payout paths |
-| Production Postgres migration | ✅ Code-ready / 🟡 deploy verification needed | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; next step is setting Render `DATABASE_PROVIDER=postgres`, using the internal DB URL, deploying, and running smoke checks |
+| Production Postgres migration | ✅ Completed for MVP | Backend supports Postgres stores and `POSTGRES_DATABASE_URL` fallback; Render is configured for Postgres/Neon runtime, production readiness and smoke checks pass, and the Neon restore drill/DR check proof was recorded on 2026-06-02 |
 | Telegram admin auth sync | ✅ Build/test clean locally | Current local repo includes session-token hardening and production CORS fail-closed behavior; push/deploy verification remains an operator step |
 | WhatsApp bot sync | ✅ Build/test clean locally | Current local repo includes fail-closed notify auth; push/deploy verification remains an operator step |
 | x402/SAP production verification implementation | ✅ Completed for operator-run proof | `npm run verify:settlement` and `/admin/settlement/verify` run SAP discovery and x402 status/probe checks, write proof JSON, and surface results in the admin Ops tab |
@@ -479,7 +479,7 @@ Completed from the prior immediate implementation order:
 
 Next production-hardening focus:
 
-1. ✅ Latest live smoke checks against the deployed Render backend passed on 2026-06-02; 🟡 GitHub CLI re-auth is still needed before secrets/workflow wiring can be verified from this machine.
+1. ✅ Latest live smoke checks against the deployed Render backend passed again on 2026-06-03; 🟡 GitHub CLI on this machine still has an invalid saved token, so local `gh`-based secret verification requires `gh auth login -h github.com`.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. ✅ Latest deploy-time incident drill passed on 2026-06-02 and proof was stored in `docs/release-notes/2026-06-02-production-checks.md`; repeat after each Render deploy.
 4. ✅ First Neon restore branch drill passed on 2026-06-02, `BACKUP_LAST_RESTORE_TEST_AT=2026-06-02T09:27:13Z` was recorded, proof was stored in `docs/release-notes/2026-06-02-production-checks.md`, Render env was updated, and production `npm run dr:check` now passes.
