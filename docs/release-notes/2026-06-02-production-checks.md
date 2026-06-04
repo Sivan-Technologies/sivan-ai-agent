@@ -164,7 +164,7 @@ Resolution recorded on 2026-06-04:
 - ✅ GitHub CLI authentication is valid.
 - ✅ Exact production smoke secrets and variables are configured.
 - ✅ Obsolete `SMOKE_TEST` secret/plaintext variable were removed.
-- ✅ Manual production smoke workflow run `26960835031` passed.
+- ✅ Manual production smoke workflow run `26961031020` passed.
 - 🟡 The formerly exposed admin smoke key still requires rotation.
 
 ## Remaining Production Follow-Up

@@ -10,7 +10,7 @@ Production operations checks passed after correcting GitHub Actions smoke-secret
 | Exact Actions smoke secrets | ✅ `SIVAN_SMOKE_BASE_URL` and `SIVAN_SMOKE_ADMIN_API_KEY` configured |
 | Settlement-proof variable | ✅ `SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF=false` configured |
 | Obsolete smoke configuration | ✅ `SMOKE_TEST` secret and plaintext repository variable removed |
-| Manual Actions smoke run | ✅ Run `26960835031` passed |
+| Manual Actions smoke run | ✅ Run `26961031020` passed |
 | Scheduled Actions smoke runs | ✅ Latest scheduled runs passed |
 | Live backend smoke | ✅ All configured checks passed |
 | Live WhatsApp smoke | ✅ Bot/core health and auth enforcement passed |

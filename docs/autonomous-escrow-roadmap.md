@@ -256,7 +256,7 @@ Legend:
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, new-seller scoring, seller dispute-ratio gates, aggregate risk release checks, configurable Naira buyer tiers/exposure caps, durable one-time limit review decisions, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Phase 2 KYC remains intentionally out of MVP scope |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, Telegram admin auth, and the admin frontend build and test cleanly. GitHub CLI auth and exact Actions smoke secrets were verified, obsolete exposed smoke configuration was removed, manual workflow run `26960835031` passed, scheduled runs are green, and live backend smoke, WhatsApp smoke, incident drill, DR checks, Neon/Postgres deploy verification, limit-review matrix, and Vercel admin deployment have passed. Remaining work is rotating the formerly exposed admin smoke key, Meta live webhook verification, and keeping smoke/incident/DR proof current after deploys |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, Telegram admin auth, and the admin frontend build and test cleanly. GitHub CLI auth and exact Actions smoke secrets were verified, obsolete exposed smoke configuration was removed, manual workflow run `26961031020` passed, scheduled runs are green, and live backend smoke, WhatsApp smoke, incident drill, DR checks, Neon/Postgres deploy verification, limit-review matrix, and Vercel admin deployment have passed. Remaining work is rotating the formerly exposed admin smoke key, Meta live webhook verification, and keeping smoke/incident/DR proof current after deploys |
 
 ## What Is Completed So Far
 
@@ -485,7 +485,7 @@ Completed from the prior immediate implementation order:
 
 Next production-hardening focus:
 
-1. ✅ GitHub CLI is authenticated as `Samswitchy`; exact Actions secrets/variables were verified, obsolete `SMOKE_TEST` configuration was removed, manual production smoke workflow run `26960835031` passed, and scheduled runs remain green on 2026-06-04.
+1. ✅ GitHub CLI is authenticated as `Samswitchy`; exact Actions secrets/variables were verified, obsolete `SMOKE_TEST` configuration was removed, manual production smoke workflow run `26961031020` passed, and scheduled runs remain green on 2026-06-04.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
 3. ✅ Latest live read-only incident drill passed again on 2026-06-04; repeat after each Render deploy.
 4. ✅ First Neon restore branch drill passed on 2026-06-02, `BACKUP_LAST_RESTORE_TEST_AT=2026-06-02T09:27:13Z` was recorded, proof was stored in `docs/release-notes/2026-06-02-production-checks.md`, Render env was updated, and production `npm run dr:check` now passes.

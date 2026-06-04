@@ -24,7 +24,7 @@ Current verified GitHub Actions configuration:
 - ✅ `SIVAN_SMOKE_ADMIN_API_KEY` is stored as an Actions secret.
 - ✅ `SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF=false` is stored as a repository variable.
 - ✅ The obsolete `SMOKE_TEST` secret and plaintext repository variable were removed.
-- ✅ Manual production smoke workflow run `26960835031` passed on 2026-06-04.
+- ✅ Manual production smoke workflow run `26961031020` passed on 2026-06-04.
 - ✅ Scheduled production smoke workflow runs are green.
 
 The old `SMOKE_TEST` repository variable exposed an admin smoke key as plaintext. Rotate that admin key across Render, local operator envs, and `SIVAN_SMOKE_ADMIN_API_KEY` before broader production access.
