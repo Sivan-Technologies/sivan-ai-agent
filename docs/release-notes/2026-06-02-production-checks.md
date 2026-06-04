@@ -159,6 +159,14 @@ gh variable set SIVAN_SMOKE_REQUIRE_SETTLEMENT_PROOF --body "false"
 gh workflow run production-smoke.yml
 ```
 
+Resolution recorded on 2026-06-04:
+
+- ✅ GitHub CLI authentication is valid.
+- ✅ Exact production smoke secrets and variables are configured.
+- ✅ Obsolete `SMOKE_TEST` secret/plaintext variable were removed.
+- ✅ Manual production smoke workflow run `26960835031` passed.
+- 🟡 The formerly exposed admin smoke key still requires rotation.
+
 ## Remaining Production Follow-Up
 
-- Re-authenticate GitHub CLI and verify GitHub Actions smoke secrets.
+- Rotate the formerly exposed admin smoke key and verify the workflow again.

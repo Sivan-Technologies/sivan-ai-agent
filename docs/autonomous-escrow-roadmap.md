@@ -256,7 +256,7 @@ Legend:
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, new-seller scoring, seller dispute-ratio gates, aggregate risk release checks, configurable Naira buyer tiers/exposure caps, durable one-time limit review decisions, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Phase 2 KYC remains intentionally out of MVP scope |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, Telegram admin auth, and the admin frontend build and test cleanly; live backend smoke, incident drill, production DR checks, Neon/Postgres deploy verification, the live escrow-limit review matrix, and the Vercel admin Limit Reviews deployment passed. Latest backend and WhatsApp smoke checks passed on 2026-06-04. Admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is local GitHub CLI re-auth for machine-side secret verification, Meta live webhook verification, and keeping smoke/incident/DR proof current after every deploy |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, Telegram admin auth, and the admin frontend build and test cleanly. GitHub CLI auth and exact Actions smoke secrets were verified, obsolete exposed smoke configuration was removed, manual workflow run `26960835031` passed, scheduled runs are green, and live backend smoke, WhatsApp smoke, incident drill, DR checks, Neon/Postgres deploy verification, limit-review matrix, and Vercel admin deployment have passed. Remaining work is rotating the formerly exposed admin smoke key, Meta live webhook verification, and keeping smoke/incident/DR proof current after deploys |
 
 ## What Is Completed So Far
 
@@ -485,9 +485,9 @@ Completed from the prior immediate implementation order:
 
 Next production-hardening focus:
 
-1. ✅ Latest live smoke checks against the deployed Render backend passed again on 2026-06-03; 🟡 GitHub CLI on this machine still has an invalid saved token, so local `gh`-based secret verification requires `gh auth login -h github.com`.
+1. ✅ GitHub CLI is authenticated as `Samswitchy`; exact Actions secrets/variables were verified, obsolete `SMOKE_TEST` configuration was removed, manual production smoke workflow run `26960835031` passed, and scheduled runs remain green on 2026-06-04.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
-3. ✅ Latest deploy-time incident drill passed on 2026-06-02 and proof was stored in `docs/release-notes/2026-06-02-production-checks.md`; repeat after each Render deploy.
+3. ✅ Latest live read-only incident drill passed again on 2026-06-04; repeat after each Render deploy.
 4. ✅ First Neon restore branch drill passed on 2026-06-02, `BACKUP_LAST_RESTORE_TEST_AT=2026-06-02T09:27:13Z` was recorded, proof was stored in `docs/release-notes/2026-06-02-production-checks.md`, Render env was updated, and production `npm run dr:check` now passes.
 5. ✅ Encrypt/tokenize payout account numbers at rest, mask payout API responses, and redact payout/payment secrets from logs.
 6. ✅ Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, new-seller scoring, seller dispute-ratio gates, aggregate release readiness gates, and funding/release/refund ledger entries.
@@ -496,3 +496,5 @@ Next production-hardening focus:
 9. ✅ Add admin-configurable Naira buyer trust tiers, active buyer exposure, platform exposure, and absolute maximum creation controls.
 10. ✅ Add durable escrow-limit review queue, protected approve/reject APIs, required operator notes, buyer notifications, and one-time approval escrow creation.
 11. ✅ Deploy and verify the live limit-review matrix on 2026-06-04: normal, over-tier, approved, rejected, and buyer-exposure paths passed; original production limits were restored.
+12. 🟡 Rotate the admin smoke key that was previously stored in the obsolete plaintext `SMOKE_TEST` repository variable, then update Render/local operator envs and `SIVAN_SMOKE_ADMIN_API_KEY`.
+13. 🟡 Complete Meta live inbound/outbound webhook verification before making Meta the permanent default provider.

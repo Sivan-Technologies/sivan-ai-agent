@@ -78,7 +78,7 @@
    - **Paystack webhook persistence and tracker:** 100% (webhook receiver, transaction-reference matching, transaction verification, and `WorkflowStore` persistence implemented)
    - **Project rename + docs (branding, GTM):** 100% (README/CHANGELOG updates and WhatsApp GTM doc added)
    - **Escrow state machine:** 95% (buyer completion and authorization checks gate release; manual dispute evidence/resolution exists, while maker-checker approval and provider-side refund proof remain next)
-   - **Operations visibility:** 90% (admin operations endpoints, DR status, Sentry/alert hooks, smoke checks, and DR checks exist; external dashboards and live restore proof still need setup)
+   - **Operations visibility:** 95% (admin operations endpoints, DR status, Sentry/alert hooks, smoke checks, incident drills, and live Neon restore proof exist; recurring operational cadence and external dashboards remain)
 
 - **Partially complete (work in progress):**
    - **x402 Payment Facility integration:** 90% — client and flows implemented; needs live end-to-end verification with x402 credentials and settlement monitoring.
@@ -88,7 +88,7 @@
    - **Demo frontend/runner:** 10% (a `run-demo.ts` CLI script exists; an interactive UI or public webhook demo is not implemented)
    - **Admin dashboard:** 10% (basic query endpoints added to `server.ts`; UI and RBAC missing)
    - **On-chain SAP escrow (production-ready):** 40% (create/release/status methods exist in `SapAgent`; additional integration tests and security review required)
-   - **CI / Tests / Monitoring:** 72% (unit tests, supertest checks, Sentry hooks, operations endpoints, smoke checks, incident drills, and DR checks exist; external dashboards and release-gated secrets still need setup)
+   - **CI / Tests / Monitoring:** 88% (unit/integration tests, Sentry hooks, operations endpoints, correctly wired scheduled/manual GitHub smoke checks, incident drills, and DR checks exist; Meta live verification, key rotation, and external dashboards remain)
 
 ## What remains (actionable items)
 
