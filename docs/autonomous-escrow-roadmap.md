@@ -254,7 +254,7 @@ Legend:
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, new-seller scoring, seller dispute-ratio gates, aggregate risk release checks, configurable Naira buyer tiers/exposure caps, durable one-time limit review decisions, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Phase 2 KYC remains intentionally out of MVP scope |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend smoke, incident drill, production DR checks, and Neon/Postgres deploy verification have passed; latest live backend smoke passed again on 2026-06-03. Admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is local GitHub CLI re-auth for machine-side secret verification, Meta live webhook verification, and keeping smoke/incident/DR proof current after every deploy |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, and Telegram admin auth build and test cleanly locally; live backend smoke, incident drill, production DR checks, Neon/Postgres deploy verification, and the live escrow-limit review matrix passed. Latest backend and WhatsApp smoke checks passed on 2026-06-04. Admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is local GitHub CLI re-auth for machine-side secret verification, Meta live webhook verification, and keeping smoke/incident/DR proof current after every deploy |
 
 ## What Is Completed So Far
 
@@ -489,3 +489,4 @@ Next production-hardening focus:
 8. ✅ Add cross-device graph visibility and automated reputation action suggestions; deeper graph investigation UI remains future work.
 9. ✅ Add admin-configurable Naira buyer trust tiers, active buyer exposure, platform exposure, and absolute maximum creation controls.
 10. ✅ Add durable escrow-limit review queue, protected approve/reject APIs, required operator notes, buyer notifications, and one-time approval escrow creation.
+11. ✅ Deploy and verify the live limit-review matrix on 2026-06-04: normal, over-tier, approved, rejected, and buyer-exposure paths passed; original production limits were restored.
