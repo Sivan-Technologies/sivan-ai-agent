@@ -5,6 +5,9 @@ process.env.DATABASE_PROVIDER = "sqlite";
 process.env.DATABASE_URL = process.env.DATABASE_URL || "./data/test-server.db";
 process.env.NOTIFICATION_URL = "";
 process.env.CORE_API_SECRET = "test-core-secret";
+process.env.PAYSTACK_SECRET_KEY = "sk_test_server";
+process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
+process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "1234567890";
 
 // Import app after test environment overrides are set.
 const app = (await import("../src/server")).default;
@@ -46,6 +49,32 @@ describe("server basic endpoints", () => {
       whatsappNumber,
       firstName: "Ada",
       lastName: "Okoro",
+    });
+  });
+
+  it("allows an explicitly allowlisted payout account in controlled test mode", async () => {
+    const whatsappNumber = "whatsapp:+2348000000102";
+    await request(app)
+      .post("/api/users/profile")
+      .set("x-core-api-key", "test-core-secret")
+      .send({ whatsappNumber, firstName: "Test", lastName: "Seller" });
+
+    const payout = await request(app)
+      .post("/api/users/payout-account")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        whatsappNumber,
+        bankName: "Opay",
+        bankCode: "999992",
+        accountNumber: "1234567890",
+      });
+
+    expect(payout.status).toBe(200);
+    expect(payout.body).toMatchObject({
+      accountNumber: "****7890",
+      resolvedAccountName: "Test Seller",
+      accountVerificationProvider: "sandbox_test_override",
+      verificationStatus: "verified",
     });
   });
 });

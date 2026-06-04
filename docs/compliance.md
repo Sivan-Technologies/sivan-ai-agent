@@ -30,6 +30,7 @@ Full BVN/NIN/selfie verification should be added only when transaction size, fra
 | Layer 2: Data Protection | ✅ Complete for MVP | Payout account tokenization, AES-256-GCM encryption, masking, and log redaction are implemented |
 | Layer 3: Escrow Accounting | ✅ Complete for MVP | Funding, seller-net release, refund, and fee-capture ledger entries exist; full finance export/reconciliation reports remain future work |
 | Layer 4: Fraud Engine | 🟡 Partially complete | Abuse signals, reputation actions, velocity/high-amount checks, shared-account/name-match release gates, new-seller scoring, and seller dispute-ratio gates exist; deeper graph scoring remains future work |
+| MVP Dispute Operations | 🟡 Manual pilot ready | `docs/dispute-mvp.md` defines manual-only decisions, evidence handling, supported outcomes, deadlines, and escalation; maker-checker approval and provider-side refund proof remain next |
 | Phase 2 KYC | 🔴 Not started | Prembly/Smile/Paystack identity-document validation abstraction is still future work |
 
 Legend: ✅ complete for MVP, 🟡 partially complete, 🔴 not started, 🔮 future.
@@ -48,6 +49,7 @@ MVP identity verification should require:
 | Bank/account name resolution | Paystack `/bank/resolve` | ✅ Implemented through `PaystackClient.resolveBankAccount` |
 | Fallback bank search | Built-in Nigerian bank list | ✅ Implemented so setup can continue during Paystack bank-list outages |
 | Fallback account name enquiry | Monnify Name Enquiry | 🟡 Implemented as optional fallback when credentials are configured |
+| Controlled E2E payout verification | Exact allowlist + Paystack test key | 🟡 Available only for explicitly allowlisted test accounts; never activates with live Paystack credentials |
 | Name match score | Internal scoring | ✅ Implemented for MVP |
 | BVN/NIN/selfie KYC | KYC provider | 🔴 Not started; Phase 2 |
 

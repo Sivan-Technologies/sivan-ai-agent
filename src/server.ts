@@ -51,6 +51,7 @@ import { scoreAccountName } from "./services/nameMatch";
 import { filterBanks } from "./services/bankFallback";
 import { MonnifyClient } from "./services/monnifyClient";
 import { ComplianceRisk, hasBlockingComplianceRisk, highValueReviewAmount, scoreComplianceRisk } from "./services/complianceRisk";
+import { getPayoutVerificationTestResolution } from "./services/payoutVerificationTestMode";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
@@ -973,26 +974,40 @@ app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payout account payload", details: formatZodError(parsed.error) });
   }
-  let resolution;
+  const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
+  const sellerName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  let resolution = getPayoutVerificationTestResolution({
+    accountNumber: parsed.data.accountNumber,
+    whatsappNumber: parsed.data.whatsappNumber,
+    sellerName,
+  }, parsed.data.bankCode);
   let verificationProvider = "paystack_account_resolution";
-  try {
-    resolution = await paystackClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
-  } catch (err: any) {
-    if (monnifyClient.isConfigured()) {
-      try {
-        resolution = await monnifyClient.validateBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
-        verificationProvider = "monnify_name_enquiry";
-      } catch (monnifyErr: any) {
-        warn("Paystack and Monnify account verification failed", {
-          paystackError: err?.message || String(err),
-          monnifyError: monnifyErr?.message || String(monnifyErr),
-        });
+  if (resolution) {
+    verificationProvider = "sandbox_test_override";
+    warn("Using allowlisted sandbox payout verification override", {
+      whatsappNumber: parsed.data.whatsappNumber,
+      bankCode: parsed.data.bankCode,
+      accountNumberLast4: parsed.data.accountNumber.slice(-4),
+    });
+  } else {
+    try {
+      resolution = await paystackClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+    } catch (err: any) {
+      if (monnifyClient.isConfigured()) {
+        try {
+          resolution = await monnifyClient.validateBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+          verificationProvider = "monnify_name_enquiry";
+        } catch (monnifyErr: any) {
+          warn("Paystack and Monnify account verification failed", {
+            paystackError: err?.message || String(err),
+            monnifyError: monnifyErr?.message || String(monnifyErr),
+          });
+        }
       }
     }
   }
 
   if (!resolution) {
-    const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
     const payout = await escrowStore.upsertPayoutAccount({
       userId: user.userId,
       bankName: parsed.data.bankName,
@@ -1004,8 +1019,6 @@ app.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) => {
     return res.status(422).json({ error: "Bank account verification failed", payout });
   }
 
-  const user = await escrowStore.upsertUserByWhatsapp(parsed.data.whatsappNumber, "seller");
-  const sellerName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
   const nameMatch = scoreAccountName(sellerName, resolution.accountName);
   const sharedAccountCount = (await escrowStore.countUsersWithPayoutAccountNumber(parsed.data.accountNumber, user.userId)) + 1;
   const sharedAccountFlag = sharedAccountCount >= Number(process.env.PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT || "2");

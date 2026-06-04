@@ -413,6 +413,7 @@ Operational recovery playbooks are in:
 
 ```text
 docs/production-runbooks.md
+docs/dispute-mvp.md
 docs/incident-drills.md
 docs/disaster-recovery.md
 ```
@@ -491,7 +492,7 @@ https://whatsapp-bot-ix7t.onrender.com/webhooks/twilio
 - Group-to-private-DM escrow initiation works as a foundation, but the customer experience still needs more polish.
 - Full SAP on-chain escrow settlement needs real SAP wallet credentials and live integration tests.
 - x402 USDC payment flow needs live facilitator verification and settlement testing.
-- Dispute AI is intentionally not implemented yet; disputes now create support cases, but evidence capture and resolution outcomes still need implementation.
+- Dispute AI is intentionally prohibited for the controlled MVP; manual evidence capture and resolution outcomes are implemented, while maker-checker approval and provider-side refund proof remain next. See `docs/dispute-mvp.md`.
 - Queue persistence/status exists, but the retry worker and dead-letter replay tooling are still next.
 - Abuse prevention has MVP risk scoring and analytics, but device fingerprinting, fraud reputation, and richer velocity dashboards are still future work.
 - Support workflows have cases and internal notes, but canned actions, SLAs, and escalation automation are still future work.

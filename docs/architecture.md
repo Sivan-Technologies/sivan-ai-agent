@@ -77,7 +77,7 @@
    - **Payment Router (logic):** 95% (can choose Naira vs USDC and routes to respective clients; minor hardening and edge-case handling remain)
    - **Paystack webhook persistence and tracker:** 100% (webhook receiver, transaction-reference matching, transaction verification, and `WorkflowStore` persistence implemented)
    - **Project rename + docs (branding, GTM):** 100% (README/CHANGELOG updates and WhatsApp GTM doc added)
-   - **Escrow state machine:** 90% (buyer completion and authorization checks now gate release; dispute evidence/resolution is still next)
+   - **Escrow state machine:** 95% (buyer completion and authorization checks gate release; manual dispute evidence/resolution exists, while maker-checker approval and provider-side refund proof remain next)
    - **Operations visibility:** 90% (admin operations endpoints, DR status, Sentry/alert hooks, smoke checks, and DR checks exist; external dashboards and live restore proof still need setup)
 
 - **Partially complete (work in progress):**
