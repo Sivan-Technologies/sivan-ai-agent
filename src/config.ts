@@ -89,6 +89,16 @@ export const config = {
 };
 
 export function validateConfig() {
+  if (process.env.PAYOUT_VERIFICATION_TEST_MODE === "true") {
+    if (!config.paystack.secretKey.startsWith("sk_test_")) {
+      throw new Error("PAYOUT_VERIFICATION_TEST_MODE requires a Paystack sk_test_ secret key");
+    }
+    if (!envValue("PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS")) {
+      throw new Error("PAYOUT_VERIFICATION_TEST_MODE requires PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS");
+    }
+    console.warn("[WARN] Controlled payout verification test mode is enabled for explicitly allowlisted accounts");
+  }
+
   const required = [
     { key: "SYNAPSE_API_KEY", value: config.synapse.apiKey },
     { key: "SYNAPSE_RPC_URL or SAP_RPC_URL", value: config.synapse.rpcUrl },
