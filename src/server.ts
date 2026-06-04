@@ -28,6 +28,7 @@ import {
   escrowLimitReviewDecisionSchema,
   formatZodError,
   limitQuerySchema,
+  participantEscrowQuerySchema,
   participantDisputeEvidenceSchema,
   paystackWebhookSchema,
   payoutAccountSchema,
@@ -524,6 +525,77 @@ async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: str
   if (buyer?.whatsappNumber === actorWhatsapp) return "buyer";
   if (seller?.whatsappNumber === actorWhatsapp || escrow.sellerWhatsapp === actorWhatsapp) return "seller";
   return null;
+}
+
+type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference";
+
+function participantDealStatus(status: EscrowRecord["status"]) {
+  const labels: Record<EscrowRecord["status"], string> = {
+    CREATED: "Getting ready",
+    PENDING_PROFILE: "Seller setup required",
+    PENDING_ACCEPTANCE: "Waiting for seller",
+    PENDING_PAYMENT: "Waiting for buyer payment",
+    FUNDED: "Payment secured",
+    IN_PROGRESS: "Work in progress",
+    COMPLETED: "Ready for release",
+    PENDING_RELEASE: "Payout awaiting approval",
+    RELEASED: "Payment released",
+    DISPUTED: "Dispute under review",
+    REVIEW_REQUIRED: "Under manual review",
+    FAILED: "Action required",
+    CANCELLED: "Cancelled",
+  };
+  return labels[status];
+}
+
+function participantDealActions(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, role: "buyer" | "seller"): ParticipantDealAction[] {
+  if (!detail) return [];
+  const { escrow } = detail;
+  const actions = new Set<ParticipantDealAction>(["status", "reference"]);
+
+  if (role === "seller" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE"].includes(escrow.status)) actions.add("accept");
+  if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
+  if (role === "buyer" && escrow.status === "PENDING_PAYMENT" && escrow.paymentAuthorizationUrl) actions.add("pay");
+  if (role === "buyer" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("complete");
+  if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
+  if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
+  if (escrow.status === "DISPUTED") actions.add("evidence");
+
+  return Array.from(actions);
+}
+
+async function buildParticipantDeal(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, actorWhatsapp: string) {
+  if (!detail) return null;
+  const role = await roleForEscrowParticipant(detail.escrow, actorWhatsapp);
+  if (!role) return null;
+  return {
+    escrow: {
+      escrowId: detail.escrow.escrowId,
+      amount: detail.escrow.amount,
+      currency: detail.escrow.currency,
+      status: detail.escrow.status,
+      purpose: detail.escrow.purpose,
+      createdAt: detail.escrow.createdAt,
+      updatedAt: detail.escrow.updatedAt,
+      ...(role === "buyer" && detail.escrow.paymentAuthorizationUrl
+        ? { paymentAuthorizationUrl: detail.escrow.paymentAuthorizationUrl }
+        : {}),
+    },
+    readiness: {
+      sellerProfileComplete: detail.readiness.sellerProfileComplete,
+      payoutVerified: detail.readiness.payoutVerified,
+      sellerAccepted: detail.readiness.sellerAccepted,
+      fundingVerified: detail.readiness.fundingVerified,
+      buyerCompleted: detail.readiness.buyerCompleted,
+      releaseRequested: detail.readiness.releaseRequested,
+      nextAction: detail.readiness.nextAction,
+    },
+    participant: {
+      role,
+      displayStatus: participantDealStatus(detail.escrow.status),
+      allowedActions: participantDealActions(detail, role),
+    },
+  };
 }
 
 async function recordDisputeEvidence(input: {
@@ -1160,13 +1232,40 @@ app.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
   }
 });
 
+app.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
+  const escrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
+  const deals = await Promise.all(escrows.map(async (escrow) =>
+    buildParticipantDeal(await buildEscrowDetail(escrow.escrowId), parsed.data.actorWhatsapp)
+  ));
+  res.status(200).json({ deals: deals.filter(Boolean) });
+});
+
 app.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
   const detail = await buildEscrowDetail(req.params.escrowId);
   if (!detail) return res.status(404).json({ error: "Escrow not found" });
-  res.status(200).json(detail);
+  const participantDeal = await buildParticipantDeal(detail, parsed.data.actorWhatsapp);
+  if (!participantDeal) return res.status(403).json({ error: "Only escrow participants can view this deal" });
+  res.status(200).json(participantDeal);
 });
 
 app.get("/api/escrows/:escrowId/dispute-history", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (!await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp)) {
+    return res.status(403).json({ error: "Only escrow participants can view dispute history" });
+  }
   const history = await disputeHistoryForEscrow(req.params.escrowId);
   if (!history) return res.status(404).json({ error: "Escrow not found" });
   res.status(200).json(history);

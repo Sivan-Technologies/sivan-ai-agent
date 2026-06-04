@@ -42,6 +42,11 @@ export const escrowActionSchema = z.object({
   reason: z.string().trim().min(2).max(1000).optional(),
 });
 
+export const participantEscrowQuerySchema = z.object({
+  actorWhatsapp: whatsappAddress,
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
 export const disputeEvidenceSchema = z.object({
   evidenceType: z.enum(["message", "payment_proof", "delivery_proof", "identity", "other"]).default("other"),
   source: z.enum(["buyer", "seller", "admin", "support", "payment_provider"]).default("admin"),

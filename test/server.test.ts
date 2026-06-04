@@ -77,4 +77,69 @@ describe("server basic endpoints", () => {
       verificationStatus: "verified",
     });
   });
+
+  it("authorizes participant deal detail and returns participant-filtered My Deals actions", async () => {
+    const suffix = Date.now().toString().slice(-7);
+    const buyerWhatsapp = `whatsapp:+23480${suffix}01`;
+    const sellerWhatsapp = `whatsapp:+23480${suffix}02`;
+    const outsiderWhatsapp = `whatsapp:+23480${suffix}99`;
+    const created = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `participant-deal-test-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 10000,
+        currency: "NAIRA",
+        purpose: "Participant-safe deal card",
+        channel: "whatsapp_dm",
+      });
+
+    expect(created.status).toBe(201);
+    const escrowId = created.body.escrow.escrowId;
+
+    const missingActor = await request(app)
+      .get(`/api/escrows/${escrowId}`)
+      .set("x-core-api-key", "test-core-secret");
+    expect(missingActor.status).toBe(400);
+
+    const outsider = await request(app)
+      .get(`/api/escrows/${escrowId}`)
+      .query({ actorWhatsapp: outsiderWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    expect(outsider.status).toBe(403);
+
+    const buyerDetail = await request(app)
+      .get(`/api/escrows/${escrowId}`)
+      .query({ actorWhatsapp: buyerWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    expect(buyerDetail.status).toBe(200);
+    expect(buyerDetail.body.participant).toMatchObject({
+      role: "buyer",
+      displayStatus: "Waiting for seller",
+    });
+    expect(buyerDetail.body.participant.allowedActions).toEqual(expect.arrayContaining(["status", "reference", "cancel"]));
+    expect(buyerDetail.body.participant.allowedActions).not.toContain("accept");
+    expect(buyerDetail.body).not.toHaveProperty("transactions");
+    expect(buyerDetail.body).not.toHaveProperty("events");
+    expect(buyerDetail.body).not.toHaveProperty("ledgerEntries");
+    expect(buyerDetail.body).not.toHaveProperty("complianceRisk");
+    expect(buyerDetail.body).not.toHaveProperty("payout");
+    expect(buyerDetail.body).not.toHaveProperty("buyer");
+    expect(buyerDetail.body).not.toHaveProperty("seller");
+
+    const sellerDeals = await request(app)
+      .get("/api/users/escrows")
+      .query({ actorWhatsapp: sellerWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    expect(sellerDeals.status).toBe(200);
+    expect(sellerDeals.body.deals).toHaveLength(1);
+    expect(sellerDeals.body.deals[0].participant).toMatchObject({
+      role: "seller",
+      displayStatus: "Waiting for seller",
+    });
+    expect(sellerDeals.body.deals[0].participant.allowedActions).toEqual(expect.arrayContaining(["accept", "status", "reference"]));
+    expect(sellerDeals.body.deals[0].participant.allowedActions).not.toContain("cancel");
+  });
 });

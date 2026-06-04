@@ -231,7 +231,7 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
-| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, Meta Cloud API foundation now exists as a second transport, outbound messages work, webhook routes exist, optional Meta app-secret signature verification is wired, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
+| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth and Meta Cloud API paths exist; backend-authorized Deal Cards, participant-filtered My Deals, durable active-deal context, no-ID lifecycle commands, multiple-deal selection, concise customer copy, and confirmations for cancel/release/dispute are implemented |
 | Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, buyer profiles can be fetched for repeat WhatsApp deals, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
@@ -312,6 +312,8 @@ The current system already has:
 - ✅ WhatsApp private-DM escrow onboarding foundation
 - ✅ WhatsApp conversation sessions persisted in Postgres for Render restart recovery
 - ✅ WhatsApp commands: `accept SIV-...`, `status SIV-...`, `complete SIV-...`, `release SIV-...`, `dispute SIV-...`
+- ✅ participant-authorized escrow detail and dispute-history endpoints plus participant-filtered `/api/users/escrows`; participant detail omits internal events, ledger, compliance risk, payout records, and transaction data
+- ✅ provider-neutral WhatsApp Deal Cards with backend-calculated allowed actions, durable active-deal context, `MY DEALS`, no-ID lifecycle commands, deal selection, and explicit cancel/release/dispute confirmations
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
