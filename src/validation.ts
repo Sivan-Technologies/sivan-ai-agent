@@ -74,6 +74,14 @@ export const adminSettingsSchema = z.object({
   nairaFeeFixed: z.coerce.number().min(0).max(10_000_000),
   usdcFeePercent: z.coerce.number().min(0).max(50),
   usdcFeeFixed: z.coerce.number().min(0).max(100_000),
+  nairaNewUserLimit: z.coerce.number().positive().max(100_000_000).optional(),
+  nairaTrustedUserLimit: z.coerce.number().positive().max(100_000_000).optional(),
+  nairaEstablishedUserLimit: z.coerce.number().positive().max(100_000_000).optional(),
+  nairaSpecialApprovalLimit: z.coerce.number().positive().max(100_000_000).optional(),
+  nairaBuyerActiveExposureLimit: z.coerce.number().positive().max(10_000_000_000).optional(),
+  nairaPlatformActiveExposureLimit: z.coerce.number().positive().max(10_000_000_000).optional(),
+  trustedUserSuccessfulEscrows: z.coerce.number().int().min(1).max(1000).optional(),
+  establishedUserSuccessfulEscrows: z.coerce.number().int().min(2).max(1000).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 

@@ -25,7 +25,7 @@ Full BVN/NIN/selfie verification should be added only when transaction size, fra
 | Layer | Status | Summary |
 | --- | --- | --- |
 | Layer 1: Financial Compliance | 🟡 Partially complete | MVP phone/profile/bank resolution/name-match controls are implemented; full BVN/NIN/selfie KYC is not yet implemented |
-| Layer 1C: AML MVP | ✅ Complete for MVP | Velocity, high-value, shared-account, new-seller, seller dispute-ratio, abuse signals, and operator review foundations exist; deeper graph scoring remains future work |
+| Layer 1C: AML MVP | ✅ Complete for MVP | Velocity, configurable trust-tier limits, buyer/platform exposure caps, high-value, shared-account, new-seller, seller dispute-ratio, abuse signals, and operator review foundations exist; deeper graph scoring remains future work |
 | Layer 1D: Release Controls | ✅ Complete for MVP | Manual Naira payout approval, escrow-derived payout amount, payout verification, name-match, shared-account, high-value, aggregate compliance risk gate, and support-case automation exist |
 | Layer 2: Data Protection | ✅ Complete for MVP | Payout account tokenization, AES-256-GCM encryption, masking, and log redaction are implemented |
 | Layer 3: Escrow Accounting | ✅ Complete for MVP | Funding, seller-net release, refund, and fee-capture ledger entries exist; full finance export/reconciliation reports remain future work |
@@ -148,6 +148,21 @@ Track these signals:
 | High dispute rate | Seller dispute ratio above 30% after minimum history | ✅ Blocks payout approval through aggregate compliance risk gate |
 | New user | First seller transaction | ✅ Adds explicit compliance risk score |
 | Repeated device/fingerprint | Same device across many accounts | ✅ Risk/action foundation exists |
+
+### Configurable Naira Creation Limits
+
+The admin **Platform Controls** tab stores and audits Naira creation limits in the platform settings database. Escrow creation calculates the buyer tier from completed `RELEASED` Naira escrows, then blocks requests that exceed the tier or active-exposure policy with a specific operator-review response.
+
+| Control | Default | Enforcement |
+| --- | ---: | --- |
+| New buyer limit | ₦100,000 | Buyer has fewer than 3 successful escrows |
+| Trusted buyer limit | ₦250,000 | Buyer has at least 3 successful escrows |
+| Established buyer limit | ₦500,000 | Buyer has at least 10 successful escrows |
+| Special approval maximum | ₦1,000,000 | Requests above this hard maximum are rejected |
+| Buyer active exposure limit | ₦500,000 | Sum of the buyer's active Naira escrows |
+| Platform active exposure limit | ₦10,000,000 | Sum of all active Naira escrows |
+
+All values and successful-escrow thresholds are adjustable through protected admin settings and use optimistic version locking plus audit history. Requests above a buyer tier or active exposure limit do not enter the normal WhatsApp creation path; they require operator review before proceeding.
 
 Store per escrow and per user:
 
@@ -307,7 +322,8 @@ High risk should trigger manual review before release. Critical risk should bloc
 7. ✅ Add ledger entries for funding, release, and refund.
 8. ✅ Add fee ledger entries for admin-approved seller payouts.
 9. ✅ Add aggregate compliance risk gate before admin payout approval.
-10. 🔮 Phase 2 KYC provider abstraction remains future work and is intentionally not part of the MVP hardening pass.
+10. ✅ Add admin-configurable buyer trust tiers, per-buyer active exposure, platform active exposure, and absolute Naira creation limits.
+11. 🔮 Phase 2 KYC provider abstraction remains future work and is intentionally not part of the MVP hardening pass.
 
 ## Sources
 

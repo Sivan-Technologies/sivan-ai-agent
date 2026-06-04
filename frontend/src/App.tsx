@@ -93,6 +93,14 @@ type FeeSettings = {
   nairaFeeFixed: number;
   usdcFeePercent: number;
   usdcFeeFixed: number;
+  nairaNewUserLimit: number;
+  nairaTrustedUserLimit: number;
+  nairaEstablishedUserLimit: number;
+  nairaSpecialApprovalLimit: number;
+  nairaBuyerActiveExposureLimit: number;
+  nairaPlatformActiveExposureLimit: number;
+  trustedUserSuccessfulEscrows: number;
+  establishedUserSuccessfulEscrows: number;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -402,6 +410,14 @@ function App() {
     nairaFeeFixed: 0,
     usdcFeePercent: 0,
     usdcFeeFixed: 0,
+    nairaNewUserLimit: 100000,
+    nairaTrustedUserLimit: 250000,
+    nairaEstablishedUserLimit: 500000,
+    nairaSpecialApprovalLimit: 1000000,
+    nairaBuyerActiveExposureLimit: 500000,
+    nairaPlatformActiveExposureLimit: 10000000,
+    trustedUserSuccessfulEscrows: 3,
+    establishedUserSuccessfulEscrows: 10,
   });
 
   const [activeTab, setActiveTab] = useState<Tab>("escrows");
@@ -700,6 +716,14 @@ function App() {
       nairaFeeFixed: data.nairaFeeFixed,
       usdcFeePercent: data.usdcFeePercent,
       usdcFeeFixed: data.usdcFeeFixed,
+      nairaNewUserLimit: data.nairaNewUserLimit,
+      nairaTrustedUserLimit: data.nairaTrustedUserLimit,
+      nairaEstablishedUserLimit: data.nairaEstablishedUserLimit,
+      nairaSpecialApprovalLimit: data.nairaSpecialApprovalLimit,
+      nairaBuyerActiveExposureLimit: data.nairaBuyerActiveExposureLimit,
+      nairaPlatformActiveExposureLimit: data.nairaPlatformActiveExposureLimit,
+      trustedUserSuccessfulEscrows: data.trustedUserSuccessfulEscrows,
+      establishedUserSuccessfulEscrows: data.establishedUserSuccessfulEscrows,
     });
   };
 
@@ -796,6 +820,18 @@ function App() {
       if (feeFormData.usdcFeePercent < 0 || feeFormData.usdcFeePercent > 50 || feeFormData.usdcFeeFixed < 0) {
         throw new Error("USDC fees must stay within approved bounds.");
       }
+      if (!(feeFormData.nairaNewUserLimit <= feeFormData.nairaTrustedUserLimit
+        && feeFormData.nairaTrustedUserLimit <= feeFormData.nairaEstablishedUserLimit
+        && feeFormData.nairaEstablishedUserLimit <= feeFormData.nairaSpecialApprovalLimit)) {
+        throw new Error("Naira limits must increase from new user through special approval.");
+      }
+      if (feeFormData.nairaBuyerActiveExposureLimit <= 0 || feeFormData.nairaPlatformActiveExposureLimit <= 0) {
+        throw new Error("Active exposure limits must be greater than zero.");
+      }
+      if (feeFormData.trustedUserSuccessfulEscrows < 1
+        || feeFormData.establishedUserSuccessfulEscrows <= feeFormData.trustedUserSuccessfulEscrows) {
+        throw new Error("Established-user threshold must be greater than trusted-user threshold.");
+      }
 
       const response = await fetch(`${apiBase}/admin/settings`, {
         method: "POST",
@@ -810,7 +846,7 @@ function App() {
 
       const updated = await response.json();
       setFeeSettings(updated);
-      setFeeSuccess("Fees updated.");
+      setFeeSuccess("Platform controls updated.");
       setShowConfirmModal(false);
       await loadAuditHistory();
       setTimeout(() => setFeeSuccess(null), 3000);
@@ -1225,7 +1261,7 @@ function App() {
               : tab === "webhooks"
               ? "Webhooks"
               : tab === "fees"
-              ? "Fees"
+              ? "Controls"
               : tab === "ops"
               ? "Ops"
               : "Admin Auth"}
@@ -2261,7 +2297,7 @@ function App() {
         <section className="fees-layout">
           <div className="surface">
             <div className="section-head">
-              <h2>Fee Controls</h2>
+              <h2>Platform Controls</h2>
               <span>v{feeSettings?.version || "-"}</span>
             </div>
             {feeError && <div className="error-banner">{feeError}</div>}
@@ -2295,6 +2331,42 @@ function App() {
                 </label>
               </div>
             </div>
+            <div className="section-head" style={{ marginTop: 24 }}>
+              <h2>Naira Risk Limits</h2>
+              <span>creation controls</span>
+            </div>
+            <div className="fee-grid">
+              <div className="fee-column">
+                <h3>User tiers</h3>
+                {([
+                  ["New user limit", "nairaNewUserLimit"],
+                  ["Trusted user limit", "nairaTrustedUserLimit"],
+                  ["Established user limit", "nairaEstablishedUserLimit"],
+                  ["Special approval maximum", "nairaSpecialApprovalLimit"],
+                ] as const).map(([label, key]) => (
+                  <label className="field" key={key}>
+                    <span>{label}</span>
+                    <input type="number" step="1000" min="1" value={feeFormData[key]}
+                      onChange={(event) => setFeeFormData({ ...feeFormData, [key]: Number(event.target.value) })} />
+                  </label>
+                ))}
+              </div>
+              <div className="fee-column">
+                <h3>Exposure and promotion</h3>
+                {([
+                  ["Buyer active exposure limit", "nairaBuyerActiveExposureLimit"],
+                  ["Platform active exposure limit", "nairaPlatformActiveExposureLimit"],
+                  ["Successful escrows for trusted", "trustedUserSuccessfulEscrows"],
+                  ["Successful escrows for established", "establishedUserSuccessfulEscrows"],
+                ] as const).map(([label, key]) => (
+                  <label className="field" key={key}>
+                    <span>{label}</span>
+                    <input type="number" step="1" min="1" value={feeFormData[key]}
+                      onChange={(event) => setFeeFormData({ ...feeFormData, [key]: Number(event.target.value) })} />
+                  </label>
+                ))}
+              </div>
+            </div>
             <button className="button primary full" onClick={() => setShowConfirmModal(true)} disabled={savingFees}>
               Review changes
             </button>
@@ -2318,6 +2390,9 @@ function App() {
                 <span>Last update</span>
                 <strong>{formatTime(feeSettings?.updatedAt)}</strong>
               </div>
+              <div className="preview-row"><span>New user cap</span><strong>NGN {money.format(feeFormData.nairaNewUserLimit)}</strong></div>
+              <div className="preview-row"><span>Special approval max</span><strong>NGN {money.format(feeFormData.nairaSpecialApprovalLimit)}</strong></div>
+              <div className="preview-row"><span>Platform exposure cap</span><strong>NGN {money.format(feeFormData.nairaPlatformActiveExposureLimit)}</strong></div>
             </div>
           </div>
 

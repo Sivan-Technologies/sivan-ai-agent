@@ -103,6 +103,30 @@ describe("Admin Settings API Integration", () => {
     expect(res.body[0]).toHaveProperty("changedBy");
   });
 
+  it("should enforce the configured new-user Naira escrow limit", async () => {
+    const res = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        buyerWhatsapp: "whatsapp:+2348000000101",
+        sellerWhatsapp: "whatsapp:+2348000000102",
+        amount: 100001,
+        currency: "NAIRA",
+        purpose: "tier limit enforcement test",
+        channel: "whatsapp_dm",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      error: "ESCROW_LIMIT_REVIEW_REQUIRED",
+      policy: {
+        tier: "NEW",
+        tierLimit: 100000,
+        requestedAmount: 100001,
+      },
+    });
+  });
+
   it("should expose protected database status", async () => {
     const unauthorized = await request(app).get("/admin/db-status");
     expect(unauthorized.status).toBe(401);

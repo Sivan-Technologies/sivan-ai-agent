@@ -1453,6 +1453,27 @@ export class EscrowStore {
     return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
   }
 
+  public async getNairaExposureForBuyer(buyerUserId: string) {
+    await this.initializeSchema();
+    const activeStatuses = ["CREATED", "PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT", "FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED", "DISPUTED"];
+    if (this.provider === "sqlite") {
+      const successful = this.sqlite!.prepare(`SELECT COUNT(*) AS count FROM escrows WHERE buyer_user_id = ? AND currency = 'NAIRA' AND status = 'RELEASED'`).get(buyerUserId) as any;
+      const buyerActive = this.sqlite!.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM escrows WHERE buyer_user_id = ? AND currency = 'NAIRA' AND status IN (${activeStatuses.map(() => "?").join(",")})`).get(buyerUserId, ...activeStatuses) as any;
+      const platformActive = this.sqlite!.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM escrows WHERE currency = 'NAIRA' AND status IN (${activeStatuses.map(() => "?").join(",")})`).get(...activeStatuses) as any;
+      return { successfulEscrows: Number(successful.count), buyerActiveExposure: Number(buyerActive.total), platformActiveExposure: Number(platformActive.total) };
+    }
+    const [successful, buyerActive, platformActive] = await Promise.all([
+      this.pool!.query(`SELECT COUNT(*) AS count FROM escrows WHERE buyer_user_id = $1 AND currency = 'NAIRA' AND status = 'RELEASED'`, [buyerUserId]),
+      this.pool!.query(`SELECT COALESCE(SUM(amount), 0) AS total FROM escrows WHERE buyer_user_id = $1 AND currency = 'NAIRA' AND status = ANY($2::text[])`, [buyerUserId, activeStatuses]),
+      this.pool!.query(`SELECT COALESCE(SUM(amount), 0) AS total FROM escrows WHERE currency = 'NAIRA' AND status = ANY($1::text[])`, [activeStatuses]),
+    ]);
+    return {
+      successfulEscrows: Number(successful.rows[0].count),
+      buyerActiveExposure: Number(buyerActive.rows[0].total),
+      platformActiveExposure: Number(platformActive.rows[0].total),
+    };
+  }
+
   public async getEscrowById(escrowId: string): Promise<EscrowRecord | null> {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
