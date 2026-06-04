@@ -1348,6 +1348,33 @@ export class EscrowStore {
     return (await this.getEscrowById(escrowId))!;
   }
 
+  public async cancelUnfundedEscrow(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) throw new Error("Escrow not found");
+    await this.assertBuyerActor(escrow, actor);
+    if (escrow.status === "CANCELLED") return escrow;
+    if (!["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) {
+      throw new Error(`Escrow cannot be cancelled from ${escrow.status}. Open a dispute or request a refund if funds were received.`);
+    }
+    if (escrow.receivedAmount || ["success", "sandbox_success"].includes(escrow.providerPaymentStatus || "")) {
+      throw new Error("Funded escrow cannot be cancelled. Open a dispute or request a refund.");
+    }
+
+    await this.transitionEscrow(escrowId, "CANCELLED", {
+      actor,
+      actorRole: "buyer",
+      channel,
+      eventType: "buyer_cancelled_unfunded",
+      reason: "Buyer cancelled escrow before funding",
+    });
+    if (escrow.paymentReference) {
+      await this.updateTransactionStatus(escrow.paymentReference, "cancelled", {
+        reason: "buyer_cancelled_unfunded",
+      });
+    }
+    return (await this.getEscrowById(escrowId))!;
+  }
+
   public async approveManualRelease(escrowId: string, adminUser: string, options: ManualReleaseOptions): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");

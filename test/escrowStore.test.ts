@@ -158,6 +158,62 @@ describe("EscrowStore", () => {
     await expect(escrowStore.requestRelease(escrow.escrowId, seller.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/Only the buyer/);
   });
 
+  it("allows only the buyer to cancel an unfunded escrow", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000021", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000022", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 11000,
+      currency: "NAIRA",
+      purpose: "Cancelled design",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "paystack-cancel-1",
+      paymentProvider: "paystack",
+      status: "PENDING_PAYMENT",
+    });
+
+    await expect(escrowStore.cancelUnfundedEscrow(escrow.escrowId, seller.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/Only the buyer/);
+    const cancelled = await escrowStore.cancelUnfundedEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
+    const events = await escrowStore.listEvents(escrow.escrowId);
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(events.map((event) => event.eventType)).toContain("buyer_cancelled_unfunded");
+    expect(transactions[0].status).toBe("cancelled");
+  });
+
+  it("blocks cancellation after escrow funding", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000031", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000032", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 11000,
+      currency: "NAIRA",
+      purpose: "Funded design",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "paystack-cancel-funded-1",
+      paymentProvider: "paystack",
+      status: "PENDING_PAYMENT",
+    });
+    await escrowStore.markFundedByPaymentReference("paystack-cancel-funded-1", { status: "success", amount: 11000 });
+
+    await expect(escrowStore.cancelUnfundedEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/cannot be cancelled|Funded escrow/i);
+  });
+
   it("blocks Naira release when payout name match is not acceptable", async () => {
     const escrowStore = freshStore();
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000010101", "buyer");

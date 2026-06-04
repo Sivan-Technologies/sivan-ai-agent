@@ -1225,6 +1225,23 @@ app.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, res)
   }
 });
 
+app.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.cancelUnfundedEscrow(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp,
+      "whatsapp_dm"
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Escrow cancellation failed" });
+  }
+});
+
 app.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = escrowActionSchema.safeParse(req.body);

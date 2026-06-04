@@ -206,6 +206,8 @@ Recommended MVP rules:
 | `PENDING_RELEASE` | `RELEASED` | Admin approves payout in MVP |
 | Any active state | `DISPUTED` | Buyer or seller raises dispute |
 | Any pre-release state | `CANCELLED` | Admin or allowed cancellation rule applies |
+
+Current participant cancellation rule: the buyer may cancel through `cancel SIV-...` only while the escrow is unfunded and in `PENDING_PROFILE`, `PENDING_ACCEPTANCE`, or `PENDING_PAYMENT`. Funded escrows cannot be directly cancelled and must use the dispute/refund process. Every buyer cancellation writes an audit event and marks any pending funding transaction as cancelled.
 | Any state | `FAILED` | Payment, webhook, or workflow failure occurs |
 
 ## Phase Completion Matrix
