@@ -198,6 +198,31 @@ type SettlementProof = {
   proofFile?: string;
 };
 
+type ToastNotice = {
+  tone: "success" | "error";
+  title: string;
+  message: string;
+};
+
+function Toast({ notice, onDismiss }: { notice: ToastNotice; onDismiss: () => void }) {
+  return (
+    <div
+      className={`toast-notice ${notice.tone}`}
+      role={notice.tone === "error" ? "alert" : "status"}
+      aria-live={notice.tone === "error" ? "assertive" : "polite"}
+    >
+      <div className="toast-icon" aria-hidden="true">{notice.tone === "success" ? "✓" : "!"}</div>
+      <div className="toast-copy">
+        <strong>{notice.title}</strong>
+        <span>{notice.message}</span>
+      </div>
+      <button className="toast-dismiss" type="button" onClick={onDismiss} aria-label="Dismiss notification">
+        ×
+      </button>
+    </div>
+  );
+}
+
 type QueueStatus = {
   status: string;
   queued: number;
@@ -470,6 +495,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [whatsappProviderStatus, setWhatsappProviderStatus] = useState<WhatsAppProviderStatus | null>(null);
+  const [toast, setToast] = useState<ToastNotice | null>(null);
 
   const authHeaders = () => {
     const headers: any = { "Content-Type": "application/json" };
@@ -571,7 +597,11 @@ function App() {
       });
       if (!resp.ok) throw new Error(await parseError(resp, "Failed to request session"));
       sessionStorage.setItem(storedAdminUsername, adminUsername);
-      alert("Token requested. Check Telegram for the login code.");
+      setToast({
+        tone: "success",
+        title: "Login code sent",
+        message: "Check Telegram, then enter the one-time code below.",
+      });
     } catch (err: any) {
       setError(err.message || "Failed to request token");
     } finally {
@@ -1171,9 +1201,24 @@ function App() {
     }
   }, [activeTab, adminKey]);
 
+  useEffect(() => {
+    if (!toast) return;
+    const dismiss = () => setToast(null);
+    const timeout = window.setTimeout(dismiss, 6000);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [toast]);
+
   if (!adminKey) {
     return (
       <main className="auth-screen">
+        {toast && <Toast notice={toast} onDismiss={() => setToast(null)} />}
         <section className="auth-card">
           <div className="brand-mark">SE</div>
           <h1>Sivan Escrow Admin</h1>
@@ -1223,6 +1268,7 @@ function App() {
 
   return (
     <main className="admin-shell">
+      {toast && <Toast notice={toast} onDismiss={() => setToast(null)} />}
       <header className="topbar">
         <div>
           <div className="eyebrow">Sivan Escrow Agent</div>
