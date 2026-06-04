@@ -49,7 +49,7 @@ MVP identity verification should require:
 | Bank/account name resolution | Paystack `/bank/resolve` | ✅ Implemented through `PaystackClient.resolveBankAccount` |
 | Fallback bank search | Built-in Nigerian bank list | ✅ Implemented so setup can continue during Paystack bank-list outages |
 | Fallback account name enquiry | Monnify Name Enquiry | 🟡 Implemented as optional fallback when credentials are configured |
-| Controlled E2E payout verification | Exact allowlist + Paystack test key | 🟡 Available only for explicitly allowlisted test accounts; never activates with live Paystack credentials |
+| Controlled E2E payout/payment setup | Exact allowlist + Paystack test key | 🟡 Available only for explicitly allowlisted test accounts; can create a clearly marked sandbox payment reference when Paystack test initialization is unavailable; never activates with live Paystack credentials |
 | Name match score | Internal scoring | ✅ Implemented for MVP |
 | BVN/NIN/selfie KYC | KYC provider | 🔴 Not started; Phase 2 |
 

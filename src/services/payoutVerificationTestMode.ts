@@ -10,6 +10,11 @@ export type PayoutVerificationTestResolution = {
   bankCode: string;
 };
 
+export type SandboxPaymentInstruction = {
+  reference: string;
+  provider: "paystack_sandbox_override";
+};
+
 function csvValues(value?: string) {
   return (value || "")
     .split(",")
@@ -39,3 +44,16 @@ export function getPayoutVerificationTestResolution(
   };
 }
 
+export function createSandboxPaymentInstruction(
+  escrowId: string,
+  env: NodeJS.ProcessEnv = process.env
+): SandboxPaymentInstruction | null {
+  if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
+  if (!env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_")) return null;
+  if (!csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS).length) return null;
+
+  return {
+    reference: `sandbox-paystack-${escrowId}-${Date.now()}`,
+    provider: "paystack_sandbox_override",
+  };
+}

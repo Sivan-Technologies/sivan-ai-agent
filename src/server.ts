@@ -51,7 +51,7 @@ import { scoreAccountName } from "./services/nameMatch";
 import { filterBanks } from "./services/bankFallback";
 import { MonnifyClient } from "./services/monnifyClient";
 import { ComplianceRisk, hasBlockingComplianceRisk, highValueReviewAmount, scoreComplianceRisk } from "./services/complianceRisk";
-import { getPayoutVerificationTestResolution } from "./services/payoutVerificationTestMode";
+import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution } from "./services/payoutVerificationTestMode";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
@@ -1099,19 +1099,39 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
-      const transaction = await paystackClient.initializeTransaction(
-        accepted.amount,
-        paystackEmailForWhatsapp(parsed.data.actorWhatsapp),
-        config.paystack.callbackUrl
-      );
-      await escrowStore.attachPayment({
-        escrowId: accepted.escrowId,
-        paymentReference: transaction.reference,
-        paymentAuthorizationUrl: transaction.authorizationUrl,
-        paymentProvider: "paystack",
-        status: "PENDING_PAYMENT",
-      });
-      payment = { provider: "paystack", reference: transaction.reference, authorizationUrl: transaction.authorizationUrl };
+      try {
+        const transaction = await paystackClient.initializeTransaction(
+          accepted.amount,
+          paystackEmailForWhatsapp(parsed.data.actorWhatsapp),
+          config.paystack.callbackUrl
+        );
+        await escrowStore.attachPayment({
+          escrowId: accepted.escrowId,
+          paymentReference: transaction.reference,
+          paymentAuthorizationUrl: transaction.authorizationUrl,
+          paymentProvider: "paystack",
+          status: "PENDING_PAYMENT",
+        });
+        payment = { provider: "paystack", reference: transaction.reference, authorizationUrl: transaction.authorizationUrl };
+      } catch (err: any) {
+        const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
+        if (!sandboxPayment) throw err;
+        warn("Using sandbox payment instruction after Paystack initialization failure", {
+          escrowId: accepted.escrowId,
+          paystackError: err?.message || String(err),
+        });
+        await escrowStore.attachPayment({
+          escrowId: accepted.escrowId,
+          paymentReference: sandboxPayment.reference,
+          paymentProvider: sandboxPayment.provider,
+          status: "PENDING_PAYMENT",
+        });
+        payment = {
+          provider: sandboxPayment.provider,
+          reference: sandboxPayment.reference,
+          testOnly: true,
+        };
+      }
     } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
       const reference = `x402-${accepted.escrowId}`;
       await escrowStore.attachPayment({
