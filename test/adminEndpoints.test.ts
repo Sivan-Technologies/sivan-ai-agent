@@ -127,6 +127,109 @@ describe("Admin Settings API Integration", () => {
     });
   });
 
+  it("should queue, approve, and reject one-time escrow limit reviews", async () => {
+    const settingsResponse = await request(app).get("/admin/settings").set("x-admin-key", "test-admin-key");
+    const settings = settingsResponse.body;
+    const update = await request(app)
+      .post("/admin/settings")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        nairaFeePercent: settings.nairaFeePercent,
+        nairaFeeFixed: settings.nairaFeeFixed,
+        usdcFeePercent: settings.usdcFeePercent,
+        usdcFeeFixed: settings.usdcFeeFixed,
+        nairaNewUserLimit: 200000,
+        nairaTrustedUserLimit: 300000,
+        nairaEstablishedUserLimit: 500000,
+        nairaSpecialApprovalLimit: 1000000,
+        nairaBuyerActiveExposureLimit: 250000,
+        nairaPlatformActiveExposureLimit: 10000000,
+        trustedUserSuccessfulEscrows: 3,
+        establishedUserSuccessfulEscrows: 10,
+        expectedVersion: settings.version,
+      });
+    expect(update.status).toBe(200);
+
+    const normal = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        clientRequestId: "review-normal-1",
+        buyerWhatsapp: "whatsapp:+2348000000201",
+        sellerWhatsapp: "whatsapp:+2348000000202",
+        amount: 150000,
+        currency: "NAIRA",
+        purpose: "normal limit test",
+        channel: "whatsapp_dm",
+      });
+    expect(normal.status).toBe(201);
+
+    const exposureBlocked = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        clientRequestId: "review-exposure-1",
+        buyerWhatsapp: "whatsapp:+2348000000201",
+        sellerWhatsapp: "whatsapp:+2348000000203",
+        amount: 150000,
+        currency: "NAIRA",
+        purpose: "buyer exposure review test",
+        channel: "whatsapp_dm",
+      });
+    expect(exposureBlocked.status).toBe(409);
+    expect(exposureBlocked.body.error).toBe("BUYER_EXPOSURE_LIMIT_REACHED");
+    expect(exposureBlocked.body.review.status).toBe("pending");
+
+    const approved = await request(app)
+      .post(`/admin/escrow-limit-reviews/${exposureBlocked.body.review.reviewId}/approve`)
+      .set("x-admin-key", "test-admin-key")
+      .send({ notes: "Buyer transaction context reviewed and approved for this request only." });
+    expect(approved.status).toBe(200);
+    expect(approved.body.review.status).toBe("approved");
+    expect(approved.body.escrow.amount).toBe(150000);
+
+    const tierBlocked = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        clientRequestId: "review-tier-reject-1",
+        buyerWhatsapp: "whatsapp:+2348000000211",
+        sellerWhatsapp: "whatsapp:+2348000000212",
+        amount: 250000,
+        currency: "NAIRA",
+        purpose: "tier rejection test",
+        channel: "whatsapp_dm",
+      });
+    expect(tierBlocked.status).toBe(409);
+    expect(tierBlocked.body.error).toBe("ESCROW_LIMIT_REVIEW_REQUIRED");
+
+    const repeated = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        clientRequestId: "review-tier-reject-1",
+        buyerWhatsapp: "whatsapp:+2348000000211",
+        sellerWhatsapp: "whatsapp:+2348000000212",
+        amount: 250000,
+        currency: "NAIRA",
+        purpose: "tier rejection test",
+        channel: "whatsapp_dm",
+      });
+    expect(repeated.body.review.reviewId).toBe(tierBlocked.body.review.reviewId);
+
+    const rejected = await request(app)
+      .post(`/admin/escrow-limit-reviews/${tierBlocked.body.review.reviewId}/reject`)
+      .set("x-admin-key", "test-admin-key")
+      .send({ notes: "Buyer needs additional successful escrow history before this amount." });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.review.status).toBe("rejected");
+
+    const reviews = await request(app).get("/admin/escrow-limit-reviews?limit=20").set("x-admin-key", "test-admin-key");
+    expect(reviews.status).toBe(200);
+    expect(reviews.body.some((review: any) => review.status === "approved" && review.approvedEscrowId)).toBe(true);
+    expect(reviews.body.some((review: any) => review.status === "rejected")).toBe(true);
+  });
+
   it("should expose protected database status", async () => {
     const unauthorized = await request(app).get("/admin/db-status");
     expect(unauthorized.status).toBe(401);

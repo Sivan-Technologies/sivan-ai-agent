@@ -85,6 +85,10 @@ export const adminSettingsSchema = z.object({
   expectedVersion: z.coerce.number().int().positive(),
 });
 
+export const escrowLimitReviewDecisionSchema = z.object({
+  notes: z.string().trim().min(3).max(2000),
+});
+
 export const whatsappProviderSwitchSchema = z.object({
   provider: z.enum(["twilio", "meta"]),
 });

@@ -124,6 +124,29 @@ export interface LedgerEntryRecord {
   createdAt: string;
 }
 
+export type EscrowLimitReviewStatus = "pending" | "processing" | "approved" | "rejected";
+
+export interface EscrowLimitReviewRecord {
+  reviewId: string;
+  clientRequestId?: string;
+  buyerUserId: string;
+  buyerWhatsapp: string;
+  sellerWhatsapp?: string;
+  amount: number;
+  currency: EscrowCurrency;
+  purpose: string;
+  createdByChannel: string;
+  reasonCode: string;
+  policy: Record<string, unknown>;
+  status: EscrowLimitReviewStatus;
+  decisionNotes?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  approvedEscrowId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ManualReleaseOptions {
   manualPayoutReference: string;
   payoutNotes?: string;
@@ -330,6 +353,30 @@ export class EscrowStore {
     };
   }
 
+  private mapLimitReview(row: any): EscrowLimitReviewRecord | null {
+    if (!row) return null;
+    return {
+      reviewId: row.review_id,
+      clientRequestId: row.client_request_id || undefined,
+      buyerUserId: row.buyer_user_id,
+      buyerWhatsapp: row.buyer_whatsapp,
+      sellerWhatsapp: row.seller_whatsapp || undefined,
+      amount: Number(row.amount),
+      currency: row.currency,
+      purpose: row.purpose,
+      createdByChannel: row.created_by_channel,
+      reasonCode: row.reason_code,
+      policy: JSON.parse(row.policy_json || "{}"),
+      status: row.status,
+      decisionNotes: row.decision_notes || undefined,
+      decidedBy: row.decided_by || undefined,
+      decidedAt: row.decided_at || undefined,
+      approvedEscrowId: row.approved_escrow_id || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   private schemaSql(numberType: string) {
     return `
       CREATE TABLE IF NOT EXISTS users (
@@ -434,11 +481,34 @@ export class EscrowStore {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS escrow_limit_reviews (
+        review_id TEXT PRIMARY KEY,
+        client_request_id TEXT,
+        buyer_user_id TEXT NOT NULL,
+        buyer_whatsapp TEXT NOT NULL,
+        seller_whatsapp TEXT,
+        amount ${numberType} NOT NULL,
+        currency TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        created_by_channel TEXT NOT NULL,
+        reason_code TEXT NOT NULL,
+        policy_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        decision_notes TEXT,
+        decided_by TEXT,
+        decided_at TEXT,
+        approved_escrow_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_escrows_status ON escrows(status);
       CREATE INDEX IF NOT EXISTS idx_escrows_payment_reference ON escrows(payment_reference);
       CREATE INDEX IF NOT EXISTS idx_transactions_escrow_id ON transactions(escrow_id);
       CREATE INDEX IF NOT EXISTS idx_escrow_events_escrow_id ON escrow_events(escrow_id);
       CREATE INDEX IF NOT EXISTS idx_ledger_entries_escrow_id ON ledger_entries(escrow_id);
+      CREATE INDEX IF NOT EXISTS idx_limit_reviews_status ON escrow_limit_reviews(status, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_reviews_client_request_id ON escrow_limit_reviews(client_request_id);
     `;
   }
 
@@ -874,6 +944,145 @@ export class EscrowStore {
       [clientRequestId]
     );
     return this.mapEscrow(result.rows[0]);
+  }
+
+  public async createOrGetLimitReview(input: {
+    clientRequestId?: string;
+    buyerUserId: string;
+    buyerWhatsapp: string;
+    sellerWhatsapp?: string;
+    amount: number;
+    currency: EscrowCurrency;
+    purpose: string;
+    createdByChannel: string;
+    reasonCode: string;
+    policy: Record<string, unknown>;
+  }): Promise<EscrowLimitReviewRecord> {
+    await this.initializeSchema();
+    if (input.clientRequestId) {
+      const existing = await this.getLimitReviewByClientRequestId(input.clientRequestId);
+      if (existing) return existing;
+    }
+    const reviewId = id("limit-review");
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT OR IGNORE INTO escrow_limit_reviews (
+          review_id, client_request_id, buyer_user_id, buyer_whatsapp, seller_whatsapp,
+          amount, currency, purpose, created_by_channel, reason_code, policy_json,
+          status, created_at, updated_at
+        ) VALUES (
+          @reviewId, @clientRequestId, @buyerUserId, @buyerWhatsapp, @sellerWhatsapp,
+          @amount, @currency, @purpose, @createdByChannel, @reasonCode, @policyJson,
+          'pending', @now, @now
+        )
+      `).run({
+        ...input,
+        reviewId,
+        clientRequestId: input.clientRequestId || null,
+        sellerWhatsapp: input.sellerWhatsapp || null,
+        policyJson: JSON.stringify(input.policy),
+        now,
+      });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO escrow_limit_reviews (
+          review_id, client_request_id, buyer_user_id, buyer_whatsapp, seller_whatsapp,
+          amount, currency, purpose, created_by_channel, reason_code, policy_json,
+          status, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',$12,$12)
+        ON CONFLICT (client_request_id) DO NOTHING`,
+        [
+          reviewId, input.clientRequestId || null, input.buyerUserId, input.buyerWhatsapp,
+          input.sellerWhatsapp || null, input.amount, input.currency, input.purpose,
+          input.createdByChannel, input.reasonCode, JSON.stringify(input.policy), now,
+        ]
+      );
+    }
+    if (input.clientRequestId) {
+      return (await this.getLimitReviewByClientRequestId(input.clientRequestId))!;
+    }
+    return (await this.getLimitReviewById(reviewId))!;
+  }
+
+  public async getLimitReviewByClientRequestId(clientRequestId: string): Promise<EscrowLimitReviewRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.mapLimitReview(this.sqlite!.prepare(`SELECT * FROM escrow_limit_reviews WHERE client_request_id = ? LIMIT 1`).get(clientRequestId));
+    }
+    const result = await this.pool!.query(`SELECT * FROM escrow_limit_reviews WHERE client_request_id = $1 LIMIT 1`, [clientRequestId]);
+    return this.mapLimitReview(result.rows[0]);
+  }
+
+  public async getLimitReviewById(reviewId: string): Promise<EscrowLimitReviewRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.mapLimitReview(this.sqlite!.prepare(`SELECT * FROM escrow_limit_reviews WHERE review_id = ? LIMIT 1`).get(reviewId));
+    }
+    const result = await this.pool!.query(`SELECT * FROM escrow_limit_reviews WHERE review_id = $1 LIMIT 1`, [reviewId]);
+    return this.mapLimitReview(result.rows[0]);
+  }
+
+  public async listLimitReviews(limit = 100): Promise<EscrowLimitReviewRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return (this.sqlite!.prepare(`SELECT * FROM escrow_limit_reviews ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'processing' THEN 1 ELSE 2 END, created_at DESC LIMIT ?`).all(limit) as any[])
+        .map((row) => this.mapLimitReview(row)!);
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM escrow_limit_reviews ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'processing' THEN 1 ELSE 2 END, created_at DESC LIMIT $1`,
+      [limit]
+    );
+    return result.rows.map((row) => this.mapLimitReview(row)!);
+  }
+
+  public async claimLimitReview(reviewId: string): Promise<EscrowLimitReviewRecord | null> {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      const result = this.sqlite!.prepare(`UPDATE escrow_limit_reviews SET status = 'processing', updated_at = ? WHERE review_id = ? AND status = 'pending'`).run(now, reviewId);
+      return result.changes ? this.getLimitReviewById(reviewId) : null;
+    }
+    const result = await this.pool!.query(
+      `UPDATE escrow_limit_reviews SET status = 'processing', updated_at = $1 WHERE review_id = $2 AND status = 'pending' RETURNING *`,
+      [now, reviewId]
+    );
+    return this.mapLimitReview(result.rows[0]);
+  }
+
+  public async decideLimitReview(reviewId: string, input: {
+    status: "approved" | "rejected" | "pending";
+    decidedBy?: string;
+    decisionNotes?: string;
+    approvedEscrowId?: string;
+  }): Promise<EscrowLimitReviewRecord | null> {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    const decidedAt = input.status === "pending" ? null : now;
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrow_limit_reviews
+        SET status = @status, decision_notes = @decisionNotes, decided_by = @decidedBy,
+            decided_at = @decidedAt, approved_escrow_id = @approvedEscrowId, updated_at = @now
+        WHERE review_id = @reviewId
+      `).run({
+        reviewId,
+        status: input.status,
+        decisionNotes: input.decisionNotes || null,
+        decidedBy: input.decidedBy || null,
+        decidedAt,
+        approvedEscrowId: input.approvedEscrowId || null,
+        now,
+      });
+    } else {
+      await this.pool!.query(
+        `UPDATE escrow_limit_reviews
+         SET status = $1, decision_notes = $2, decided_by = $3, decided_at = $4, approved_escrow_id = $5, updated_at = $6
+         WHERE review_id = $7`,
+        [input.status, input.decisionNotes || null, input.decidedBy || null, decidedAt, input.approvedEscrowId || null, now, reviewId]
+      );
+    }
+    return this.getLimitReviewById(reviewId);
   }
 
   public async attachPayment(input: {
