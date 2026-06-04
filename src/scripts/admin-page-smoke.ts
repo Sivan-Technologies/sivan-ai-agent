@@ -111,6 +111,7 @@ async function main() {
     request("escrows tab", backendBaseUrl, "/admin/escrows?limit=100", { headers }),
     request("reconciliation tab", backendBaseUrl, "/admin/reconciliation?limit=250", { headers }),
     request("reconciliation csv export", backendBaseUrl, "/admin/reconciliation.csv?limit=250", { headers }),
+    request("revenue tab", backendBaseUrl, "/admin/revenue", { headers }),
     request("webhooks tab", backendBaseUrl, "/admin/webhooks?limit=100", { headers }),
     request("disputes tab", backendBaseUrl, "/admin/disputes?limit=100", { headers }),
     request("settings tab", backendBaseUrl, "/admin/settings", { headers }),
