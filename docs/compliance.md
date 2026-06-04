@@ -162,7 +162,7 @@ The admin **Platform Controls** tab stores and audits Naira creation limits in t
 | Buyer active exposure limit | ₦500,000 | Sum of the buyer's active Naira escrows |
 | Platform active exposure limit | ₦10,000,000 | Sum of all active Naira escrows |
 
-All values and successful-escrow thresholds are adjustable through protected admin settings and use optimistic version locking plus audit history. Requests above a buyer tier or active exposure limit do not enter the normal WhatsApp creation path; they require operator review before proceeding.
+All values and successful-escrow thresholds are adjustable through protected admin settings and use optimistic version locking plus audit history. Requests above a buyer tier or active exposure limit enter the durable **Limit Reviews** queue instead of the normal creation path. Admin approval creates that one reviewed escrow without changing global limits; rejection records the reason and closes the request. Both decisions notify the buyer, and approval sends the normal seller invite. Requests above the special approval maximum are rejected and cannot be overridden from the review queue.
 
 Store per escrow and per user:
 
@@ -323,7 +323,8 @@ High risk should trigger manual review before release. Critical risk should bloc
 8. ✅ Add fee ledger entries for admin-approved seller payouts.
 9. ✅ Add aggregate compliance risk gate before admin payout approval.
 10. ✅ Add admin-configurable buyer trust tiers, per-buyer active exposure, platform active exposure, and absolute Naira creation limits.
-11. 🔮 Phase 2 KYC provider abstraction remains future work and is intentionally not part of the MVP hardening pass.
+11. ✅ Add durable admin limit-review queue with one-time approve/reject decisions, audit notes, idempotent request handling, and participant notifications.
+12. 🔮 Phase 2 KYC provider abstraction remains future work and is intentionally not part of the MVP hardening pass.
 
 ## Sources
 

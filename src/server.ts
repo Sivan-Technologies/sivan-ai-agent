@@ -25,6 +25,7 @@ import {
   disputeResolutionSchema,
   escrowActionSchema,
   escrowCreateSchema,
+  escrowLimitReviewDecisionSchema,
   formatZodError,
   limitQuerySchema,
   participantDisputeEvidenceSchema,
@@ -885,14 +886,27 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       if (input.amount > settings.nairaSpecialApprovalLimit) {
         return res.status(403).json({ error: "ESCROW_LIMIT_EXCEEDED", message: "Requested amount exceeds Sivan's maximum supported Naira escrow limit", policy });
       }
-      if (input.amount > tierLimit) {
-        return res.status(409).json({ error: "ESCROW_LIMIT_REVIEW_REQUIRED", message: "This amount requires operator approval for the buyer's current trust tier", policy });
-      }
-      if (exposure.buyerActiveExposure + input.amount > settings.nairaBuyerActiveExposureLimit) {
-        return res.status(409).json({ error: "BUYER_EXPOSURE_LIMIT_REACHED", message: "This buyer's active Naira exposure limit requires operator review", policy });
-      }
-      if (exposure.platformActiveExposure + input.amount > settings.nairaPlatformActiveExposureLimit) {
-        return res.status(409).json({ error: "PLATFORM_EXPOSURE_LIMIT_REACHED", message: "Sivan's active Naira exposure limit requires operator review before another escrow can be created", policy });
+      const reviewReason = input.amount > tierLimit
+        ? { error: "ESCROW_LIMIT_REVIEW_REQUIRED", message: "This amount requires operator approval for the buyer's current trust tier" }
+        : exposure.buyerActiveExposure + input.amount > settings.nairaBuyerActiveExposureLimit
+          ? { error: "BUYER_EXPOSURE_LIMIT_REACHED", message: "This buyer's active Naira exposure limit requires operator review" }
+          : exposure.platformActiveExposure + input.amount > settings.nairaPlatformActiveExposureLimit
+            ? { error: "PLATFORM_EXPOSURE_LIMIT_REACHED", message: "Sivan's active Naira exposure limit requires operator review before another escrow can be created" }
+            : null;
+      if (reviewReason) {
+        const review = await escrowStore.createOrGetLimitReview({
+          clientRequestId: input.clientRequestId,
+          buyerUserId: buyer.userId,
+          buyerWhatsapp: input.buyerWhatsapp,
+          sellerWhatsapp: input.sellerWhatsapp,
+          amount: input.amount,
+          currency: input.currency,
+          purpose: input.purpose,
+          createdByChannel: input.channel,
+          reasonCode: reviewReason.error,
+          policy,
+        });
+        return res.status(409).json({ ...reviewReason, policy, review });
       }
     }
     const seller = input.sellerWhatsapp
@@ -1809,6 +1823,103 @@ app.post("/admin/support/cases/:caseId/notes", requireAdminAuth, logAdminAction(
   const adminUser = (req as any).adminUser || "unknown";
   const note = await opsStore.addSupportNote(req.params.caseId, adminUser, parsed.data.body, parsed.data.actionType);
   res.status(201).json(note);
+});
+
+app.get("/admin/escrow-limit-reviews", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json(await escrowStore.listLimitReviews(parsed.data.limit));
+});
+
+app.post("/admin/escrow-limit-reviews/:reviewId/approve", requireAdminAuth, logAdminAction("approve_escrow_limit_review"), async (req, res) => {
+  const parsed = escrowLimitReviewDecisionSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid review decision", details: formatZodError(parsed.error) });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const existing = await escrowStore.getLimitReviewById(req.params.reviewId);
+  if (!existing) return res.status(404).json({ error: "Escrow limit review not found" });
+  if (existing.status === "approved" && existing.approvedEscrowId) {
+    return res.status(200).json({ review: existing, escrow: await escrowStore.getEscrowById(existing.approvedEscrowId), idempotent: true });
+  }
+  if (existing.status === "rejected") return res.status(409).json({ error: "Rejected escrow limit reviews cannot be approved" });
+
+  const settings = await settingsStore.getSettings();
+  if (existing.amount > settings.nairaSpecialApprovalLimit) {
+    return res.status(409).json({ error: "Review amount now exceeds the configured special approval maximum" });
+  }
+  const claimed = await escrowStore.claimLimitReview(req.params.reviewId);
+  if (!claimed) return res.status(409).json({ error: "Escrow limit review is already being processed" });
+
+  try {
+    const existingEscrow = claimed.clientRequestId
+      ? await escrowStore.findEscrowByClientRequestId(claimed.clientRequestId)
+      : null;
+    const seller = claimed.sellerWhatsapp
+      ? await escrowStore.upsertUserByWhatsapp(claimed.sellerWhatsapp, "seller")
+      : null;
+    const escrow = existingEscrow || await escrowStore.createEscrow({
+      buyerUserId: claimed.buyerUserId,
+      sellerUserId: seller?.userId,
+      sellerWhatsapp: claimed.sellerWhatsapp,
+      amount: claimed.amount,
+      currency: claimed.currency,
+      purpose: claimed.purpose,
+      clientRequestId: claimed.clientRequestId,
+      createdByChannel: claimed.createdByChannel,
+    });
+    await escrowStore.addEvent({
+      escrowId: escrow.escrowId,
+      actor: adminUser,
+      actorRole: "admin",
+      channel: "admin",
+      eventType: "escrow_limit_review_approved",
+      reason: parsed.data.notes,
+      metadata: JSON.stringify({ reviewId: claimed.reviewId, reasonCode: claimed.reasonCode }),
+    });
+    const review = await escrowStore.decideLimitReview(claimed.reviewId, {
+      status: "approved",
+      decidedBy: adminUser,
+      decisionNotes: parsed.data.notes,
+      approvedEscrowId: escrow.escrowId,
+    });
+    if (claimed.createdByChannel.startsWith("whatsapp")) {
+      void notifyWhatsAppBot(claimed.buyerWhatsapp, `Sivan approved your escrow limit review. Escrow ${escrow.escrowId} was created for NAIRA ${escrow.amount}.`)
+        .catch((err) => captureOperationalError("Failed to notify buyer about approved limit review", err, { reviewId: claimed.reviewId }));
+    }
+    if (seller && claimed.createdByChannel.startsWith("whatsapp")) {
+      void notifyWhatsAppBot(seller.whatsappNumber, `You have been invited to Sivan escrow ${escrow.escrowId} for ${escrow.currency} ${escrow.amount}.\nPurpose: ${escrow.purpose}\nReply: accept ${escrow.escrowId}`)
+        .catch((err) => captureOperationalError("Failed to notify seller about approved limit review", err, { reviewId: claimed.reviewId }));
+    }
+    return res.status(200).json({ review, escrow });
+  } catch (err: any) {
+    await escrowStore.decideLimitReview(req.params.reviewId, { status: "pending", decisionNotes: `Approval failed: ${err.message || err}` });
+    captureOperationalError("Escrow limit review approval failed", err, { reviewId: req.params.reviewId });
+    return res.status(500).json({ error: "Escrow limit review approval failed" });
+  }
+});
+
+app.post("/admin/escrow-limit-reviews/:reviewId/reject", requireAdminAuth, logAdminAction("reject_escrow_limit_review"), async (req, res) => {
+  const parsed = escrowLimitReviewDecisionSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid review decision", details: formatZodError(parsed.error) });
+  }
+  const adminUser = (req as any).adminUser || "unknown";
+  const existing = await escrowStore.getLimitReviewById(req.params.reviewId);
+  if (!existing) return res.status(404).json({ error: "Escrow limit review not found" });
+  if (existing.status === "approved") return res.status(409).json({ error: "Approved escrow limit reviews cannot be rejected" });
+  const review = await escrowStore.decideLimitReview(existing.reviewId, {
+    status: "rejected",
+    decidedBy: adminUser,
+    decisionNotes: parsed.data.notes,
+  });
+  if (existing.createdByChannel.startsWith("whatsapp")) {
+    void notifyWhatsAppBot(existing.buyerWhatsapp, `Sivan could not approve your escrow limit review for NAIRA ${existing.amount}. Reason: ${parsed.data.notes}`)
+      .catch((err) => captureOperationalError("Failed to notify buyer about rejected limit review", err, { reviewId: existing.reviewId }));
+  }
+  res.status(200).json({ review });
 });
 
 app.post("/admin/settlement/verify", requireAdminAuth, logAdminAction("verify_settlement_integrations"), async (_req, res) => {

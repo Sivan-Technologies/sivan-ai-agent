@@ -272,6 +272,34 @@ type SupportNote = {
   createdAt: string;
 };
 
+type EscrowLimitReview = {
+  reviewId: string;
+  clientRequestId?: string;
+  buyerUserId: string;
+  buyerWhatsapp: string;
+  sellerWhatsapp?: string;
+  amount: number;
+  currency: "NAIRA" | "USDC";
+  purpose: string;
+  reasonCode: string;
+  policy: {
+    tier?: string;
+    successfulEscrows?: number;
+    tierLimit?: number;
+    buyerActiveExposure?: number;
+    platformActiveExposure?: number;
+    buyerActiveExposureLimit?: number;
+    platformActiveExposureLimit?: number;
+  };
+  status: "pending" | "processing" | "approved" | "rejected";
+  decisionNotes?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  approvedEscrowId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type EscrowTimeline = {
   escrowId: string;
   events: Array<{ eventId: string; eventType: string; actor: string; actorRole: string; channel: string; previousStatus?: string; nextStatus?: string; reason?: string; metadata?: string; createdAt: string }>;
@@ -326,7 +354,7 @@ type AuthAuditEvent = {
   createdAt: string;
 };
 
-type Tab = "escrows" | "disputes" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
+type Tab = "escrows" | "limitReviews" | "disputes" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -397,6 +425,9 @@ function App() {
   const [supportNotes, setSupportNotes] = useState<SupportNote[]>([]);
   const [supportSearch, setSupportSearch] = useState("");
   const [supportNoteDraft, setSupportNoteDraft] = useState("");
+  const [limitReviews, setLimitReviews] = useState<EscrowLimitReview[]>([]);
+  const [selectedLimitReview, setSelectedLimitReview] = useState<EscrowLimitReview | null>(null);
+  const [limitReviewNotes, setLimitReviewNotes] = useState("");
   const [timeline, setTimeline] = useState<EscrowTimeline | null>(null);
   const [timelineEscrowId, setTimelineEscrowId] = useState("");
   const [disputes, setDisputes] = useState<DisputeRow[]>([]);
@@ -727,6 +758,17 @@ function App() {
     });
   };
 
+  const loadLimitReviews = async () => {
+    if (!adminKey) return;
+    const response = await fetch(`${apiBase}/admin/escrow-limit-reviews?limit=100`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load escrow limit reviews"));
+    const rows = (await response.json()) || [];
+    setLimitReviews(rows);
+    if (selectedLimitReview) {
+      setSelectedLimitReview(rows.find((row: EscrowLimitReview) => row.reviewId === selectedLimitReview.reviewId) || null);
+    }
+  };
+
   const loadAuditHistory = async () => {
     if (!adminKey) return;
     const response = await fetch(`${apiBase}/admin/audit-history?limit=20`, { headers: authHeaders() });
@@ -795,7 +837,7 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadReconciliation(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
+      await Promise.all([loadEscrows(), loadLimitReviews(), loadReconciliation(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -872,6 +914,23 @@ function App() {
     if (!response.ok) throw new Error(await parseError(response, "Failed to approve release"));
     await loadEscrows();
     await loadReconciliation();
+  };
+
+  const decideLimitReview = async (decision: "approve" | "reject") => {
+    if (!selectedLimitReview || !limitReviewNotes.trim()) return;
+    setActionBusy(true);
+    try {
+      const response = await fetch(`${apiBase}/admin/escrow-limit-reviews/${selectedLimitReview.reviewId}/${decision}`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ notes: limitReviewNotes.trim() }),
+      });
+      if (!response.ok) throw new Error(await parseError(response, `Failed to ${decision} escrow limit review`));
+      setLimitReviewNotes("");
+      await Promise.all([loadLimitReviews(), loadEscrows(), loadReconciliation()]);
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const disputeEscrow = async (escrowId: string) => {
@@ -1242,10 +1301,12 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "disputes", "support", "payout", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
+        {(["escrows", "limitReviews", "disputes", "support", "payout", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
             {tab === "escrows"
               ? "Escrows"
+              : tab === "limitReviews"
+              ? "Limit Reviews"
               : tab === "disputes"
               ? "Disputes"
               : tab === "support"
@@ -1531,6 +1592,78 @@ function App() {
             ))}
             {webhooks.length === 0 && <p className="muted">No webhook events</p>}
           </div>
+        </section>
+      )}
+
+      {activeTab === "limitReviews" && (
+        <section className="content-grid">
+          <div className="surface">
+            <div className="section-head">
+              <h2>Escrow Limit Reviews</h2>
+              <span>{limitReviews.filter((review) => review.status === "pending").length} pending</span>
+            </div>
+            <div className="event-grid">
+              {limitReviews.map((review) => (
+                <button
+                  key={review.reviewId}
+                  className={`event-row selectable-row ops-event ${review.status === "pending" ? "warning" : review.status === "rejected" ? "error" : "success"} ${selectedLimitReview?.reviewId === review.reviewId ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelectedLimitReview(review);
+                    setLimitReviewNotes("");
+                  }}
+                >
+                  <div>
+                    <strong>{review.currency} {money.format(review.amount)} · {review.policy.tier || "unknown"} buyer</strong>
+                    <span>{review.reasonCode} · {review.status}</span>
+                    <span>{review.buyerWhatsapp} · {review.purpose}</span>
+                  </div>
+                  <time>{formatTime(review.createdAt)}</time>
+                </button>
+              ))}
+              {limitReviews.length === 0 && <p className="muted">No escrow limit reviews</p>}
+            </div>
+          </div>
+
+          <aside className="surface detail-surface">
+            <div className="section-head">
+              <h2>Review Decision</h2>
+              <span>{selectedLimitReview ? compactId(selectedLimitReview.reviewId, 16) : "none"}</span>
+            </div>
+            {selectedLimitReview ? (
+              <div className="detail-stack">
+                <div className="detail-row"><span>Status</span><strong>{selectedLimitReview.status}</strong></div>
+                <div className="detail-row"><span>Reason</span><strong>{selectedLimitReview.reasonCode}</strong></div>
+                <div className="detail-row"><span>Buyer</span><strong>{selectedLimitReview.buyerWhatsapp}</strong></div>
+                <div className="detail-row"><span>Seller</span><strong>{selectedLimitReview.sellerWhatsapp || "not set"}</strong></div>
+                <div className="detail-row"><span>Requested amount</span><strong>{selectedLimitReview.currency} {money.format(selectedLimitReview.amount)}</strong></div>
+                <div className="detail-row"><span>Buyer tier</span><strong>{selectedLimitReview.policy.tier || "unknown"} · {selectedLimitReview.policy.successfulEscrows || 0} successful</strong></div>
+                <div className="detail-row"><span>Tier limit</span><strong>NGN {money.format(selectedLimitReview.policy.tierLimit || 0)}</strong></div>
+                <div className="detail-row"><span>Buyer active exposure</span><strong>NGN {money.format(selectedLimitReview.policy.buyerActiveExposure || 0)} / {money.format(selectedLimitReview.policy.buyerActiveExposureLimit || 0)}</strong></div>
+                <div className="detail-row"><span>Platform active exposure</span><strong>NGN {money.format(selectedLimitReview.policy.platformActiveExposure || 0)} / {money.format(selectedLimitReview.policy.platformActiveExposureLimit || 0)}</strong></div>
+                <div className="detail-row"><span>Purpose</span><strong>{selectedLimitReview.purpose}</strong></div>
+                {selectedLimitReview.approvedEscrowId && <div className="detail-row"><span>Created escrow</span><strong>{selectedLimitReview.approvedEscrowId}</strong></div>}
+                {selectedLimitReview.decisionNotes && <div className="detail-row"><span>Decision</span><strong>{selectedLimitReview.decisionNotes}</strong></div>}
+                {selectedLimitReview.status === "pending" && (
+                  <>
+                    <label className="field">
+                      <span>Required operator decision notes</span>
+                      <textarea rows={4} value={limitReviewNotes} onChange={(event) => setLimitReviewNotes(event.target.value)} placeholder="Record why this one-time override is approved or rejected." />
+                    </label>
+                    <div className="control-grid">
+                      <button className="button primary" disabled={actionBusy || !limitReviewNotes.trim()} onClick={() => decideLimitReview("approve")}>
+                        Approve and create
+                      </button>
+                      <button className="button danger" disabled={actionBusy || !limitReviewNotes.trim()} onClick={() => decideLimitReview("reject")}>
+                        Reject request
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <p className="muted">Select a review to inspect its recorded policy snapshot.</p>
+            )}
+          </aside>
         </section>
       )}
 
