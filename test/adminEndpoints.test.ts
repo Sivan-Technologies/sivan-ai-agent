@@ -322,8 +322,12 @@ describe("Admin Settings API Integration", () => {
       .get("/admin/settlement/verification")
       .set("x-admin-key", "test-admin-key");
 
-    expect([200, 404]).toContain(latest.status);
-    expect(latest.body).toHaveProperty("status");
+    expect(latest.status).toBe(200);
+    expect(latest.body).toMatchObject({
+      status: "not_run",
+      sap: { status: "not_run" },
+      x402: { status: "not_run" },
+    });
   });
 
   it("should expose production ops workflow endpoints", async () => {

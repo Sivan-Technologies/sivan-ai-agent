@@ -119,7 +119,7 @@ async function main() {
     request("ops status card", backendBaseUrl, "/admin/ops/status", { headers }),
     request("dr status card", backendBaseUrl, "/admin/dr/status", { headers }),
     request("ops events table", backendBaseUrl, "/admin/ops/events?limit=50", { headers }),
-    request("settlement verification card", backendBaseUrl, "/admin/settlement/verification", { headers, expectedStatuses: [200, 404] }),
+    request("settlement verification card", backendBaseUrl, "/admin/settlement/verification", { headers }),
     request("queue status card", backendBaseUrl, "/admin/queue/status", { headers }),
     request("queue jobs table", backendBaseUrl, "/admin/queue/jobs?limit=50", { headers }),
     request("abuse signals table", backendBaseUrl, "/admin/abuse/signals?limit=100", { headers }),

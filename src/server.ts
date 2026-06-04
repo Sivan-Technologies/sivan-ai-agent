@@ -1664,8 +1664,12 @@ app.get("/admin/ops/events", requireAdminAuth, async (req, res) => {
 app.get("/admin/settlement/verification", requireAdminAuth, async (_req, res) => {
   const proof = getLatestSettlementVerification();
   if (!proof) {
-    return res.status(404).json({
-      status: "missing",
+    return res.status(200).json({
+      status: "not_run",
+      environment: config.app.env,
+      sap: { status: "not_run" },
+      x402: { status: "not_run" },
+      warnings: [],
       message: "No settlement verification proof has been run in this process",
     });
   }
