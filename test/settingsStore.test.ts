@@ -47,6 +47,14 @@ describe("SettingsStore", () => {
     expect(settings.nairaFeeFixed).toBe(50);
     expect(settings.usdcFeePercent).toBe(1.5);
     expect(settings.usdcFeeFixed).toBe(0.5);
+    expect(settings.nairaNewUserLimit).toBe(100000);
+    expect(settings.nairaTrustedUserLimit).toBe(250000);
+    expect(settings.nairaEstablishedUserLimit).toBe(500000);
+    expect(settings.nairaSpecialApprovalLimit).toBe(1000000);
+    expect(settings.nairaBuyerActiveExposureLimit).toBe(500000);
+    expect(settings.nairaPlatformActiveExposureLimit).toBe(10000000);
+    expect(settings.trustedUserSuccessfulEscrows).toBe(3);
+    expect(settings.establishedUserSuccessfulEscrows).toBe(10);
     expect(settings.version).toBe(1);
   });
 
@@ -66,6 +74,38 @@ describe("SettingsStore", () => {
     expect(history).toHaveLength(1);
     expect(history[0].settingName).toBe("platform_settings");
     expect(history[0].changedBy).toBe("test-admin");
+  });
+
+  it("updates tier and exposure controls", async () => {
+    const updated = await settingsStore.updateSettings(settingsUpdate({
+      nairaNewUserLimit: 125000,
+      nairaTrustedUserLimit: 300000,
+      nairaEstablishedUserLimit: 600000,
+      nairaSpecialApprovalLimit: 1200000,
+      nairaBuyerActiveExposureLimit: 750000,
+      nairaPlatformActiveExposureLimit: 15000000,
+      trustedUserSuccessfulEscrows: 4,
+      establishedUserSuccessfulEscrows: 12,
+    }));
+
+    expect(updated).toMatchObject({
+      nairaNewUserLimit: 125000,
+      nairaTrustedUserLimit: 300000,
+      nairaEstablishedUserLimit: 600000,
+      nairaSpecialApprovalLimit: 1200000,
+      nairaBuyerActiveExposureLimit: 750000,
+      nairaPlatformActiveExposureLimit: 15000000,
+      trustedUserSuccessfulEscrows: 4,
+      establishedUserSuccessfulEscrows: 12,
+      version: 2,
+    });
+  });
+
+  it("rejects invalid tier ordering", async () => {
+    await expect(settingsStore.updateSettings(settingsUpdate({
+      nairaNewUserLimit: 300000,
+      nairaTrustedUserLimit: 200000,
+    }))).rejects.toThrow("Naira escrow limits must increase");
   });
 
   it("calculates Naira fees", async () => {

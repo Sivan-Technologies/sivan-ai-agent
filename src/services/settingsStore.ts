@@ -9,6 +9,14 @@ export interface PlatformSettings {
   nairaFeeFixed: number;
   usdcFeePercent: number;
   usdcFeeFixed: number;
+  nairaNewUserLimit: number;
+  nairaTrustedUserLimit: number;
+  nairaEstablishedUserLimit: number;
+  nairaSpecialApprovalLimit: number;
+  nairaBuyerActiveExposureLimit: number;
+  nairaPlatformActiveExposureLimit: number;
+  trustedUserSuccessfulEscrows: number;
+  establishedUserSuccessfulEscrows: number;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -75,6 +83,14 @@ export class SettingsStore {
       nairaFeeFixed: Number(row.naira_fee_fixed),
       usdcFeePercent: Number(row.usdc_fee_percent),
       usdcFeeFixed: Number(row.usdc_fee_fixed),
+      nairaNewUserLimit: Number(row.naira_new_user_limit ?? 100000),
+      nairaTrustedUserLimit: Number(row.naira_trusted_user_limit ?? 250000),
+      nairaEstablishedUserLimit: Number(row.naira_established_user_limit ?? 500000),
+      nairaSpecialApprovalLimit: Number(row.naira_special_approval_limit ?? 1000000),
+      nairaBuyerActiveExposureLimit: Number(row.naira_buyer_active_exposure_limit ?? 500000),
+      nairaPlatformActiveExposureLimit: Number(row.naira_platform_active_exposure_limit ?? 10000000),
+      trustedUserSuccessfulEscrows: Number(row.trusted_user_successful_escrows ?? 3),
+      establishedUserSuccessfulEscrows: Number(row.established_user_successful_escrows ?? 10),
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -116,8 +132,29 @@ export class SettingsStore {
 
       CREATE INDEX IF NOT EXISTS idx_audit_history_changed_at ON audit_history(changed_at DESC);
     `);
+    this.ensureRiskColumnsSync();
 
     this.initializeDefaultSettingsSync();
+  }
+
+  private ensureRiskColumnsSync() {
+    const columns = [
+      "naira_new_user_limit REAL NOT NULL DEFAULT 100000",
+      "naira_trusted_user_limit REAL NOT NULL DEFAULT 250000",
+      "naira_established_user_limit REAL NOT NULL DEFAULT 500000",
+      "naira_special_approval_limit REAL NOT NULL DEFAULT 1000000",
+      "naira_buyer_active_exposure_limit REAL NOT NULL DEFAULT 500000",
+      "naira_platform_active_exposure_limit REAL NOT NULL DEFAULT 10000000",
+      "trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3",
+      "established_user_successful_escrows INTEGER NOT NULL DEFAULT 10",
+    ];
+    for (const column of columns) {
+      try {
+        this.sqlite!.exec(`ALTER TABLE platform_settings ADD COLUMN ${column}`);
+      } catch (err: any) {
+        if (!String(err.message).includes("duplicate column name")) throw err;
+      }
+    }
   }
 
   private initializeDefaultSettingsSync() {
@@ -162,6 +199,16 @@ export class SettingsStore {
 
       CREATE INDEX IF NOT EXISTS idx_audit_history_changed_at ON audit_history(changed_at DESC);
     `);
+    await this.pool!.query(`
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_new_user_limit DOUBLE PRECISION NOT NULL DEFAULT 100000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_trusted_user_limit DOUBLE PRECISION NOT NULL DEFAULT 250000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_established_user_limit DOUBLE PRECISION NOT NULL DEFAULT 500000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_special_approval_limit DOUBLE PRECISION NOT NULL DEFAULT 1000000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_buyer_active_exposure_limit DOUBLE PRECISION NOT NULL DEFAULT 500000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_platform_active_exposure_limit DOUBLE PRECISION NOT NULL DEFAULT 10000000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS established_user_successful_escrows INTEGER NOT NULL DEFAULT 10;
+    `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
     if (existing.rowCount === 0) {
@@ -188,16 +235,45 @@ export class SettingsStore {
     nairaFeeFixed: number;
     usdcFeePercent: number;
     usdcFeeFixed: number;
+    nairaNewUserLimit?: number;
+    nairaTrustedUserLimit?: number;
+    nairaEstablishedUserLimit?: number;
+    nairaSpecialApprovalLimit?: number;
+    nairaBuyerActiveExposureLimit?: number;
+    nairaPlatformActiveExposureLimit?: number;
+    trustedUserSuccessfulEscrows?: number;
+    establishedUserSuccessfulEscrows?: number;
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
-    if (settings.nairaFeePercent < 0 || settings.nairaFeePercent > 50) throw new Error("Naira fee percent must be between 0 and 50");
-    if (settings.nairaFeeFixed < 0) throw new Error("Naira fixed fee must be non-negative");
-    if (settings.usdcFeePercent < 0 || settings.usdcFeePercent > 50) throw new Error("USDC fee percent must be between 0 and 50");
-    if (settings.usdcFeeFixed < 0) throw new Error("USDC fixed fee must be non-negative");
-
     const current = await this.getSettings();
-    const expectedVersion = settings.expectedVersion;
+    const resolved: PlatformSettings & { expectedVersion: number; updatedBy: string } = {
+      ...current,
+      ...settings,
+      nairaNewUserLimit: settings.nairaNewUserLimit ?? current.nairaNewUserLimit,
+      nairaTrustedUserLimit: settings.nairaTrustedUserLimit ?? current.nairaTrustedUserLimit,
+      nairaEstablishedUserLimit: settings.nairaEstablishedUserLimit ?? current.nairaEstablishedUserLimit,
+      nairaSpecialApprovalLimit: settings.nairaSpecialApprovalLimit ?? current.nairaSpecialApprovalLimit,
+      nairaBuyerActiveExposureLimit: settings.nairaBuyerActiveExposureLimit ?? current.nairaBuyerActiveExposureLimit,
+      nairaPlatformActiveExposureLimit: settings.nairaPlatformActiveExposureLimit ?? current.nairaPlatformActiveExposureLimit,
+      trustedUserSuccessfulEscrows: settings.trustedUserSuccessfulEscrows ?? current.trustedUserSuccessfulEscrows,
+      establishedUserSuccessfulEscrows: settings.establishedUserSuccessfulEscrows ?? current.establishedUserSuccessfulEscrows,
+    };
+    if (resolved.nairaFeePercent < 0 || resolved.nairaFeePercent > 50) throw new Error("Naira fee percent must be between 0 and 50");
+    if (resolved.nairaFeeFixed < 0) throw new Error("Naira fixed fee must be non-negative");
+    if (resolved.usdcFeePercent < 0 || resolved.usdcFeePercent > 50) throw new Error("USDC fee percent must be between 0 and 50");
+    if (resolved.usdcFeeFixed < 0) throw new Error("USDC fixed fee must be non-negative");
+    if (!(resolved.nairaNewUserLimit <= resolved.nairaTrustedUserLimit
+      && resolved.nairaTrustedUserLimit <= resolved.nairaEstablishedUserLimit
+      && resolved.nairaEstablishedUserLimit <= resolved.nairaSpecialApprovalLimit)) {
+      throw new Error("Naira escrow limits must increase from new to trusted to established to special approval");
+    }
+    if (resolved.nairaNewUserLimit <= 0 || resolved.nairaPlatformActiveExposureLimit <= 0) throw new Error("Naira limits must be positive");
+    if (resolved.trustedUserSuccessfulEscrows < 1 || resolved.establishedUserSuccessfulEscrows <= resolved.trustedUserSuccessfulEscrows) {
+      throw new Error("Established-user successful escrow threshold must be greater than trusted-user threshold");
+    }
+
+    const expectedVersion = resolved.expectedVersion;
     if (current.version !== expectedVersion) {
       throw new Error(`Settings version mismatch; current version is ${current.version}, expected ${expectedVersion}. Please refresh and try again.`);
     }
@@ -213,11 +289,19 @@ export class SettingsStore {
             naira_fee_fixed = @nairaFeeFixed,
             usdc_fee_percent = @usdcFeePercent,
             usdc_fee_fixed = @usdcFeeFixed,
+            naira_new_user_limit = @nairaNewUserLimit,
+            naira_trusted_user_limit = @nairaTrustedUserLimit,
+            naira_established_user_limit = @nairaEstablishedUserLimit,
+            naira_special_approval_limit = @nairaSpecialApprovalLimit,
+            naira_buyer_active_exposure_limit = @nairaBuyerActiveExposureLimit,
+            naira_platform_active_exposure_limit = @nairaPlatformActiveExposureLimit,
+            trusted_user_successful_escrows = @trustedUserSuccessfulEscrows,
+            established_user_successful_escrows = @establishedUserSuccessfulEscrows,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
         WHERE id = 'default' AND version = @expectedVersion
-      `).run({ ...settings, newVersion, now });
+      `).run({ ...resolved, newVersion, now });
       changes = result.changes;
     } else {
       const result = await this.pool!.query(
@@ -226,18 +310,34 @@ export class SettingsStore {
              naira_fee_fixed = $2,
              usdc_fee_percent = $3,
              usdc_fee_fixed = $4,
-             version = $5,
-             updated_at = $6,
-             updated_by = $7
-         WHERE id = 'default' AND version = $8`,
+             naira_new_user_limit = $5,
+             naira_trusted_user_limit = $6,
+             naira_established_user_limit = $7,
+             naira_special_approval_limit = $8,
+             naira_buyer_active_exposure_limit = $9,
+             naira_platform_active_exposure_limit = $10,
+             trusted_user_successful_escrows = $11,
+             established_user_successful_escrows = $12,
+             version = $13,
+             updated_at = $14,
+             updated_by = $15
+         WHERE id = 'default' AND version = $16`,
         [
-          settings.nairaFeePercent,
-          settings.nairaFeeFixed,
-          settings.usdcFeePercent,
-          settings.usdcFeeFixed,
+          resolved.nairaFeePercent,
+          resolved.nairaFeeFixed,
+          resolved.usdcFeePercent,
+          resolved.usdcFeeFixed,
+          resolved.nairaNewUserLimit,
+          resolved.nairaTrustedUserLimit,
+          resolved.nairaEstablishedUserLimit,
+          resolved.nairaSpecialApprovalLimit,
+          resolved.nairaBuyerActiveExposureLimit,
+          resolved.nairaPlatformActiveExposureLimit,
+          resolved.trustedUserSuccessfulEscrows,
+          resolved.establishedUserSuccessfulEscrows,
           newVersion,
           now,
-          settings.updatedBy,
+          resolved.updatedBy,
           expectedVersion,
         ]
       );
@@ -248,7 +348,7 @@ export class SettingsStore {
       throw new Error("Settings version mismatch; another update may have occurred. Please refresh and try again.");
     }
 
-    await this.addAuditEntry("platform_settings", JSON.stringify(current), JSON.stringify(settings), settings.updatedBy);
+    await this.addAuditEntry("platform_settings", JSON.stringify(current), JSON.stringify(resolved), resolved.updatedBy);
     return this.getSettings();
   }
 

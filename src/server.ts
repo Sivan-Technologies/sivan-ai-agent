@@ -858,6 +858,43 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     }
 
     const buyer = await escrowStore.upsertUserByWhatsapp(input.buyerWhatsapp, "buyer");
+    if (input.currency === "NAIRA") {
+      const settings = await settingsStore.getSettings();
+      const exposure = await escrowStore.getNairaExposureForBuyer(buyer.userId);
+      const tier = exposure.successfulEscrows >= settings.establishedUserSuccessfulEscrows
+        ? "ESTABLISHED"
+        : exposure.successfulEscrows >= settings.trustedUserSuccessfulEscrows
+          ? "TRUSTED"
+          : "NEW";
+      const tierLimit = tier === "ESTABLISHED"
+        ? settings.nairaEstablishedUserLimit
+        : tier === "TRUSTED"
+          ? settings.nairaTrustedUserLimit
+          : settings.nairaNewUserLimit;
+      const policy = {
+        tier,
+        successfulEscrows: exposure.successfulEscrows,
+        tierLimit,
+        specialApprovalLimit: settings.nairaSpecialApprovalLimit,
+        buyerActiveExposure: exposure.buyerActiveExposure,
+        platformActiveExposure: exposure.platformActiveExposure,
+        buyerActiveExposureLimit: settings.nairaBuyerActiveExposureLimit,
+        platformActiveExposureLimit: settings.nairaPlatformActiveExposureLimit,
+        requestedAmount: input.amount,
+      };
+      if (input.amount > settings.nairaSpecialApprovalLimit) {
+        return res.status(403).json({ error: "ESCROW_LIMIT_EXCEEDED", message: "Requested amount exceeds Sivan's maximum supported Naira escrow limit", policy });
+      }
+      if (input.amount > tierLimit) {
+        return res.status(409).json({ error: "ESCROW_LIMIT_REVIEW_REQUIRED", message: "This amount requires operator approval for the buyer's current trust tier", policy });
+      }
+      if (exposure.buyerActiveExposure + input.amount > settings.nairaBuyerActiveExposureLimit) {
+        return res.status(409).json({ error: "BUYER_EXPOSURE_LIMIT_REACHED", message: "This buyer's active Naira exposure limit requires operator review", policy });
+      }
+      if (exposure.platformActiveExposure + input.amount > settings.nairaPlatformActiveExposureLimit) {
+        return res.status(409).json({ error: "PLATFORM_EXPOSURE_LIMIT_REACHED", message: "Sivan's active Naira exposure limit requires operator review before another escrow can be created", policy });
+      }
+    }
     const seller = input.sellerWhatsapp
       ? await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller")
       : null;
@@ -1803,6 +1840,7 @@ app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"),
       return res.status(400).json({ error: "Invalid settings payload", details: formatZodError(parsed.error) });
     }
     const updates = parsed.data;
+    const current = await settingsStore.getSettings();
 
     // Update settings with optimistic locking
     const updated = await settingsStore.updateSettings({
@@ -1810,6 +1848,14 @@ app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"),
       nairaFeeFixed: updates.nairaFeeFixed,
       usdcFeePercent: updates.usdcFeePercent,
       usdcFeeFixed: updates.usdcFeeFixed,
+      nairaNewUserLimit: updates.nairaNewUserLimit ?? current.nairaNewUserLimit,
+      nairaTrustedUserLimit: updates.nairaTrustedUserLimit ?? current.nairaTrustedUserLimit,
+      nairaEstablishedUserLimit: updates.nairaEstablishedUserLimit ?? current.nairaEstablishedUserLimit,
+      nairaSpecialApprovalLimit: updates.nairaSpecialApprovalLimit ?? current.nairaSpecialApprovalLimit,
+      nairaBuyerActiveExposureLimit: updates.nairaBuyerActiveExposureLimit ?? current.nairaBuyerActiveExposureLimit,
+      nairaPlatformActiveExposureLimit: updates.nairaPlatformActiveExposureLimit ?? current.nairaPlatformActiveExposureLimit,
+      trustedUserSuccessfulEscrows: updates.trustedUserSuccessfulEscrows ?? current.trustedUserSuccessfulEscrows,
+      establishedUserSuccessfulEscrows: updates.establishedUserSuccessfulEscrows ?? current.establishedUserSuccessfulEscrows,
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });
