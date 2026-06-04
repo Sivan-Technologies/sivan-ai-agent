@@ -510,4 +510,28 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("escrow ID");
     expect(csv.text).toContain("Paystack reference");
   });
+
+  it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {
+    const unauthorized = await request(app).get("/admin/revenue");
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get("/admin/revenue")
+      .set("x-admin-key", "test-admin-key");
+
+    expect(res.status).toBe(200);
+    expect(res.body.accountingBasis).toMatchObject({
+      processedVolume: "verified funding ledger entries",
+      platformFees: "captured platform fee ledger entries",
+      processorFees: "actual provider-reported transaction fees only",
+      testActivity: "sandbox and test-override transactions excluded",
+    });
+    expect(res.body.excludedTestActivity).toMatchObject({
+      transactionCount: expect.any(Number),
+      processedVolumeByCurrency: expect.any(Array),
+    });
+    expect(res.body.periods.map((period: any) => period.key)).toEqual(["day", "week", "month", "all"]);
+    expect(res.body.periods[0].currencies.map((row: any) => row.currency)).toEqual(["NAIRA", "USDC"]);
+    expect(Array.isArray(res.body.processorBreakdown)).toBe(true);
+  });
 });

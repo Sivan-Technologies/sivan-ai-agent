@@ -700,6 +700,49 @@ textarea:focus-visible {
   gap: 16px;
 }
 
+.revenue-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+}
+
+.revenue-summary {
+  grid-column: 1 / -1;
+}
+
+.revenue-currency-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.revenue-currency {
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.revenue-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.revenue-metrics .metric-card {
+  min-height: 112px;
+  padding: 14px;
+}
+
+.revenue-metrics .metric-card strong {
+  font-size: 1.45rem;
+}
+
+.revenue-metrics .metric-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
 .auth-surface {
   display: grid;
   gap: 16px;
@@ -737,7 +780,9 @@ textarea:focus-visible {
 
 @media (max-width: 1040px) {
   .auth-grid,
-  .fees-layout {
+  .fees-layout,
+  .revenue-layout,
+  .revenue-currency-grid {
     grid-template-columns: 1fr;
   }
 }

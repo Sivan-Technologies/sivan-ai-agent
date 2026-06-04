@@ -88,6 +88,46 @@ type ReconciliationSummary = {
   paystackAmountMismatches: number;
 };
 
+type RevenueCurrencySnapshot = {
+  currency: "NAIRA" | "USDC";
+  processedVolume: number;
+  processedCount: number;
+  platformFees: number;
+  platformFeeCount: number;
+  processorFees: number;
+  processorFeeKnownCount: number;
+  processorTransactionCount: number;
+  processorFeeCoveragePercent: number;
+  netRevenueAfterProcessorFees: number;
+};
+
+type RevenueAnalytics = {
+  generatedAt: string;
+  accountingBasis: {
+    processedVolume: string;
+    platformFees: string;
+    processorFees: string;
+    testActivity: string;
+  };
+  excludedTestActivity: {
+    transactionCount: number;
+    processedVolumeByCurrency: Array<{ currency: "NAIRA" | "USDC"; amount: number }>;
+  };
+  periods: Array<{
+    key: "day" | "week" | "month" | "all";
+    label: string;
+    currencies: RevenueCurrencySnapshot[];
+  }>;
+  processorBreakdown: Array<{
+    provider: string;
+    currency: "NAIRA" | "USDC";
+    processedVolume: number;
+    transactionCount: number;
+    processorFees: number;
+    processorFeeKnownCount: number;
+  }>;
+};
+
 type FeeSettings = {
   nairaFeePercent: number;
   nairaFeeFixed: number;
@@ -379,7 +419,7 @@ type AuthAuditEvent = {
   createdAt: string;
 };
 
-type Tab = "escrows" | "limitReviews" | "disputes" | "support" | "payout" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
+type Tab = "escrows" | "limitReviews" | "disputes" | "support" | "payout" | "revenue" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
 type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -435,6 +475,8 @@ function App() {
     releasedMissingPayoutReference: 0,
     paystackAmountMismatches: 0,
   });
+  const [revenueAnalytics, setRevenueAnalytics] = useState<RevenueAnalytics | null>(null);
+  const [revenuePeriod, setRevenuePeriod] = useState<"day" | "week" | "month" | "all">("month");
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatus | null>(null);
@@ -538,6 +580,7 @@ function App() {
     setEscrows([]);
     setWebhooks([]);
     setFeeSettings(null);
+    setRevenueAnalytics(null);
     setAuditHistory([]);
     setAuthSessions([]);
     setAuthStats(null);
@@ -748,6 +791,12 @@ function App() {
     });
   };
 
+  const loadRevenue = async () => {
+    const response = await fetch(`${apiBase}/admin/revenue`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load revenue analytics"));
+    setRevenueAnalytics(await response.json());
+  };
+
   const loadWebhooks = async () => {
     if (!adminKey) return;
     const response = await fetch(`${apiBase}/admin/webhooks?limit=100`, { headers: authHeaders() });
@@ -867,7 +916,7 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadLimitReviews(), loadReconciliation(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
+      await Promise.all([loadEscrows(), loadLimitReviews(), loadReconciliation(), loadRevenue(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -1185,6 +1234,7 @@ function App() {
     : null;
 
   const deadOrFailedJobs = useMemo(() => queueJobs.filter((job) => job.status === "failed" || job.status === "dead"), [queueJobs]);
+  const selectedRevenuePeriod = revenueAnalytics?.periods.find((period) => period.key === revenuePeriod);
 
   useEffect(() => {
     if (!adminKey) return;
@@ -1347,7 +1397,7 @@ function App() {
       )}
 
       <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "limitReviews", "disputes", "support", "payout", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
+        {(["escrows", "limitReviews", "disputes", "support", "payout", "revenue", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
           <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
             {tab === "escrows"
               ? "Escrows"
@@ -1359,6 +1409,8 @@ function App() {
               ? "Support"
               : tab === "payout"
               ? "Payout Safety"
+              : tab === "revenue"
+              ? "Revenue"
               : tab === "risk"
               ? "Risk"
               : tab === "audit"
@@ -2467,6 +2519,113 @@ function App() {
                 </div>
               ))}
               {operationalEvents.length === 0 && <p className="muted">No operational events</p>}
+            </div>
+          </aside>
+        </section>
+      )}
+
+      {activeTab === "revenue" && (
+        <section className="revenue-layout">
+          <div className="surface revenue-summary">
+            <div className="section-head">
+              <div>
+                <h2>Revenue & Processing</h2>
+                <span>Verified accounting data only</span>
+              </div>
+              <span>{formatTime(revenueAnalytics?.generatedAt)}</span>
+            </div>
+            <div className="filter-bar">
+              {revenueAnalytics?.periods.map((period) => (
+                <button key={period.key} className={revenuePeriod === period.key ? "active" : ""} onClick={() => setRevenuePeriod(period.key)}>
+                  {period.label}
+                </button>
+              ))}
+            </div>
+            <div className="revenue-currency-grid">
+              {selectedRevenuePeriod?.currencies.map((snapshot) => (
+                <section className="revenue-currency" key={snapshot.currency}>
+                  <div className="section-head">
+                    <h2>{snapshot.currency}</h2>
+                    <span>{snapshot.processedCount} funded escrows</span>
+                  </div>
+                  <div className="revenue-metrics">
+                    <div className="metric-card good">
+                      <span>Processed volume</span>
+                      <strong>{money.format(snapshot.processedVolume)}</strong>
+                      <small>{snapshot.currency}</small>
+                    </div>
+                    <div className="metric-card good">
+                      <span>Platform fees captured</span>
+                      <strong>{money.format(snapshot.platformFees)}</strong>
+                      <small>{snapshot.platformFeeCount} fee entries</small>
+                    </div>
+                    <div className="metric-card watch">
+                      <span>Processor fees reported</span>
+                      <strong>{money.format(snapshot.processorFees)}</strong>
+                      <small>{snapshot.processorFeeCoveragePercent}% coverage</small>
+                    </div>
+                    <div className="metric-card">
+                      <span>Net after processor fees</span>
+                      <strong>{money.format(snapshot.netRevenueAfterProcessorFees)}</strong>
+                      <small>{snapshot.currency}</small>
+                    </div>
+                  </div>
+                </section>
+              ))}
+              {!selectedRevenuePeriod && <div className="empty-cell">Revenue analytics unavailable</div>}
+            </div>
+          </div>
+
+          <div className="surface">
+            <div className="section-head">
+              <h2>Processor Breakdown</h2>
+              <span>all time</span>
+            </div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Currency</th>
+                    <th>Volume</th>
+                    <th>Transactions</th>
+                    <th>Reported fees</th>
+                    <th>Fee coverage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revenueAnalytics?.processorBreakdown.map((row) => (
+                    <tr key={`${row.provider}-${row.currency}`}>
+                      <td><strong>{row.provider}</strong></td>
+                      <td>{row.currency}</td>
+                      <td>{money.format(row.processedVolume)}</td>
+                      <td>{row.transactionCount}</td>
+                      <td>{money.format(row.processorFees)}</td>
+                      <td>{row.processorFeeKnownCount}/{row.transactionCount}</td>
+                    </tr>
+                  ))}
+                  {!revenueAnalytics?.processorBreakdown.length && (
+                    <tr><td colSpan={6} className="empty-cell">No verified funding transactions yet</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside className="surface">
+            <div className="section-head">
+              <h2>Accounting Basis</h2>
+              <span>definitions</span>
+            </div>
+            <div className="detail-stack">
+              <div className="detail-row"><span>Processed volume</span><strong>{revenueAnalytics?.accountingBasis.processedVolume || "-"}</strong></div>
+              <div className="detail-row"><span>Platform fees</span><strong>{revenueAnalytics?.accountingBasis.platformFees || "-"}</strong></div>
+              <div className="detail-row"><span>Processor fees</span><strong>{revenueAnalytics?.accountingBasis.processorFees || "-"}</strong></div>
+              <div className="detail-row"><span>Test activity</span><strong>{revenueAnalytics?.accountingBasis.testActivity || "-"}</strong></div>
+              <div className="detail-row"><span>Excluded test transactions</span><strong>{revenueAnalytics?.excludedTestActivity.transactionCount ?? 0}</strong></div>
+              {revenueAnalytics?.excludedTestActivity.processedVolumeByCurrency.map((row) => (
+                <div className="detail-row" key={row.currency}><span>Excluded {row.currency}</span><strong>{money.format(row.amount)}</strong></div>
+              ))}
             </div>
           </aside>
         </section>

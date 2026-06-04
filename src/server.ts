@@ -686,6 +686,101 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
   return [headers.map(csvEscape).join(","), ...lines].join("\n");
 }
 
+async function buildRevenueAnalytics() {
+  const [ledgerEntries, fundingTransactions] = await Promise.all([
+    escrowStore.listRevenueLedgerEntries(),
+    escrowStore.listRevenueTransactions(),
+  ]);
+  const sandboxTransactions = fundingTransactions.filter((transaction) =>
+    /sandbox|test_override/i.test(transaction.provider) || /^sandbox-/i.test(transaction.reference || "")
+  );
+  const sandboxEscrowIds = new Set(sandboxTransactions.map((transaction) => transaction.escrowId));
+  const productionLedgerEntries = ledgerEntries.filter((entry) => !sandboxEscrowIds.has(entry.escrowId));
+  const productionFundingTransactions = fundingTransactions.filter((transaction) => !sandboxEscrowIds.has(transaction.escrowId));
+  const now = Date.now();
+  const periods = [
+    { key: "day", label: "Last 24 hours", days: 1 },
+    { key: "week", label: "Last 7 days", days: 7 },
+    { key: "month", label: "Last 30 days", days: 30 },
+    { key: "all", label: "All time", days: null },
+  ] as const;
+  const currencies: EscrowCurrency[] = ["NAIRA", "USDC"];
+  const inPeriod = (createdAt: string, days: number | null) => days === null || new Date(createdAt).getTime() >= now - days * 86400000;
+
+  const snapshots = periods.map((period) => ({
+    key: period.key,
+    label: period.label,
+    currencies: currencies.map((currency) => {
+      const funding = productionLedgerEntries.filter((entry) => entry.entryType === "funding" && entry.currency === currency && inPeriod(entry.createdAt, period.days));
+      const fees = productionLedgerEntries.filter((entry) => entry.entryType === "fee" && entry.currency === currency && inPeriod(entry.createdAt, period.days));
+      const processorTransactions = productionFundingTransactions.filter((transaction) => transaction.currency === currency && inPeriod(transaction.updatedAt, period.days));
+      const processorFees = processorTransactions.filter((transaction) => transaction.processorFee !== undefined);
+      const processedVolume = funding.reduce((sum, entry) => sum + entry.amount, 0);
+      const platformFees = fees.reduce((sum, entry) => sum + entry.amount, 0);
+      const processorFeeTotal = processorFees.reduce((sum, transaction) => sum + (transaction.processorFee || 0), 0);
+      return {
+        currency,
+        processedVolume,
+        processedCount: funding.length,
+        platformFees,
+        platformFeeCount: fees.length,
+        processorFees: processorFeeTotal,
+        processorFeeKnownCount: processorFees.length,
+        processorTransactionCount: processorTransactions.length,
+        processorFeeCoveragePercent: processorTransactions.length
+          ? Math.round((processorFees.length / processorTransactions.length) * 10000) / 100
+          : 0,
+        netRevenueAfterProcessorFees: platformFees - processorFeeTotal,
+      };
+    }),
+  }));
+
+  const processorBreakdown = Object.values(productionFundingTransactions.reduce((acc, transaction) => {
+    const key = `${transaction.provider}:${transaction.currency}`;
+    acc[key] ||= {
+      provider: transaction.provider,
+      currency: transaction.currency,
+      processedVolume: 0,
+      transactionCount: 0,
+      processorFees: 0,
+      processorFeeKnownCount: 0,
+    };
+    acc[key].processedVolume += transaction.amount;
+    acc[key].transactionCount += 1;
+    if (transaction.processorFee !== undefined) {
+      acc[key].processorFees += transaction.processorFee;
+      acc[key].processorFeeKnownCount += 1;
+    }
+    return acc;
+  }, {} as Record<string, {
+    provider: string;
+    currency: EscrowCurrency;
+    processedVolume: number;
+    transactionCount: number;
+    processorFees: number;
+    processorFeeKnownCount: number;
+  }>));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    accountingBasis: {
+      processedVolume: "verified funding ledger entries",
+      platformFees: "captured platform fee ledger entries",
+      processorFees: "actual provider-reported transaction fees only",
+      testActivity: "sandbox and test-override transactions excluded",
+    },
+    excludedTestActivity: {
+      transactionCount: sandboxTransactions.length,
+      processedVolumeByCurrency: currencies.map((currency) => ({
+        currency,
+        amount: sandboxTransactions.filter((transaction) => transaction.currency === currency).reduce((sum, transaction) => sum + transaction.amount, 0),
+      })),
+    },
+    periods: snapshots,
+    processorBreakdown,
+  };
+}
+
 function amountsMatch(expected: number, received: number) {
   return Math.round(expected * 100) === Math.round(received * 100);
 }
@@ -1466,6 +1561,10 @@ app.get("/admin/reconciliation.csv", requireAdminAuth, async (req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="sivan-reconciliation-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.status(200).send(reconciliationRowsToCsv(rows));
+});
+
+app.get("/admin/revenue", requireAdminAuth, async (_req, res) => {
+  res.status(200).json(await buildRevenueAnalytics());
 });
 
 app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminAction("approve_escrow_release"), async (req, res) => {

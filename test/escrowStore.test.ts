@@ -61,7 +61,7 @@ describe("EscrowStore", () => {
       status: "PENDING_PAYMENT",
     });
 
-    const funded = await escrowStore.markFundedByPaymentReference("paystack-ref-1", { status: "success", amount: 10000 });
+    const funded = await escrowStore.markFundedByPaymentReference("paystack-ref-1", { status: "success", amount: 10000, processorFee: 150 });
     await expect(escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm")).rejects.toThrow(/IN_PROGRESS/);
     const completed = await escrowStore.completeEscrow(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     const pendingRelease = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
@@ -96,6 +96,7 @@ describe("EscrowStore", () => {
     expect(released.status).toBe("RELEASED");
     expect(released.manualPayoutReference).toBe("manual-payout-1");
     expect(transactions.length).toBeGreaterThanOrEqual(2);
+    expect(transactions.find((transaction) => transaction.transactionType === "funding")?.processorFee).toBe(150);
     expect(transactions.find((transaction) => transaction.transactionType === "release")?.amount).toBe(9700);
     expect(ledgerEntries.map((entry) => entry.entryType)).toEqual(expect.arrayContaining(["funding", "release", "fee"]));
     expect(ledgerEntries.find((entry) => entry.entryType === "release")?.amount).toBe(9700);

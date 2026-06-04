@@ -15,6 +15,7 @@ export interface PaystackTransactionStatus {
   reference: string;
   amount: number;
   currency: string;
+  processorFee?: number;
   channel?: string;
   paidAt?: string;
 }
@@ -97,6 +98,7 @@ export class PaystackClient {
       reference: data.reference,
       amount: data.amount / 100,
       currency: data.currency,
+      processorFee: typeof data.fees === "number" ? data.fees / 100 : undefined,
       channel: data.channel,
       paidAt: data.paid_at,
     };

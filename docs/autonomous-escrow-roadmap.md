@@ -326,6 +326,7 @@ The current system already has:
 - ✅ production Sentry instrumentation for backend and WhatsApp bot with early SDK init, Express error handler, env-driven tracing/profiling/logs, source maps, and event redaction
 - ✅ admin Operations tab for database, Sentry, alert, queue, abuse, support, event, and settlement-verification visibility
 - ✅ operator smoke-check script for live Render/backend health, readiness, database, operations, queue, webhook, reconciliation, support, and abuse checks
+- ✅ protected Revenue admin analytics for verified processed volume, captured platform fees, actual provider-reported processor fees, fee-data coverage, and net revenue across 24-hour, 7-day, 30-day, and all-time periods
 - ✅ scheduled/manual GitHub Actions production smoke workflow
 - ✅ SAP/x402 verification runner and admin endpoints that produce settlement proof JSON when live credentials or payment IDs are configured
 - ✅ durable production ops tables for retry queue jobs, abuse signals, support cases, and support notes

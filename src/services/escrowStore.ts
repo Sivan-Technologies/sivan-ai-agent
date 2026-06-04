@@ -92,6 +92,7 @@ export interface EscrowTransactionRecord {
   reference?: string;
   amount: number;
   currency: EscrowCurrency;
+  processorFee?: number;
   rawPayload?: string;
   createdAt: string;
   updatedAt: string;
@@ -316,6 +317,7 @@ export class EscrowStore {
       reference: row.reference || undefined,
       amount: Number(row.amount),
       currency: row.currency,
+      processorFee: row.processor_fee === null || row.processor_fee === undefined ? undefined : Number(row.processor_fee),
       rawPayload: row.raw_payload || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -449,6 +451,7 @@ export class EscrowStore {
         reference TEXT,
         amount ${numberType} NOT NULL,
         currency TEXT NOT NULL,
+        processor_fee ${numberType},
         raw_payload TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -535,6 +538,7 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "provider_payment_status", "TEXT");
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
+    this.ensureSqliteColumn("transactions", "processor_fee", "REAL");
   }
 
   private ensureSqliteColumn(table: string, column: string, definition: string) {
@@ -571,6 +575,7 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "provider_payment_status", "TEXT");
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
+      await this.ensurePostgresColumn("transactions", "processor_fee", "DOUBLE PRECISION");
     }
     this.initialized = true;
   }
@@ -1172,7 +1177,7 @@ export class EscrowStore {
       reason: paymentReference,
       metadata,
     });
-    await this.updateTransactionStatus(paymentReference, "success", metadata);
+    await this.updateTransactionStatus(paymentReference, "success", metadata, metadata?.processorFee);
     await this.addLedgerEntry({
       escrowId: escrow.escrowId,
       entryType: "funding",
@@ -1635,28 +1640,28 @@ export class EscrowStore {
     const now = new Date().toISOString();
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO transactions (transaction_id, escrow_id, provider, transaction_type, status, reference, amount, currency, raw_payload, created_at, updated_at)
-        VALUES (@transactionId, @escrowId, @provider, @transactionType, @status, @reference, @amount, @currency, @rawPayload, @now, @now)
-      `).run({ ...input, transactionId, reference: input.reference || null, rawPayload: input.rawPayload || null, now });
+        INSERT INTO transactions (transaction_id, escrow_id, provider, transaction_type, status, reference, amount, currency, processor_fee, raw_payload, created_at, updated_at)
+        VALUES (@transactionId, @escrowId, @provider, @transactionType, @status, @reference, @amount, @currency, @processorFee, @rawPayload, @now, @now)
+      `).run({ ...input, transactionId, reference: input.reference || null, processorFee: input.processorFee ?? null, rawPayload: input.rawPayload || null, now });
     } else {
       await this.pool!.query(
-        `INSERT INTO transactions (transaction_id, escrow_id, provider, transaction_type, status, reference, amount, currency, raw_payload, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [transactionId, input.escrowId, input.provider, input.transactionType, input.status, input.reference || null, input.amount, input.currency, input.rawPayload || null, now, now]
+        `INSERT INTO transactions (transaction_id, escrow_id, provider, transaction_type, status, reference, amount, currency, processor_fee, raw_payload, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [transactionId, input.escrowId, input.provider, input.transactionType, input.status, input.reference || null, input.amount, input.currency, input.processorFee ?? null, input.rawPayload || null, now, now]
       );
     }
     return transactionId;
   }
 
-  public async updateTransactionStatus(reference: string, status: string, rawPayload?: any): Promise<void> {
+  public async updateTransactionStatus(reference: string, status: string, rawPayload?: any, processorFee?: number): Promise<void> {
     await this.initializeSchema();
     const now = new Date().toISOString();
     const payload = rawPayload ? JSON.stringify(rawPayload) : null;
     if (this.provider === "sqlite") {
-      this.sqlite!.prepare(`UPDATE transactions SET status = @status, raw_payload = COALESCE(@payload, raw_payload), updated_at = @now WHERE reference = @reference`)
-        .run({ reference, status, payload, now });
+      this.sqlite!.prepare(`UPDATE transactions SET status = @status, processor_fee = COALESCE(@processorFee, processor_fee), raw_payload = COALESCE(@payload, raw_payload), updated_at = @now WHERE reference = @reference`)
+        .run({ reference, status, processorFee: processorFee ?? null, payload, now });
     } else {
-      await this.pool!.query(`UPDATE transactions SET status = $1, raw_payload = COALESCE($2, raw_payload), updated_at = $3 WHERE reference = $4`, [status, payload, now, reference]);
+      await this.pool!.query(`UPDATE transactions SET status = $1, processor_fee = COALESCE($2, processor_fee), raw_payload = COALESCE($3, raw_payload), updated_at = $4 WHERE reference = $5`, [status, processorFee ?? null, payload, now, reference]);
     }
   }
 
@@ -1781,6 +1786,26 @@ export class EscrowStore {
     }
     const result = await this.pool!.query(`SELECT * FROM ledger_entries WHERE escrow_id = $1 ORDER BY created_at DESC`, [escrowId]);
     return result.rows.map((row) => this.mapLedgerEntry(row));
+  }
+
+  public async listRevenueLedgerEntries(): Promise<LedgerEntryRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM ledger_entries WHERE entry_type IN ('funding', 'fee') ORDER BY created_at DESC`).all()
+        .map((row) => this.mapLedgerEntry(row));
+    }
+    const result = await this.pool!.query(`SELECT * FROM ledger_entries WHERE entry_type = ANY($1::text[]) ORDER BY created_at DESC`, [["funding", "fee"]]);
+    return result.rows.map((row) => this.mapLedgerEntry(row));
+  }
+
+  public async listRevenueTransactions(): Promise<EscrowTransactionRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM transactions WHERE transaction_type = 'funding' AND status IN ('success', 'sandbox_success') ORDER BY updated_at DESC`).all()
+        .map((row) => this.mapTransaction(row));
+    }
+    const result = await this.pool!.query(`SELECT * FROM transactions WHERE transaction_type = 'funding' AND status = ANY($1::text[]) ORDER BY updated_at DESC`, [["success", "sandbox_success"]]);
+    return result.rows.map((row) => this.mapTransaction(row));
   }
 
   public async listEvents(escrowId: string, limit = 100): Promise<EscrowEventRecord[]> {
