@@ -57,3 +57,10 @@ export function createSandboxPaymentInstruction(
     provider: "paystack_sandbox_override",
   };
 }
+
+export function isSandboxPaymentReference(reference?: string, env: NodeJS.ProcessEnv = process.env) {
+  return Boolean(
+    reference?.startsWith("sandbox-paystack-SIV-") &&
+    createSandboxPaymentInstruction("probe", env)
+  );
+}

@@ -51,7 +51,7 @@ import { scoreAccountName } from "./services/nameMatch";
 import { filterBanks } from "./services/bankFallback";
 import { MonnifyClient } from "./services/monnifyClient";
 import { ComplianceRisk, hasBlockingComplianceRisk, highValueReviewAmount, scoreComplianceRisk } from "./services/complianceRisk";
-import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution } from "./services/payoutVerificationTestMode";
+import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution, isSandboxPaymentReference } from "./services/payoutVerificationTestMode";
 import crypto from "crypto";
 import type { PaystackTransactionStatus } from "./services/paystackClient";
 
@@ -1156,6 +1156,33 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Escrow acceptance failed" });
   }
+});
+
+app.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, res) => {
+  const parsed = escrowActionSchema.safeParse(req.body);
+  if (!parsed.success || !parsed.data.actorWhatsapp) {
+    return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+  }
+  const detail = await buildEscrowDetail(req.params.escrowId);
+  if (!detail) return res.status(404).json({ error: "Escrow not found" });
+  if (detail.buyer?.whatsappNumber !== parsed.data.actorWhatsapp) {
+    return res.status(403).json({ error: "Only the escrow buyer can simulate sandbox funding" });
+  }
+  if (
+    detail.escrow.status !== "PENDING_PAYMENT" ||
+    detail.escrow.paymentProvider !== "paystack_sandbox_override" ||
+    !isSandboxPaymentReference(detail.escrow.paymentReference)
+  ) {
+    return res.status(409).json({ error: "Sandbox funding is available only for pending sandbox payment references" });
+  }
+  const funded = await escrowStore.markFundedByPaymentReference(detail.escrow.paymentReference!, {
+    amount: detail.escrow.amount,
+    currency: detail.escrow.currency,
+    status: "sandbox_success",
+    channel: "sandbox_test_override",
+  });
+  if (!funded) return res.status(409).json({ error: "Sandbox payment reference could not be funded" });
+  res.status(200).json(await buildEscrowDetail(req.params.escrowId));
 });
 
 app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (req, res) => {

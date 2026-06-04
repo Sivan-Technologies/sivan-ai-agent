@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution } from "../src/services/payoutVerificationTestMode";
+import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution, isSandboxPaymentReference } from "../src/services/payoutVerificationTestMode";
 
 const input = {
   accountNumber: "8102524846",
@@ -59,5 +59,19 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       PAYSTACK_SECRET_KEY: "sk_live_example",
     })).toBeNull();
+  });
+
+  it("recognizes sandbox payment references only while controlled test mode is active", () => {
+    const env = {
+      PAYOUT_VERIFICATION_TEST_MODE: "true",
+      PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
+      PAYSTACK_SECRET_KEY: "sk_test_example",
+    };
+    expect(isSandboxPaymentReference("sandbox-paystack-SIV-TEST-1-123", env)).toBe(true);
+    expect(isSandboxPaymentReference("paystack-live-reference", env)).toBe(false);
+    expect(isSandboxPaymentReference("sandbox-paystack-SIV-TEST-1-123", {
+      ...env,
+      PAYSTACK_SECRET_KEY: "sk_live_example",
+    })).toBe(false);
   });
 });
