@@ -4,8 +4,9 @@
 
 - Backend/admin commit: `4deedc3` (`Add escrow limit review workflow`)
 - WhatsApp bot commit: `6657589` (`Handle escrow limit reviews in WhatsApp`)
-- Backend and admin frontend deployed through the `airspexta` branch.
+- Backend deployed through the `airspexta` branch.
 - WhatsApp bot deployed through the `airspexta` branch.
+- Admin frontend merge `bf5a5a7` was pushed to `main`, but the Vercel production URL continued serving the previous bundle. Direct CLI deployment was blocked because the saved Vercel token is invalid. Run `vercel login`, then deploy `frontend/` with `vercel --prod`.
 
 ## Production Verification
 
@@ -21,6 +22,7 @@ The live verification used API-originated test requests so no WhatsApp test mess
 | Settings restoration | ✅ New-buyer limit restored to ₦100,000 and buyer active-exposure limit restored to ₦500,000 |
 | Backend production smoke | ✅ All health, readiness, database, DR, operations, queue, webhook, reconciliation, support, abuse, dispute, and event checks passed |
 | WhatsApp production smoke | ✅ Bot/core health passed; Twilio signature and notify-secret enforcement returned expected `401` |
+| Admin frontend production bundle | 🟡 Code merged to `main`; Vercel re-auth/direct deployment still required |
 
 ## Local Verification
 
