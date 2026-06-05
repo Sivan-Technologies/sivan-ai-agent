@@ -28,7 +28,7 @@ Full BVN/NIN/selfie verification should be added only when transaction size, fra
 | Layer 1C: AML MVP | ✅ Complete for MVP | Velocity, configurable trust-tier limits, buyer/platform exposure caps, high-value, shared-account, new-seller, seller dispute-ratio, abuse signals, and operator review foundations exist; deeper graph scoring remains future work |
 | Layer 1D: Release Controls | ✅ Complete for MVP | Manual Naira payout approval, escrow-derived payout amount, payout verification, name-match, shared-account, high-value, aggregate compliance risk gate, and support-case automation exist |
 | Layer 2: Data Protection | ✅ Complete for MVP | Payout account tokenization, AES-256-GCM encryption, masking, and log redaction are implemented |
-| Layer 3: Escrow Accounting | ✅ Complete for MVP | Funding, seller-net release, refund, and fee-capture ledger entries exist; full finance export/reconciliation reports remain future work |
+| Layer 3: Escrow Accounting | ✅ Complete for MVP | Funding, seller-net release, refund, fee-capture ledger entries, reconciliation CSV, revenue analytics, and escrow audit trails exist; external finance-system export remains future work |
 | Layer 4: Fraud Engine | 🟡 Partially complete | Abuse signals, reputation actions, velocity/high-amount checks, shared-account/name-match release gates, new-seller scoring, and seller dispute-ratio gates exist; deeper graph scoring remains future work |
 | MVP Dispute Operations | 🟡 Manual pilot ready | `docs/dispute-mvp.md` defines manual-only decisions, evidence handling, supported outcomes, deadlines, and escalation; maker-checker approval and provider-side refund proof remain next |
 | Phase 2 KYC | 🔴 Not started | Prembly/Smile/Paystack identity-document validation abstraction is still future work |
@@ -221,11 +221,14 @@ If a release check fails, keep the escrow in `REVIEW_REQUIRED` or block the rele
 Current payout approval behavior:
 
 - ✅ The approval API accepts `manualPayoutReference` and optional notes only.
+- ✅ The approval API rejects any extra payout amount fields, so admins cannot override the escrow-derived amount from the approval request.
 - ✅ Gross amount is loaded from the escrow record, not from admin input.
 - ✅ Platform fee and seller net payout are calculated from platform fee settings.
 - ✅ Release transactions and ledger entries record seller net payout.
 - ✅ Fee-capture ledger entries record the platform fee when fee settings produce a positive fee.
 - ✅ Admin Payout Safety shows gross amount, platform fee, seller net payout, masked payout account, resolved account name, and risk level.
+- ✅ Reconciliation rows and CSV export include compliance risk score/level/reasons plus reconciliation risk level.
+- ✅ Escrow event timelines record `manual_release_approved`; release transactions and ledger entries carry the manual payout reference.
 - ✅ Escrow detail readiness includes aggregate compliance risk, seller dispute ratio, new-seller signal, and release-risk readiness.
 - ✅ Admin payout approval blocks high/critical aggregate compliance risk or seller high-dispute-ratio risk and opens a support case for manual review.
 
@@ -278,7 +281,13 @@ ledger_entries
 
 Do this before high transaction volume. It prevents reconciliation and accounting problems later.
 
-Remaining ledger work: add explicit fee-capture entries once fee policy is finalized.
+Current accounting and audit surfaces:
+
+- ✅ Admin Revenue reports processed volume, platform fees, and provider-reported processor fees by day, week, month, and all-time.
+- ✅ Admin Reconciliation reports expected amount, received amount, escrow-derived gross amount, platform fee, seller net payout, masked payout account, resolved account name, payout reference, approver, release timestamp, risk level, and flags.
+- ✅ Reconciliation CSV export includes payout/accounting/risk fields for manual finance review.
+- ✅ Escrow detail includes events, transactions, and ledger entries so operators can prove funding, release, refund, and fee capture.
+- 🔮 External accounting export to a finance system remains future work.
 
 ## Layer 4: Fraud Engine 🟡
 

@@ -9,6 +9,12 @@ process.env.CORE_API_SECRET = "test-core-key";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
+process.env.PAYSTACK_SECRET_KEY = "sk_test_admin_endpoint";
+process.env.PAYSTACK_BASE_URL = "http://127.0.0.1:9";
+process.env.PAYSTACK_TIMEOUT_MS = "50";
+process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
+process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "8102524846";
+process.env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS = "whatsapp:+2348000000902";
 
 if (fs.existsSync(TEST_DB_PATH)) {
   fs.unlinkSync(TEST_DB_PATH);
@@ -509,6 +515,177 @@ describe("Admin Settings API Integration", () => {
     expect(csv.headers["content-type"]).toContain("text/csv");
     expect(csv.text).toContain("escrow ID");
     expect(csv.text).toContain("Paystack reference");
+  });
+
+  it("should enforce escrow-derived manual payout approval with accounting and audit proof", async () => {
+    const headers = { "x-core-api-key": "test-core-key" };
+    const adminHeaders = { "x-admin-key": "test-admin-key" };
+    const buyerWhatsapp = "whatsapp:+2348000000901";
+    const sellerWhatsapp = "whatsapp:+2348000000902";
+
+    const buyerProfile = await request(app)
+      .post("/api/users/profile")
+      .set(headers)
+      .send({ whatsappNumber: buyerWhatsapp, firstName: "Buyer", lastName: "Pilot" });
+    expect(buyerProfile.status).toBe(200);
+
+    const sellerProfile = await request(app)
+      .post("/api/users/profile")
+      .set(headers)
+      .send({ whatsappNumber: sellerWhatsapp, firstName: "John", lastName: "Herry" });
+    expect(sellerProfile.status).toBe(200);
+
+    const payout = await request(app)
+      .post("/api/users/payout-account")
+      .set(headers)
+      .send({
+        whatsappNumber: sellerWhatsapp,
+        bankName: "Opay",
+        bankCode: "999992",
+        accountNumber: "8102524846",
+      });
+    expect(payout.status).toBe(200);
+    expect(payout.body).toMatchObject({
+      accountNumber: "****4846",
+      bankName: "Opay",
+      resolvedAccountName: "John Herry",
+      verificationStatus: "verified",
+      accountVerificationProvider: "sandbox_test_override",
+    });
+
+    const created = await request(app)
+      .post("/api/escrows")
+      .set(headers)
+      .send({
+        clientRequestId: "admin-payout-pilot-e2e-1",
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 25000,
+        currency: "NAIRA",
+        purpose: "admin payout pilot proof",
+        channel: "whatsapp_dm",
+      });
+    expect(created.status).toBe(201);
+    const escrowId = created.body.escrow.escrowId;
+
+    const accepted = await request(app)
+      .post(`/api/escrows/${escrowId}/accept`)
+      .set(headers)
+      .send({ actorWhatsapp: sellerWhatsapp });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.escrow.escrow.status).toBe("PENDING_PAYMENT");
+    expect(accepted.body.escrow.escrow.paymentProvider).toBe("paystack_sandbox_override");
+
+    const funded = await request(app)
+      .post(`/api/escrows/${escrowId}/test-fund`)
+      .set(headers)
+      .send({ actorWhatsapp: buyerWhatsapp });
+    expect(funded.status).toBe(200);
+    expect(funded.body.escrow.status).toBe("IN_PROGRESS");
+    expect(funded.body.ledgerEntries.some((entry: any) => entry.entryType === "funding")).toBe(true);
+
+    const completed = await request(app)
+      .post(`/api/escrows/${escrowId}/complete`)
+      .set(headers)
+      .send({ actorWhatsapp: buyerWhatsapp });
+    expect(completed.status).toBe(200);
+    expect(completed.body.status).toBe("COMPLETED");
+
+    const releaseRequested = await request(app)
+      .post(`/api/escrows/${escrowId}/release-request`)
+      .set(headers)
+      .send({ actorWhatsapp: buyerWhatsapp });
+    expect(releaseRequested.status).toBe(200);
+    expect(releaseRequested.body.status).toBe("PENDING_RELEASE");
+
+    const reconciliation = await request(app)
+      .get("/admin/reconciliation?limit=250")
+      .set(adminHeaders);
+    expect(reconciliation.status).toBe(200);
+    const payoutRow = reconciliation.body.rows.find((row: any) => row.escrowId === escrowId);
+    expect(payoutRow).toMatchObject({
+      escrowId,
+      expectedAmount: 25000,
+      grossAmount: 25000,
+      amountSource: "escrow_record",
+      currency: "NAIRA",
+      payoutVerified: true,
+      payoutBankName: "Opay",
+      payoutAccountNumber: "****4846",
+      resolvedAccountName: "John Herry",
+      nameMatchLevel: "strong",
+      reconciliationRiskLevel: "MEDIUM",
+      status: "PENDING_RELEASE",
+    });
+    expect(payoutRow.platformFeeAmount).toBeGreaterThan(0);
+    expect(payoutRow.sellerNetAmount).toBe(payoutRow.grossAmount - payoutRow.platformFeeAmount);
+    expect(payoutRow.sellerNetAmount).toBeLessThan(payoutRow.grossAmount);
+    expect(payoutRow.flags).toContain("release_awaiting_manual_payout");
+    expect(payoutRow.riskLevel).toMatch(/LOW|MEDIUM|HIGH|CRITICAL/);
+    expect(payoutRow.complianceRiskScore).toEqual(expect.any(Number));
+    expect(payoutRow.complianceRiskLevel).toMatch(/LOW|MEDIUM|HIGH|CRITICAL/);
+    expect(Array.isArray(payoutRow.complianceRiskReasons)).toBe(true);
+
+    const rejectedManualAmount = await request(app)
+      .post(`/admin/escrows/${escrowId}/approve-release`)
+      .set(adminHeaders)
+      .send({
+        manualPayoutReference: "paystack-transfer-ref-extra-amount",
+        sellerNetAmount: 1,
+      });
+    expect(rejectedManualAmount.status).toBe(400);
+    expect(rejectedManualAmount.body.error).toBe("Invalid payout reconciliation payload");
+
+    const approved = await request(app)
+      .post(`/admin/escrows/${escrowId}/approve-release`)
+      .set(adminHeaders)
+      .send({
+        manualPayoutReference: "paystack-transfer-ref-001",
+        payoutNotes: "Admin pilot payout approved from Paystack dashboard.",
+      });
+    expect(approved.status).toBe(200);
+    expect(approved.body.escrow).toMatchObject({
+      escrowId,
+      status: "RELEASED",
+      manualPayoutReference: "paystack-transfer-ref-001",
+      releasedBy: "unknown",
+    });
+    expect(approved.body.payoutQuote).toMatchObject({
+      grossAmount: payoutRow.grossAmount,
+      platformFeeAmount: payoutRow.platformFeeAmount,
+      sellerNetAmount: payoutRow.sellerNetAmount,
+      amountSource: "escrow_record",
+    });
+
+    const events = await request(app)
+      .get(`/admin/escrows/${escrowId}/events?limit=100`)
+      .set(adminHeaders);
+    expect(events.status).toBe(200);
+    expect(events.body.events.some((event: any) => event.eventType === "manual_release_approved")).toBe(true);
+    expect(events.body.transactions.some((transaction: any) => (
+      transaction.transactionType === "release" &&
+      transaction.amount === payoutRow.sellerNetAmount &&
+      transaction.reference === "paystack-transfer-ref-001"
+    ))).toBe(true);
+
+    const detail = await request(app)
+      .get(`/admin/escrows/${escrowId}`)
+      .set(adminHeaders);
+    expect(detail.status).toBe(200);
+    expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "funding" && entry.amount === 25000)).toBe(true);
+    expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "release" && entry.amount === payoutRow.sellerNetAmount)).toBe(true);
+    expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "fee" && entry.amount === payoutRow.platformFeeAmount)).toBe(true);
+
+    const csv = await request(app)
+      .get("/admin/reconciliation.csv?limit=250")
+      .set(adminHeaders);
+    expect(csv.status).toBe(200);
+    expect(csv.text).toContain("seller net payout");
+    expect(csv.text).toContain("payout account");
+    expect(csv.text).toContain("resolved account name");
+    expect(csv.text).toContain("compliance risk score");
+    expect(csv.text).toContain("reconciliation risk level");
+    expect(csv.text).toContain("paystack-transfer-ref-001");
   });
 
   it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {

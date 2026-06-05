@@ -648,11 +648,12 @@ async function buildReconciliationRows(limit = 250) {
   const escrows = await escrowStore.listEscrows(limit);
   return Promise.all(
     escrows.map(async (escrow) => {
-      const [buyer, seller, payout, payoutQuote] = await Promise.all([
+      const [buyer, seller, payout, payoutQuote, complianceRisk] = await Promise.all([
         escrowStore.getUserById(escrow.buyerUserId),
         escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
         escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
         calculateEscrowPayoutQuote(escrow.amount, escrow.currency),
+        calculateComplianceRisk(escrow),
       ]);
       const flags = new Set(escrow.reconciliationFlags || []);
       if (escrow.status === "REVIEW_REQUIRED") flags.add("payment_review_required");
@@ -662,11 +663,19 @@ async function buildReconciliationRows(limit = 250) {
       const payoutVerified = payout?.verificationStatus === "verified";
       if (payout?.sharedAccountFlag) flags.add("shared_payout_account_review");
       if (payout && !["strong", "medium"].includes(payout.nameMatchLevel || "")) flags.add("payout_name_match_review");
-      const riskLevel = flags.has("payment_amount_mismatch") || flags.has("shared_payout_account_review") || flags.has("payout_name_match_review")
+      const reconciliationRiskLevel = flags.has("payment_amount_mismatch") || flags.has("shared_payout_account_review") || flags.has("payout_name_match_review")
         ? "HIGH"
         : flags.size > 0
         ? "MEDIUM"
         : "LOW";
+      const riskLevel =
+        complianceRisk.riskLevel === "CRITICAL" || reconciliationRiskLevel === "HIGH"
+          ? complianceRisk.riskLevel === "CRITICAL" ? "CRITICAL" : "HIGH"
+          : complianceRisk.riskLevel === "HIGH" || reconciliationRiskLevel === "MEDIUM"
+          ? complianceRisk.riskLevel === "HIGH" ? "HIGH" : "MEDIUM"
+          : complianceRisk.riskLevel === "MEDIUM"
+          ? "MEDIUM"
+          : "LOW";
 
       return {
         escrowId: escrow.escrowId,
@@ -696,6 +705,10 @@ async function buildReconciliationRows(limit = 250) {
         resolvedAccountName: payout?.resolvedAccountName || payout?.accountName || null,
         nameMatchScore: payout?.nameMatchScore ?? null,
         nameMatchLevel: payout?.nameMatchLevel || null,
+        complianceRiskScore: complianceRisk.riskScore,
+        complianceRiskLevel: complianceRisk.riskLevel,
+        complianceRiskReasons: complianceRisk.riskReasons,
+        reconciliationRiskLevel,
         riskLevel,
         paymentCheckedAt: escrow.paymentCheckedAt || null,
       };
@@ -728,6 +741,10 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     "payout account",
     "resolved account name",
     "name match",
+    "compliance risk score",
+    "compliance risk level",
+    "compliance risk reasons",
+    "reconciliation risk level",
     "risk level",
     "status",
     "flags",
@@ -751,6 +768,10 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     row.payoutAccountNumber,
     row.resolvedAccountName,
     row.nameMatchLevel,
+    row.complianceRiskScore,
+    row.complianceRiskLevel,
+    row.complianceRiskReasons,
+    row.reconciliationRiskLevel,
     row.riskLevel,
     row.status,
     row.flags,

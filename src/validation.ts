@@ -72,7 +72,7 @@ export const disputeResolutionSchema = z.object({
 export const adminReleaseApprovalSchema = z.object({
   manualPayoutReference: z.string().trim().min(3).max(160),
   payoutNotes: z.string().trim().min(2).max(1000).optional(),
-});
+}).strict();
 
 export const adminSettingsSchema = z.object({
   nairaFeePercent: z.coerce.number().min(0).max(50),

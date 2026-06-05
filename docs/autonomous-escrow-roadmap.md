@@ -237,8 +237,8 @@ Legend:
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
 | Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, account-number-first payout setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and verified payout account are complete; seller setup collects first name, last name, account number, then bank search/selection because provider resolution requires account number plus bank code. A fail-closed exact-account sandbox override supports controlled E2E testing only with Paystack test credentials |
-| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout/reference ID only, derives gross amount from the escrow record, calculates platform fee/seller net payout, and stores reconciliation details |
-| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
+| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval accepts payout/reference ID and notes only, rejects manual amount fields, derives gross amount from the escrow record, calculates platform fee/seller net payout, and stores reconciliation details |
+| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, combined risk, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, Telegram/direct alert routing, generic alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
@@ -246,8 +246,8 @@ Legend:
 | Phase 11C | Production environment hardening | ✅ Completed for MVP / 🟡 rotation cadence required | Env docs, secret placeholders, stricter admin/API auth gates, optional admin/core IP allowlists, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, DR env checks, and live Neon restore proof exist. Remaining operator work is recurring secret rotation plus setting allowlist values only after stable operator/bot egress IPs are known |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, operator analytics, and admin-configurable buyer-tier and active-exposure limits |
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
-| Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
-| Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, operator actions, release history, payment history, dispute history, and linked support cases |
+| Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab shows escrow amount, platform fee, seller net payout, masked bank, resolved account name, combined risk level, payout reference state, pending releases, missing references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
+| Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, ledger entries, operator actions, release history, payment history, dispute history, manual payout references, and linked support cases |
 | Phase 11H | Dispute evidence and resolution | ✅ Completed for manual-resolution MVP | Admin Disputes tab lists open disputes, captures evidence records, links support cases, records manual outcomes, writes release/refund/cancel events, closes related support cases, and accepts participant evidence from WhatsApp/private API |
 | Phase 11I | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` validates queue replay, webhook recovery readiness, and payout failure review paths after deploys, with execute mode for controlled recovery job creation; latest live read-only drill passed on 2026-06-02 |
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
@@ -281,15 +281,15 @@ The current system already has:
 - ✅ idempotency guard against repeated webhook execution
 - ✅ operational warning logs for invalid signatures, payment mismatch, verification failure, blocked release, and payout approval
 - ✅ admin escrow ledger with release/dispute actions
-- ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, payout reference, approver, release timestamp
+- ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, escrow-derived gross amount, platform fee, seller net payout, masked payout account, resolved account name, combined risk level, payout reference, approver, release timestamp
 - ✅ reconciliation filters for `REVIEW_REQUIRED`, `PENDING_RELEASE`, `RELEASED`, missing payout references, and Paystack amount mismatches
-- ✅ reconciliation CSV export for accounting and manual operations
+- ✅ reconciliation CSV export for accounting, compliance risk, reconciliation risk, and manual operations
 - ✅ admin needs-attention view for payment reviews, payout queue, missing payout references, and amount mismatches
 - ✅ Naira release policy: buyer completion confirmation, then release request, then manual admin approval
 - ✅ explicit `COMPLETED` state before any release request
 - ✅ buyer-only completion and release authorization checks
 - ✅ participant-only non-admin dispute checks
-- ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
+- ✅ manual Naira payout reconciliation fields: payout reference, notes, approver, released timestamp, escrow-derived gross amount, platform fee, and seller net payout
 - ✅ seller invite/accept flow before payment initialization
 - ✅ escrow creation idempotency for repeated WhatsApp `YES` confirmations
 - ✅ seller invite notification is asynchronous so Twilio/bot latency does not block escrow creation responses
@@ -300,7 +300,7 @@ The current system already has:
 - ✅ shared payout account detection using deterministic payout account tokens
 - ✅ high-value release review threshold before payout approval
 - ✅ release readiness checks for payout verification, acceptable name match, and shared-account review
-- ✅ compliance ledger entries for funding, release, and refund events
+- ✅ compliance ledger entries for funding, seller-net release, refund, and platform-fee capture events
 - ✅ backend user profile lookup for repeat WhatsApp buyers
 - ✅ guided seller profile setup in WhatsApp: first name, last name, bank search, account number, account verification
 - ✅ Naira escrow acceptance requires payout readiness before payment initialization
