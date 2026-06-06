@@ -76,11 +76,40 @@ const paystackClient = new PaystackClient();
 const monnifyClient = new MonnifyClient();
 let lastAbuseTrendAlertAt = 0;
 
+function safeSecretEquals(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function hasValidStaticServiceAuth(req: express.Request) {
+  const coreSecret = process.env.CORE_API_SECRET || "";
+  const adminKey = process.env.ADMIN_API_KEY || "";
+  const providedCoreSecret = req.headers["x-core-api-key"];
+  const providedAdminKey = req.headers["x-admin-key"];
+
+  return Boolean(
+    coreSecret &&
+    typeof providedCoreSecret === "string" &&
+    safeSecretEquals(providedCoreSecret, coreSecret)
+  ) || Boolean(
+    adminKey &&
+    typeof providedAdminKey === "string" &&
+    safeSecretEquals(providedAdminKey, adminKey)
+  );
+}
+
 const corsOrigin = process.env.FRONTEND_URL || "*";
 app.use(cors({ origin: corsOrigin }));
 
-// Basic rate limiting to protect public endpoints
-const limiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
+// Basic rate limiting to protect public endpoints.
+// Valid bot/core/admin service calls have their own authentication and must not
+// be throttled by public IP limits during WhatsApp multi-step flows.
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  skip: hasValidStaticServiceAuth,
+});
 app.use(limiter);
 
 app.use(bodyParser.json({ verify: (req: any, res, buf) => { req.rawBody = buf.toString(); } }));

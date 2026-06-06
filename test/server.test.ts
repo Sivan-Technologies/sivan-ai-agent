@@ -52,6 +52,20 @@ describe("server basic endpoints", () => {
     });
   });
 
+  it("does not apply public IP rate limits to authenticated core service calls", async () => {
+    const requests = Array.from({ length: 130 }, (_, index) => {
+      const whatsappNumber = `whatsapp:+23480009${String(index).padStart(4, "0")}`;
+      return request(app)
+        .post("/api/users/profile")
+        .set("x-core-api-key", "test-core-secret")
+        .send({ whatsappNumber, firstName: "Rate", lastName: `Limit${index}` });
+    });
+
+    const responses = await Promise.all(requests);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.some((response) => response.status === 429)).toBe(false);
+  });
+
   it("allows an explicitly allowlisted payout account in controlled test mode", async () => {
     const whatsappNumber = "whatsapp:+2348000000102";
     await request(app)
