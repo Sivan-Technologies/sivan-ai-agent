@@ -577,9 +577,7 @@ function participantDealStatus(status: EscrowRecord["status"]) {
   return labels[status];
 }
 
-function participantDealActions(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, role: "buyer" | "seller"): ParticipantDealAction[] {
-  if (!detail) return [];
-  const { escrow } = detail;
+function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buyer" | "seller"): ParticipantDealAction[] {
   const actions = new Set<ParticipantDealAction>(["status", "reference"]);
 
   if (role === "seller" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE"].includes(escrow.status)) actions.add("accept");
@@ -591,6 +589,44 @@ function participantDealActions(detail: Awaited<ReturnType<typeof buildEscrowDet
   if (escrow.status === "DISPUTED") actions.add("evidence");
 
   return Array.from(actions);
+}
+
+function participantDealActions(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, role: "buyer" | "seller"): ParticipantDealAction[] {
+  if (!detail) return [];
+  return participantDealActionsForEscrow(detail.escrow, role);
+}
+
+async function buildParticipantDealSummary(escrow: EscrowRecord, actorWhatsapp: string) {
+  const role = await roleForEscrowParticipant(escrow, actorWhatsapp);
+  if (!role) return null;
+  return {
+    escrow: {
+      escrowId: escrow.escrowId,
+      amount: escrow.amount,
+      currency: escrow.currency,
+      status: escrow.status,
+      purpose: escrow.purpose,
+      createdAt: escrow.createdAt,
+      updatedAt: escrow.updatedAt,
+      ...(role === "buyer" && escrow.paymentAuthorizationUrl
+        ? { paymentAuthorizationUrl: escrow.paymentAuthorizationUrl }
+        : {}),
+    },
+    readiness: {
+      sellerProfileComplete: !["PENDING_PROFILE"].includes(escrow.status),
+      payoutVerified: !["PENDING_PROFILE"].includes(escrow.status),
+      sellerAccepted: !["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status),
+      fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
+      buyerCompleted: ["COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
+      releaseRequested: escrow.status === "PENDING_RELEASE",
+      nextAction: participantDealStatus(escrow.status),
+    },
+    participant: {
+      role,
+      displayStatus: participantDealStatus(escrow.status),
+      allowedActions: participantDealActionsForEscrow(escrow, role),
+    },
+  };
 }
 
 async function buildParticipantDeal(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, actorWhatsapp: string) {
@@ -1283,15 +1319,28 @@ app.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
 });
 
 app.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
-  const parsed = participantEscrowQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  try {
+    const parsed = participantEscrowQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+    }
+    const escrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
+    const deals = await Promise.all(escrows.map(async (escrow) => {
+      try {
+        return await buildParticipantDealSummary(escrow, parsed.data.actorWhatsapp);
+      } catch (err: any) {
+        console.warn("Skipping participant deal summary", {
+          escrowId: escrow.escrowId,
+          actorWhatsapp: parsed.data.actorWhatsapp,
+          error: err?.message || err,
+        });
+        return null;
+      }
+    }));
+    res.status(200).json({ deals: deals.filter(Boolean) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Unable to load participant deals" });
   }
-  const escrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
-  const deals = await Promise.all(escrows.map(async (escrow) =>
-    buildParticipantDeal(await buildEscrowDetail(escrow.escrowId), parsed.data.actorWhatsapp)
-  ));
-  res.status(200).json({ deals: deals.filter(Boolean) });
 });
 
 app.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
