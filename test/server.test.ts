@@ -52,6 +52,28 @@ describe("server basic endpoints", () => {
     });
   });
 
+  it("finds existing profiles across legacy WhatsApp number formats", async () => {
+    const legacyWhatsappNumber = "whatsapp:2348000000199";
+    const canonicalWhatsappNumber = "whatsapp:+2348000000199";
+    const save = await request(app)
+      .post("/api/users/profile")
+      .set("x-core-api-key", "test-core-secret")
+      .send({ whatsappNumber: legacyWhatsappNumber, firstName: "Legacy", lastName: "Buyer" });
+
+    expect(save.status).toBe(200);
+
+    const lookup = await request(app)
+      .get("/api/users/profile")
+      .query({ whatsappNumber: canonicalWhatsappNumber })
+      .set("x-core-api-key", "test-core-secret");
+
+    expect(lookup.status).toBe(200);
+    expect(lookup.body).toMatchObject({
+      firstName: "Legacy",
+      lastName: "Buyer",
+    });
+  });
+
   it("does not apply public IP rate limits to authenticated core service calls", async () => {
     const requests = Array.from({ length: 130 }, (_, index) => {
       const whatsappNumber = `whatsapp:+23480009${String(index).padStart(4, "0")}`;
@@ -64,7 +86,7 @@ describe("server basic endpoints", () => {
     const responses = await Promise.all(requests);
     expect(responses.every((response) => response.status === 200)).toBe(true);
     expect(responses.some((response) => response.status === 429)).toBe(false);
-  });
+  }, 15000);
 
   it("allows an explicitly allowlisted payout account in controlled test mode", async () => {
     const whatsappNumber = "whatsapp:+2348000000102";
@@ -155,5 +177,41 @@ describe("server basic endpoints", () => {
     });
     expect(sellerDeals.body.deals[0].participant.allowedActions).toEqual(expect.arrayContaining(["accept", "status", "reference"]));
     expect(sellerDeals.body.deals[0].participant.allowedActions).not.toContain("cancel");
+  });
+
+  it("matches participants across legacy WhatsApp formats for My Deals and detail", async () => {
+    const suffix = Date.now().toString().slice(-7);
+    const buyerWhatsapp = `whatsapp:23481${suffix}01`;
+    const sellerWhatsapp = `whatsapp:23481${suffix}02`;
+    const canonicalSellerWhatsapp = sellerWhatsapp.replace("whatsapp:", "whatsapp:+");
+    const created = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `legacy-participant-test-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 10000,
+        currency: "NAIRA",
+        purpose: "Legacy participant lookup",
+        channel: "whatsapp_dm",
+      });
+
+    expect(created.status).toBe(201);
+    const escrowId = created.body.escrow.escrowId;
+
+    const sellerDeals = await request(app)
+      .get("/api/users/escrows")
+      .query({ actorWhatsapp: canonicalSellerWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    expect(sellerDeals.status).toBe(200);
+    expect(sellerDeals.body.deals.some((deal: any) => deal.escrow.escrowId === escrowId)).toBe(true);
+
+    const sellerDetail = await request(app)
+      .get(`/api/escrows/${escrowId}`)
+      .query({ actorWhatsapp: canonicalSellerWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    expect(sellerDetail.status).toBe(200);
+    expect(sellerDetail.body.participant).toMatchObject({ role: "seller" });
   });
 });

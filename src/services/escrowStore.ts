@@ -167,6 +167,17 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
+function whatsappLookupVariants(whatsappNumber: string) {
+  const trimmed = whatsappNumber.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  return Array.from(new Set([
+    trimmed,
+    digits ? `whatsapp:+${digits}` : "",
+    digits ? `whatsapp:${digits}` : "",
+    digits,
+  ].filter(Boolean)));
+}
+
 function payoutEncryptionKey() {
   const configured = process.env.PAYOUT_ENCRYPTION_KEY || "";
   if (!configured && process.env.NODE_ENV === "production") {
@@ -663,10 +674,16 @@ export class EscrowStore {
 
   public async findUserByWhatsapp(whatsappNumber: string): Promise<UserRecord | null> {
     await this.initializeSchema();
+    const variants = whatsappLookupVariants(whatsappNumber);
     if (this.provider === "sqlite") {
-      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE whatsapp_number = @whatsappNumber`).get({ whatsappNumber }));
+      return this.mapUser(this.sqlite!.prepare(
+        `SELECT * FROM users WHERE whatsapp_number IN (${variants.map(() => "?").join(",")}) ORDER BY updated_at DESC LIMIT 1`
+      ).get(...variants));
     }
-    const result = await this.pool!.query(`SELECT * FROM users WHERE whatsapp_number = $1`, [whatsappNumber]);
+    const result = await this.pool!.query(
+      `SELECT * FROM users WHERE whatsapp_number = ANY($1::text[]) ORDER BY updated_at DESC LIMIT 1`,
+      [variants]
+    );
     return this.mapUser(result.rows[0]);
   }
 
@@ -1696,30 +1713,31 @@ export class EscrowStore {
 
   public async listEscrowsForWhatsapp(whatsappNumber: string, limit = 20): Promise<EscrowRecord[]> {
     await this.initializeSchema();
+    const variants = whatsappLookupVariants(whatsappNumber);
     if (this.provider === "sqlite") {
       return this.sqlite!.prepare(`
         SELECT DISTINCT e.*
         FROM escrows e
         LEFT JOIN users buyer ON buyer.user_id = e.buyer_user_id
         LEFT JOIN users seller ON seller.user_id = e.seller_user_id
-        WHERE buyer.whatsapp_number = @whatsappNumber
-           OR seller.whatsapp_number = @whatsappNumber
-           OR e.seller_whatsapp = @whatsappNumber
+        WHERE buyer.whatsapp_number IN (${variants.map(() => "?").join(",")})
+           OR seller.whatsapp_number IN (${variants.map(() => "?").join(",")})
+           OR e.seller_whatsapp IN (${variants.map(() => "?").join(",")})
         ORDER BY e.updated_at DESC
-        LIMIT @limit
-      `).all({ whatsappNumber, limit }).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+        LIMIT ?
+      `).all(...variants, ...variants, ...variants, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
     }
     const result = await this.pool!.query(`
       SELECT DISTINCT e.*
       FROM escrows e
       LEFT JOIN users buyer ON buyer.user_id = e.buyer_user_id
       LEFT JOIN users seller ON seller.user_id = e.seller_user_id
-      WHERE buyer.whatsapp_number = $1
-         OR seller.whatsapp_number = $1
-         OR e.seller_whatsapp = $1
+      WHERE buyer.whatsapp_number = ANY($1::text[])
+         OR seller.whatsapp_number = ANY($1::text[])
+         OR e.seller_whatsapp = ANY($1::text[])
       ORDER BY e.updated_at DESC
       LIMIT $2
-    `, [whatsappNumber, limit]);
+    `, [variants, limit]);
     return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
   }
 
