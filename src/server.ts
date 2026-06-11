@@ -94,6 +94,34 @@ function sellerInviteMessage(escrowId: string, currency: string, amount: number,
   return `You have been invited to Sivan escrow ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
 }
 
+function queueWhatsAppNotification(params: {
+  to: string;
+  message: string;
+  reason: string;
+  escrowId?: string;
+  context?: Record<string, any>;
+}) {
+  void notifyWhatsAppBotStrict(params.to, params.message).catch(async (err) => {
+    const context = {
+      escrowId: params.escrowId,
+      to: params.to,
+      reason: params.reason,
+      ...params.context,
+    };
+    captureOperationalError("Failed to send WhatsApp notification", err, context);
+    try {
+      await opsStore.enqueueJob("whatsapp_notification", {
+        to: params.to,
+        message: params.message,
+        escrowId: params.escrowId,
+        reason: params.reason,
+      }, { maxAttempts: 5 });
+    } catch (enqueueErr) {
+      captureOperationalError("Failed to enqueue WhatsApp notification retry", enqueueErr, context);
+    }
+  });
+}
+
 function queueSellerInviteNotification(params: {
   sellerWhatsapp: string;
   escrowId: string;
@@ -103,26 +131,12 @@ function queueSellerInviteNotification(params: {
   context?: Record<string, any>;
 }) {
   const message = sellerInviteMessage(params.escrowId, params.currency, params.amount, params.purpose);
-  void notifyWhatsAppBotStrict(
-    params.sellerWhatsapp,
-    message
-  ).catch(async (err) => {
-    const context = {
-      escrowId: params.escrowId,
-      sellerWhatsapp: params.sellerWhatsapp,
-      ...params.context,
-    };
-    captureOperationalError("Failed to send seller escrow invite", err, context);
-    try {
-      await opsStore.enqueueJob("whatsapp_notification", {
-        to: params.sellerWhatsapp,
-        message,
-        escrowId: params.escrowId,
-        reason: "seller_invite",
-      }, { maxAttempts: 5 });
-    } catch (enqueueErr) {
-      captureOperationalError("Failed to enqueue seller invite retry", enqueueErr, context);
-    }
+  queueWhatsAppNotification({
+    to: params.sellerWhatsapp,
+    message,
+    reason: "seller_invite",
+    escrowId: params.escrowId,
+    context: params.context,
   });
 }
 
@@ -626,7 +640,26 @@ async function notifyEscrowParticipants(escrow: EscrowRecord, message: string) {
     escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
   ]);
   const targets = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.sellerWhatsapp].filter(Boolean) as string[];
-  await Promise.all(Array.from(new Set(targets)).map((target) => notifyWhatsAppBot(target, message)));
+  Array.from(new Set(targets)).forEach((target) => queueWhatsAppNotification({
+    to: target,
+    message,
+    reason: "escrow_participant_update",
+    escrowId: escrow.escrowId,
+  }));
+}
+
+function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, nextLine: string) {
+  const currency = escrow.currency === "NAIRA" ? "NGN" : escrow.currency;
+  return [
+    `Sivan update for ${escrow.escrowId}`,
+    `${escrow.purpose}`,
+    `${currency} ${new Intl.NumberFormat("en-NG").format(escrow.amount)}`,
+    "",
+    statusLine,
+    nextLine,
+    "",
+    `Reply STATUS ${escrow.escrowId} to view the deal.`,
+  ].join("\n");
 }
 
 function whatsappIdentityMatches(left?: string | null, right?: string | null) {
@@ -1676,6 +1709,16 @@ app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (re
       parsed.data.actorWhatsapp || "unknown",
       "whatsapp_dm"
     );
+    await notifyEscrowParticipants(
+      updated,
+      participantLifecycleMessage(
+        updated,
+        updated.status === "PENDING_RELEASE" ? "Payout is awaiting admin approval." : "Release request needs manual review.",
+        updated.status === "PENDING_RELEASE"
+          ? "Sivan will notify both parties when the payout is released."
+          : "Sivan support will review this before payout."
+      )
+    );
     res.status(200).json(updated);
   } catch (err: any) {
     if (/payout account/i.test(err.message || "")) {
@@ -2117,6 +2160,14 @@ app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminA
       platformFeeAmount: payoutQuote.platformFeeAmount,
       sellerNetAmount: payoutQuote.sellerNetAmount,
     });
+    await notifyEscrowParticipants(
+      updated,
+      participantLifecycleMessage(
+        updated,
+        `Payment released. Seller net payout: ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
+        `Payout reference: ${updated.manualPayoutReference || parsed.data.manualPayoutReference}`
+      )
+    );
     res.status(200).json({ escrow: updated, payoutQuote });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Release approval failed" });
