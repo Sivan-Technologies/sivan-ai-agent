@@ -76,7 +76,7 @@ Every checklist should prove:
 
 Paystack is the currently proven Naira collection rail. It runs behind `PaymentProvider.initializeBankTransferPayment`, `verifyPayment`, `verifyWebhookSignature`, and `normalizeWebhook`, and live behavior remains Paystack bank-transfer only until another provider passes live testing.
 
-Monnify is now implemented as a provider-neutral Naira collection adapter. The backend can authenticate with Monnify, initialize a transaction, generate a bank-transfer payment instruction, verify payments by `paymentReference`, validate `monnify-signature` over the raw webhook body, persist webhook events, and re-query Monnify before funding an escrow. Monnify is not yet live-enabled for users because the full sandbox/live checklist still needs to pass with real Monnify credentials and a real transfer event.
+Monnify is now implemented as a provider-neutral Naira collection adapter. The backend can authenticate with Monnify, initialize a transaction, generate a bank-transfer payment instruction, verify payments by `paymentReference`, validate `monnify-signature` over the raw webhook body, persist webhook events, and re-query Monnify before funding an escrow. Build, automated tests, deployed smoke checks, and DR checks passed on 2026-06-11. Monnify is not yet live-enabled for users because the full sandbox/live checklist still needs to pass with real Monnify credentials and a real transfer event.
 
 Flutterwave is documented as an emergency backup transport only. It should not be implemented or enabled before Sivan confirms the exact Flutterwave bank-transfer collection endpoint, webhook signature scheme, server-side verification endpoint, and settlement reporting shape. Do not use Flutterwave for card payments.
 
@@ -85,10 +85,11 @@ Flutterwave is documented as an emergency backup transport only. It should not b
 ```text
 Provider-neutral Naira interface: 82%
 Paystack behind provider interface: 100%
-Monnify collection transport: 80%
-Payment-provider admin switching: 80%
+Monnify collection transport: 85%
+Payment-provider admin switching: 85%
 Flutterwave backup transport: 10%
-Provider live-test readiness: 45%
+Provider live-test readiness: 55%
+Monnify live-transfer proof: 0%
 ```
 
 | Area | Status | Notes |
@@ -98,10 +99,10 @@ Provider live-test readiness: 45%
 | Provider ID on escrow/transactions | ✅ Done | Escrows already store `payment_provider`; transactions/ledger now use the active provider name |
 | Bank-transfer-only guard | ✅ Done | Global `NAIRA_PAYMENT_METHODS=bank_transfer` policy is enforced across implemented Naira providers; provider-specific aliases must also resolve to bank transfer |
 | Monnify name enquiry fallback | ✅ Done for payout verification fallback | Existing `MonnifyClient` can validate account name when configured |
-| Monnify collection initialization | ✅ Implemented / live proof pending | Monnify adapter initializes transfer-only transactions and stores transfer instruction metadata |
+| Monnify collection initialization | ✅ Implemented / live proof pending | Monnify adapter initializes transfer-only transactions and stores transfer instruction metadata; local build/tests passed on 2026-06-11 |
 | Monnify webhook endpoint | ✅ Implemented / live proof pending | `POST /webhooks/monnify` verifies raw-body HMAC, persists events, handles duplicates, and re-queries before funding |
 | Provider-aware recovery/recheck | ✅ Done | Admin recheck and retry jobs verify through each escrow's stored `paymentProvider` |
-| Admin provider/settings controls | ✅ Implemented / operational rollout pending | DB-backed provider routing, platform mode, maintenance message, and bank-transfer-only policy controls exist in admin Platform Controls with audit history |
+| Admin provider/settings controls | ✅ Implemented / smoke verified | DB-backed provider routing, platform mode, maintenance message, and bank-transfer-only policy controls exist in admin Platform Controls with audit history; deployed smoke checks passed on 2026-06-11 |
 | Monnify settlement events | ✅ Implemented / live proof pending | `SETTLEMENT` webhooks are persisted, linked to matching escrows, and surfaced in Revenue/Reconciliation analytics; live settlement proof remains next |
 | Flutterwave backup transport | 🟡 Documented / not implemented | `docs/flutterwave-payment-transport.md` and `docs/flutterwave-backup-test.md` define emergency backup rules, env shape, webhook requirements, and go/no-go tests |
 | PalmPay transport | 🔴 Not started | Keep as future backup/provider adapter |

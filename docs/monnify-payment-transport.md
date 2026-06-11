@@ -157,13 +157,15 @@ If Monnify disbursement is added later:
 4. ✅ Add `POST /webhooks/monnify` with raw body signature validation.
 5. ✅ Normalize Monnify payment events into the existing escrow transaction model.
 6. ✅ Add admin provider settings for active/backup/emergency provider.
-7. 🟡 Add richer Monnify settlement fields to admin Reconciliation and Revenue tabs.
-8. 🟡 Run `docs/monnify-live-test.md` before using Monnify for real users.
+7. ✅ Add richer Monnify settlement fields to admin Reconciliation and Revenue tabs.
+8. ✅ Verify provider-neutral code paths with local build/tests and deployed smoke/DR checks.
+9. 🟡 Run `docs/monnify-live-test.md` before using Monnify for real users.
 
 ## Current Progress
 
 ```text
-Monnify transport progress: 80%
+Monnify transport progress: 85%
+Monnify live-transfer proof: 0%
 ```
 
 | Area | Status | Notes |
@@ -175,4 +177,7 @@ Monnify transport progress: 80%
 | Monnify bank-transfer collection | ✅ Implemented / live proof pending | Init transaction and Pay with Bank Transfer instruction generation are implemented |
 | Monnify webhook verification | ✅ Implemented / live proof pending | Raw-body HMAC-SHA512 validation and server-side verification are implemented |
 | Monnify settlement/reconciliation | ✅ Implemented / live proof pending | Settlement events are persisted, linked to escrows, and surfaced in Revenue/Reconciliation analytics |
-| Monnify live sandbox test | 🟡 Next | Run the checklist before enabling Monnify for real users |
+| Local build/test proof | ✅ Passed on 2026-06-11 | `npm run build` passed; `npm test -- --run` passed with 14 files and 77 tests |
+| Live backend smoke proof | ✅ Passed on 2026-06-11 | `npm run smoke` passed against the deployed Render backend after allowing network access |
+| Live DR proof | ✅ Passed on 2026-06-11 | `npm run dr:check` passed against the deployed Render backend after allowing network access |
+| Monnify live sandbox test | 🟡 Next | Run the checklist with a real Monnify sandbox transfer before enabling Monnify for real users |
