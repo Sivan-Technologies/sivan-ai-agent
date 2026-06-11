@@ -41,13 +41,14 @@ FLUTTERWAVE_WEBHOOK_SECRET=
 FLUTTERWAVE_WEBHOOK_URL=https://sivan-escrow-agent.onrender.com/webhooks/flutterwave
 FLUTTERWAVE_TIMEOUT_MS=8000
 FLUTTERWAVE_PAYMENT_METHODS=bank_transfer
+FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS=3600
 ```
 
 ## 1. Provider Configuration
 
 - [ ] Flutterwave appears in Admin Platform Controls.
 - [ ] Flutterwave shows configured only when required env vars are present.
-- [ ] Flutterwave cannot become active unless implemented and configured.
+- [ ] Flutterwave cannot become active unless configured.
 - [ ] Fallback remains disabled until this checklist passes.
 - [ ] Existing Paystack/Monnify escrows keep their original provider.
 
@@ -64,7 +65,7 @@ Existing escrows: provider unchanged
 - [ ] Switch test/staging active provider to Flutterwave only after implementation.
 - [ ] Create a low-value Naira escrow.
 - [ ] Confirm Sivan creates a unique Flutterwave reference.
-- [ ] Confirm Sivan requests bank-transfer-only payment.
+- [ ] Confirm Sivan creates a dynamic virtual account for the exact amount.
 - [ ] Confirm buyer receives bank-transfer instructions only.
 - [ ] Confirm no card instruction appears anywhere.
 - [ ] Confirm Sivan stores expected amount, currency, reference, provider, and expiry if provided.
@@ -104,7 +105,8 @@ Secret leakage: none
 
 - [ ] Pay exact amount by bank transfer.
 - [ ] Confirm Flutterwave webhook arrives.
-- [ ] Re-query Flutterwave server-side by provider reference.
+- [ ] Re-query Flutterwave server-side by charge ID from webhook.
+- [ ] Re-query Flutterwave server-side by stored payment reference from admin recheck.
 - [ ] Confirm:
   - status is successful/final
   - amount paid equals escrow amount
@@ -267,7 +269,7 @@ Flutterwave can be used as emergency backup only when:
 ## Current Status
 
 ```text
-Flutterwave backup readiness: 10%
+Flutterwave backup readiness: 65%
 ```
 
 | Area | Status | Notes |
@@ -275,6 +277,7 @@ Flutterwave backup readiness: 10%
 | Backup role | ✅ Defined | Emergency provider only |
 | Checklist | ✅ Created | This file is the go/no-go checklist |
 | Env shape | ✅ Documented | Keep secrets out of source control |
-| Backend adapter | 🔴 Not started | Needs provider implementation |
-| Webhook endpoint | 🔴 Not started | Future `/webhooks/flutterwave` |
+| Backend adapter | ✅ Implemented | Dynamic virtual account collection, bank-transfer only |
+| Webhook endpoint | ✅ Implemented | `/webhooks/flutterwave` fail-closes without a valid signature |
+| Server-side verification | ✅ Implemented | Webhook path rechecks charge ID; admin recheck uses stored payment reference |
 | Live test | 🔴 Not started | Do not enable for users before this passes |

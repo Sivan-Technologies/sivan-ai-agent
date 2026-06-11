@@ -6,7 +6,7 @@ Sivan remains bank-transfer only. Do not add card collection, card charge, PAN h
 
 ## Current Implementation State
 
-Flutterwave is not implemented yet.
+Flutterwave is implemented as an emergency bank-transfer collection adapter. It is not enabled for real users until the backup checklist passes with a low-value transfer and signed webhook proof.
 
 Current status:
 
@@ -14,9 +14,9 @@ Current status:
 - ✅ Admin Platform Controls can list `flutterwave` as the emergency provider.
 - ✅ Existing escrows keep the provider that created their payment reference.
 - ✅ Global `NAIRA_PAYMENT_METHODS=bank_transfer` policy exists.
-- 🔴 Flutterwave collection adapter is not implemented.
-- 🔴 Flutterwave webhook endpoint is not implemented.
-- 🔴 Flutterwave server-side verification is not implemented.
+- ✅ Flutterwave collection adapter creates dynamic virtual bank accounts.
+- ✅ Flutterwave webhook endpoint verifies the configured provider signature value.
+- ✅ Flutterwave server-side verification rechecks charges before funding an escrow.
 - 🔴 Flutterwave settlement reconciliation is not implemented.
 - 🔴 Flutterwave live backup test has not run.
 
@@ -58,6 +58,7 @@ FLUTTERWAVE_WEBHOOK_SECRET=
 FLUTTERWAVE_WEBHOOK_URL=https://sivan-escrow-agent.onrender.com/webhooks/flutterwave
 FLUTTERWAVE_TIMEOUT_MS=8000
 FLUTTERWAVE_PAYMENT_METHODS=bank_transfer
+FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS=3600
 ```
 
 Shared provider controls:
@@ -97,10 +98,11 @@ The adapter must normalize Flutterwave responses into Sivan events:
 
 ## Collection Rules
 
-When implementing Flutterwave collection:
+Flutterwave collection behavior:
 
 1. Create a unique provider payment reference for each escrow.
-2. Request a bank-transfer-only payment instruction.
+2. Create a Flutterwave customer object for the payment session.
+3. Create a dynamic virtual account for the exact escrow amount.
 3. Store:
    - `provider=flutterwave`
    - Sivan escrow ID
@@ -135,8 +137,7 @@ POST /webhooks/flutterwave
 
 Rules:
 
-- Verify Flutterwave webhook signature/hash using the configured webhook secret.
-- Use the raw request body when the provider signature scheme requires it.
+- Verify Flutterwave webhook signature/hash using `FLUTTERWAVE_WEBHOOK_SECRET`.
 - Reject invalid signatures.
 - Persist every valid webhook event before processing.
 - Handle duplicate webhook delivery idempotently.
@@ -192,7 +193,7 @@ Admin Platform Controls should show Flutterwave as:
 ```text
 Provider: Flutterwave
 Role: emergency
-Implemented: no
+Implemented: yes
 Configured: no until envs exist
 Payment method: bank_transfer only
 Live proof: not passed
@@ -231,7 +232,7 @@ Automated Flutterwave payout can be evaluated later only after:
 ## Current Progress
 
 ```text
-Flutterwave backup transport progress: 10%
+Flutterwave backup transport progress: 65%
 ```
 
 | Area | Status | Notes |
@@ -239,20 +240,20 @@ Flutterwave backup transport progress: 10%
 | Strategy role | ✅ Defined | Emergency backup provider only |
 | Bank-transfer-only policy | ✅ Defined | Uses global `NAIRA_PAYMENT_METHODS=bank_transfer` |
 | Env placeholders | ✅ Documented | Do not add live secrets to source control |
-| Adapter implementation | 🔴 Not started | Needs `PaymentProvider` implementation |
-| Webhook endpoint | 🔴 Not started | Future `POST /webhooks/flutterwave` |
-| Server-side verification | 🔴 Not started | Required before funding any escrow |
+| Adapter implementation | ✅ Implemented | `FlutterwavePaymentProvider` creates dynamic virtual accounts |
+| Webhook endpoint | ✅ Implemented | `POST /webhooks/flutterwave` verifies signature and persists events |
+| Server-side verification | ✅ Implemented | Rechecks charge status, amount, currency, method, and reference before funding |
 | Settlement reconciliation | 🔴 Not started | Must feed Revenue/Reconciliation analytics |
 | Live backup test | 🔴 Not started | Use `docs/flutterwave-backup-test.md` before enabling |
 
 ## Recommendation
 
-Do not implement Flutterwave before Monnify live proof unless Paystack and Monnify are both blocked operationally.
+Do not enable Flutterwave for real users before Monnify live proof unless Paystack and Monnify are both blocked operationally.
 
 Best next order:
 
 1. Finish Monnify live sandbox test.
-2. Add Paystack live checklist.
-3. Create Flutterwave adapter only after endpoint details and webhook signature rules are confirmed from Flutterwave dashboard/docs.
-4. Run Flutterwave backup test with a low-value transaction.
+2. Configure Flutterwave sandbox env only in staging.
+3. Run Flutterwave backup test with a low-value transaction.
+4. Add settlement reconciliation if Flutterwave becomes operationally useful.
 5. Keep Flutterwave as emergency route until pricing and reliability are proven.

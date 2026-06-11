@@ -84,6 +84,19 @@ export const config = {
       .map((method) => method.trim())
       .filter(Boolean),
   },
+  flutterwave: {
+    secretKey: envValue("FLUTTERWAVE_SECRET_KEY"),
+    publicKey: envValue("FLUTTERWAVE_PUBLIC_KEY"),
+    baseUrl: envValue("FLUTTERWAVE_BASE_URL", "https://api.flutterwave.com"),
+    webhookSecret: envValue("FLUTTERWAVE_WEBHOOK_SECRET"),
+    webhookUrl: envValue("FLUTTERWAVE_WEBHOOK_URL"),
+    timeoutMs: envNumber("FLUTTERWAVE_TIMEOUT_MS", 8000),
+    paymentMethods: envValue("FLUTTERWAVE_PAYMENT_METHODS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
+      .split(",")
+      .map((method) => method.trim())
+      .filter(Boolean),
+    dynamicAccountExpirySeconds: envNumber("FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS", 3600),
+  },
   nairaPayments: {
     methods: envValue("NAIRA_PAYMENT_METHODS", "bank_transfer")
       .split(",")

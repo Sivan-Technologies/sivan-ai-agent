@@ -53,6 +53,7 @@ import { RetryWorker } from "./services/retryWorker";
 import { scoreAccountName } from "./services/nameMatch";
 import { filterBanks } from "./services/bankFallback";
 import { MonnifyClient } from "./services/monnifyClient";
+import { FlutterwaveClient } from "./services/flutterwaveClient";
 import { ComplianceRisk, hasBlockingComplianceRisk, highValueReviewAmount, scoreComplianceRisk } from "./services/complianceRisk";
 import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution, isSandboxPaymentReference } from "./services/payoutVerificationTestMode";
 import crypto from "crypto";
@@ -76,7 +77,9 @@ const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, wor
 const paystackClient = new PaystackClient();
 const paystackPaymentProvider = createNairaPaymentProvider("paystack");
 const monnifyPaymentProvider = createNairaPaymentProvider("monnify");
+const flutterwavePaymentProvider = createNairaPaymentProvider("flutterwave");
 const monnifyClient = new MonnifyClient();
+const flutterwaveClient = new FlutterwaveClient();
 let lastAbuseTrendAlertAt = 0;
 
 function createProviderForId(provider?: string) {
@@ -87,6 +90,7 @@ function providerConfigured(provider: string) {
   const normalized = provider.trim().toLowerCase();
   if (normalized === "paystack") return Boolean(config.paystack.secretKey);
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
+  if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
   return false;
 }
 
@@ -2037,6 +2041,100 @@ app.post("/webhooks/monnify", async (req, res) => {
   }
 });
 
+app.post("/webhooks/flutterwave", async (req, res) => {
+  const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+  let normalizedPaymentReference = "";
+  try {
+    const signature = String(
+      req.headers["verif-hash"] ||
+      req.headers["flutterwave-signature"] ||
+      req.headers["x-flutterwave-signature"] ||
+      ""
+    );
+    if (!signature) {
+      capturePaymentWarning("Missing Flutterwave webhook signature header", { path: req.path });
+      return res.status(400).send({ error: "Missing signature header" });
+    }
+
+    const verified = await flutterwavePaymentProvider.verifyWebhookSignature(rawBody, signature);
+    if (!verified) {
+      capturePaymentWarning("Invalid Flutterwave webhook signature", { paymentReference: req.body?.data?.reference || "unknown" });
+      return res.status(400).send({ error: "Invalid webhook signature" });
+    }
+
+    const normalizedWebhook = flutterwavePaymentProvider.normalizeWebhook(req.body);
+    normalizedPaymentReference = normalizedWebhook.paymentReference;
+    info("Flutterwave webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
+    await workflowStore.addWebhookEvent(
+      normalizedWebhook.eventId || crypto.randomUUID(),
+      normalizedWebhook.paymentReference,
+      `flutterwave:${normalizedWebhook.eventType}`,
+      JSON.stringify(req.body)
+    );
+
+    if (normalizedWebhook.eventType !== "charge.completed") {
+      return res.status(200).send({ status: "received" });
+    }
+
+    const escrow = await escrowStore.findEscrowByPaymentReference(normalizedWebhook.paymentReference);
+    if (!escrow) {
+      capturePaymentWarning("Flutterwave webhook did not match any escrow", {
+        paymentReference: normalizedWebhook.paymentReference,
+        eventType: normalizedWebhook.eventType,
+      });
+      return res.status(202).send({ status: "unmatched" });
+    }
+    if (escrow.paymentProvider && escrow.paymentProvider !== "flutterwave") {
+      capturePaymentWarning("Flutterwave webhook matched escrow with different provider", {
+        escrowId: escrow.escrowId,
+        escrowProvider: escrow.paymentProvider,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      return res.status(409).send({ error: "Payment reference belongs to a different provider" });
+    }
+
+    const verificationReference = normalizedWebhook.transactionReference || normalizedWebhook.paymentReference;
+    const transaction = await flutterwavePaymentProvider.verifyPayment(verificationReference);
+    if (transaction.paymentReference !== normalizedWebhook.paymentReference) {
+      capturePaymentWarning("Flutterwave verification reference mismatch", {
+        webhookReference: normalizedWebhook.paymentReference,
+        verifiedReference: transaction.paymentReference,
+      });
+      return res.status(202).send({ status: "verification_reference_mismatch" });
+    }
+
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+    if (funded.status === "IN_PROGRESS") {
+      info("Escrow funded from verified Flutterwave webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+    } else if (funded.status === "REVIEW_REQUIRED") {
+      info("Escrow payment moved to review from Flutterwave webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+    }
+    return res.status(200).send({ status: "received" });
+  } catch (err: any) {
+    if (normalizedPaymentReference) {
+      try {
+        await opsStore.enqueueJob("webhook_recovery", {
+          paymentReference: normalizedPaymentReference,
+          provider: "flutterwave",
+          eventType: req.body?.type || req.body?.event || "unknown",
+          reason: "flutterwave_webhook_processing_failed",
+        }, { maxAttempts: 8 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue Flutterwave webhook recovery job", enqueueErr, { paymentReference: normalizedPaymentReference });
+      }
+    }
+    captureOperationalError("Flutterwave webhook processing failed", err, { paymentReference: normalizedPaymentReference || "unknown" });
+    return res.status(500).send({ error: "Webhook processing failed" });
+  }
+});
+
 app.get("/admin/tasks", requireAdminAuth, async (req, res) => {
   const tasks = await workflowStore.getAllTasks();
   res.status(200).json(tasks);
@@ -2751,8 +2849,8 @@ function providerStatus() {
     {
       provider: "flutterwave",
       label: "Flutterwave",
-      implemented: false,
-      configured: false,
+      implemented: true,
+      configured: providerConfigured("flutterwave"),
       methods: ["bank_transfer"],
     },
   ];
