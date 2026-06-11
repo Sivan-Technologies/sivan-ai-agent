@@ -32,6 +32,18 @@ These runbooks keep money movement deterministic. Operators should prefer re-che
 
 4. Run `POST /admin/queue/run` or wait for `QUEUE_WORKER_ENABLED=true`.
 
+## Monnify Payment Incident
+
+This applies when the active or backup Naira provider is set to Monnify. Current proven production Naira collection still uses Paystack until the Monnify live checklist passes.
+
+1. Confirm whether the affected escrow was created with provider `monnify`; never verify a Monnify reference through Paystack or a Paystack reference through Monnify.
+2. Check the Monnify payment reference, transaction reference, expected amount, currency, and payment method.
+3. Re-query Monnify server-side before changing escrow state.
+4. If the payment method is not `ACCOUNT_TRANSFER`, keep the escrow in review.
+5. If the amount is underpaid, overpaid, rejected, or ambiguous, move or keep the escrow in `REVIEW_REQUIRED`.
+6. If `monnify-signature` verification fails, reject the webhook and alert operations.
+7. If Monnify is unavailable for new payments, switch only new payment creation to the configured backup provider. Existing Monnify escrows must keep using Monnify references for verification.
+
 ## Payout Failure
 
 1. Confirm the escrow is `PENDING_RELEASE` or `RELEASED` and inspect payout reference/notes.

@@ -130,6 +130,13 @@ type RevenueAnalytics = {
     processorFees: number;
     processorFeeKnownCount: number;
   }>;
+  settlementSummary?: Array<{
+    provider: string;
+    settlementCount: number;
+    settlementAmount: number;
+    providerFees: number;
+    latestSettlementAt: string;
+  }>;
 };
 
 type FeeSettings = {
@@ -145,6 +152,9 @@ type FeeSettings = {
   nairaPlatformActiveExposureLimit: number;
   trustedUserSuccessfulEscrows: number;
   establishedUserSuccessfulEscrows: number;
+  platformMode: "test" | "live" | "maintenance";
+  maintenanceMessage: string;
+  nairaPaymentMethod: "bank_transfer";
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -201,6 +211,25 @@ type WhatsAppProviderStatus = {
     twilio?: { configured: boolean };
     meta?: { configured: boolean; graphApiVersion?: string };
   };
+};
+
+type PaymentProviderStatus = {
+  activePaymentProvider: string;
+  backupPaymentProvider: string;
+  emergencyPaymentProvider: string;
+  paymentProviderFallbackEnabled: boolean;
+  platformMode: "test" | "live" | "maintenance";
+  maintenanceMessage: string;
+  nairaPaymentMethod: "bank_transfer";
+  version: number;
+  fallbackPolicy?: string;
+  providers: Array<{
+    provider: string;
+    label: string;
+    implemented: boolean;
+    configured: boolean;
+    methods: string[];
+  }>;
 };
 
 type DisasterRecoveryStatus = {
@@ -484,6 +513,13 @@ function App() {
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [auditHistory, setAuditHistory] = useState<AuditRecord[]>([]);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatus | null>(null);
+  const [paymentProviderStatus, setPaymentProviderStatus] = useState<PaymentProviderStatus | null>(null);
+  const [paymentProviderForm, setPaymentProviderForm] = useState({
+    activePaymentProvider: "paystack",
+    backupPaymentProvider: "monnify",
+    emergencyPaymentProvider: "flutterwave",
+    paymentProviderFallbackEnabled: false,
+  });
   const [disasterRecoveryStatus, setDisasterRecoveryStatus] = useState<DisasterRecoveryStatus | null>(null);
   const [operationalEvents, setOperationalEvents] = useState<OperationalEvent[]>([]);
   const [settlementProof, setSettlementProof] = useState<SettlementProof | null>(null);
@@ -520,6 +556,9 @@ function App() {
     nairaPlatformActiveExposureLimit: 10000000,
     trustedUserSuccessfulEscrows: 3,
     establishedUserSuccessfulEscrows: 10,
+    platformMode: "test" as "test" | "live" | "maintenance",
+    maintenanceMessage: "Sivan is temporarily under maintenance. Please try again soon.",
+    nairaPaymentMethod: "bank_transfer" as const,
   });
 
   const [activeTab, setActiveTab] = useState<Tab>("escrows");
@@ -838,6 +877,23 @@ function App() {
       nairaPlatformActiveExposureLimit: data.nairaPlatformActiveExposureLimit,
       trustedUserSuccessfulEscrows: data.trustedUserSuccessfulEscrows,
       establishedUserSuccessfulEscrows: data.establishedUserSuccessfulEscrows,
+      platformMode: data.platformMode || "test",
+      maintenanceMessage: data.maintenanceMessage || "Sivan is temporarily under maintenance. Please try again soon.",
+      nairaPaymentMethod: "bank_transfer",
+    });
+  };
+
+  const loadPaymentProviders = async () => {
+    if (!adminKey) return;
+    const response = await fetch(`${apiBase}/admin/payment-providers`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(await parseError(response, "Failed to load payment provider settings"));
+    const data = await response.json();
+    setPaymentProviderStatus(data);
+    setPaymentProviderForm({
+      activePaymentProvider: data.activePaymentProvider,
+      backupPaymentProvider: data.backupPaymentProvider,
+      emergencyPaymentProvider: data.emergencyPaymentProvider,
+      paymentProviderFallbackEnabled: Boolean(data.paymentProviderFallbackEnabled),
     });
   };
 
@@ -920,7 +976,7 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadLimitReviews(), loadReconciliation(), loadRevenue(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadAuditHistory(), loadOperations()]);
+      await Promise.all([loadEscrows(), loadLimitReviews(), loadReconciliation(), loadRevenue(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadPaymentProviders(), loadAuditHistory(), loadOperations()]);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
@@ -957,6 +1013,9 @@ function App() {
         || feeFormData.establishedUserSuccessfulEscrows <= feeFormData.trustedUserSuccessfulEscrows) {
         throw new Error("Established-user threshold must be greater than trusted-user threshold.");
       }
+      if (feeFormData.maintenanceMessage.trim().length < 10) {
+        throw new Error("Maintenance message must explain what users should expect.");
+      }
 
       const response = await fetch(`${apiBase}/admin/settings`, {
         method: "POST",
@@ -977,6 +1036,38 @@ function App() {
       setTimeout(() => setFeeSuccess(null), 3000);
     } catch (err: any) {
       setFeeError(err.message || "Failed to save fees");
+    } finally {
+      setSavingFees(false);
+    }
+  };
+
+  const handleSavePaymentProviders = async () => {
+    setSavingFees(true);
+    setFeeError(null);
+    setFeeSuccess(null);
+    try {
+      const response = await fetch(`${apiBase}/admin/payment-providers`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          ...paymentProviderForm,
+          expectedVersion: paymentProviderStatus?.version || feeSettings?.version || 1,
+        }),
+      });
+      if (!response.ok) throw new Error(await parseError(response, "Failed to save payment providers"));
+      const updated = await response.json();
+      setPaymentProviderStatus(updated);
+      setPaymentProviderForm({
+        activePaymentProvider: updated.activePaymentProvider,
+        backupPaymentProvider: updated.backupPaymentProvider,
+        emergencyPaymentProvider: updated.emergencyPaymentProvider,
+        paymentProviderFallbackEnabled: Boolean(updated.paymentProviderFallbackEnabled),
+      });
+      setFeeSuccess("Payment provider controls updated.");
+      await Promise.all([loadFeeSettings(), loadAuditHistory()]);
+      setTimeout(() => setFeeSuccess(null), 3000);
+    } catch (err: any) {
+      setFeeError(err.message || "Failed to save payment providers");
     } finally {
       setSavingFees(false);
     }
@@ -2622,6 +2713,40 @@ function App() {
             </div>
           </div>
 
+          <div className="surface">
+            <div className="section-head">
+              <h2>Settlement Reconciliation</h2>
+              <span>provider reported</span>
+            </div>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Settlements</th>
+                    <th>Settlement amount</th>
+                    <th>Provider fees</th>
+                    <th>Latest</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revenueAnalytics?.settlementSummary?.map((row) => (
+                    <tr key={row.provider}>
+                      <td><strong>{row.provider}</strong></td>
+                      <td>{row.settlementCount}</td>
+                      <td>{money.format(row.settlementAmount)}</td>
+                      <td>{money.format(row.providerFees)}</td>
+                      <td>{formatTime(row.latestSettlementAt)}</td>
+                    </tr>
+                  ))}
+                  {!revenueAnalytics?.settlementSummary?.length && (
+                    <tr><td colSpan={5} className="empty-cell">No provider settlement events recorded yet</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <aside className="surface">
             <div className="section-head">
               <h2>Accounting Basis</h2>
@@ -2715,9 +2840,112 @@ function App() {
                 ))}
               </div>
             </div>
+            <div className="section-head" style={{ marginTop: 24 }}>
+              <h2>Operating Mode</h2>
+              <span>{feeFormData.platformMode}</span>
+            </div>
+            <div className="fee-grid">
+              <div className="fee-column">
+                <h3>Runtime</h3>
+                <label className="field">
+                  <span>Platform mode</span>
+                  <select
+                    value={feeFormData.platformMode}
+                    onChange={(event) => setFeeFormData({ ...feeFormData, platformMode: event.target.value as "test" | "live" | "maintenance" })}
+                  >
+                    <option value="test">Test mode</option>
+                    <option value="live">Live mode</option>
+                    <option value="maintenance">Maintenance mode</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Naira payment method</span>
+                  <input value="bank_transfer" disabled readOnly />
+                </label>
+                <div className="detail-note">All Naira providers must stay bank-transfer only. Cards are not supported for Sivan escrow collection.</div>
+              </div>
+              <div className="fee-column">
+                <h3>Maintenance message</h3>
+                <label className="field">
+                  <span>User-facing message</span>
+                  <textarea
+                    rows={5}
+                    value={feeFormData.maintenanceMessage}
+                    onChange={(event) => setFeeFormData({ ...feeFormData, maintenanceMessage: event.target.value })}
+                  />
+                </label>
+                <div className="detail-note">When maintenance mode is active, customer API requests receive this message while admin, health, and payment webhooks stay available.</div>
+              </div>
+            </div>
             <button className="button primary full" onClick={() => setShowConfirmModal(true)} disabled={savingFees}>
               Review changes
             </button>
+          </div>
+
+          <div className="surface">
+            <div className="section-head">
+              <h2>Payment Providers</h2>
+              <span>v{paymentProviderStatus?.version || "-"}</span>
+            </div>
+            <div className="detail-stack">
+              <div className="detail-row"><span>Active provider</span><strong>{paymentProviderStatus?.activePaymentProvider || "unknown"}</strong></div>
+              <div className="detail-row"><span>Backup provider</span><strong>{paymentProviderStatus?.backupPaymentProvider || "unknown"}</strong></div>
+              <div className="detail-row"><span>Emergency provider</span><strong>{paymentProviderStatus?.emergencyPaymentProvider || "unknown"}</strong></div>
+              <div className="detail-row"><span>Fallback</span><strong>{paymentProviderStatus?.paymentProviderFallbackEnabled ? "Enabled" : "Disabled"}</strong></div>
+              <div className="detail-row"><span>Platform mode</span><strong>{paymentProviderStatus?.platformMode || feeSettings?.platformMode || "unknown"}</strong></div>
+              <div className="detail-row"><span>Naira method</span><strong>{paymentProviderStatus?.nairaPaymentMethod || "bank_transfer"}</strong></div>
+            </div>
+            <div className="fee-grid" style={{ marginTop: 16 }}>
+              <div className="fee-column">
+                <h3>Provider routing</h3>
+                {([
+                  ["Active", "activePaymentProvider"],
+                  ["Backup", "backupPaymentProvider"],
+                  ["Emergency", "emergencyPaymentProvider"],
+                ] as const).map(([label, key]) => (
+                  <label className="field" key={key}>
+                    <span>{label}</span>
+                    <select
+                      value={paymentProviderForm[key]}
+                      onChange={(event) => setPaymentProviderForm({ ...paymentProviderForm, [key]: event.target.value })}
+                    >
+                      {(paymentProviderStatus?.providers || []).map((provider) => (
+                        <option
+                          key={`${key}-${provider.provider}`}
+                          value={provider.provider}
+                          disabled={key === "activePaymentProvider" && (!provider.configured || !provider.implemented)}
+                        >
+                          {provider.label} {provider.configured ? "configured" : "not configured"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+                <label className="field checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={paymentProviderForm.paymentProviderFallbackEnabled}
+                    onChange={(event) => setPaymentProviderForm({ ...paymentProviderForm, paymentProviderFallbackEnabled: event.target.checked })}
+                  />
+                  <span>Enable fallback for new payment creation only</span>
+                </label>
+                <button className="button secondary full" onClick={handleSavePaymentProviders} disabled={savingFees || !paymentProviderStatus}>
+                  Save payment providers
+                </button>
+              </div>
+              <div className="fee-column">
+                <h3>Provider status</h3>
+                <div className="detail-stack">
+                  {(paymentProviderStatus?.providers || []).map((provider) => (
+                    <div className="detail-row" key={provider.provider}>
+                      <span>{provider.label}</span>
+                      <strong>{provider.implemented ? (provider.configured ? "Configured" : "Needs env") : "Not implemented"}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="detail-note">Existing escrows stay on the provider that created their payment reference. Fallback is disabled until both active and backup providers pass live bank-transfer tests.</div>
+              </div>
+            </div>
           </div>
 
           <div className="surface">
@@ -2914,11 +3142,13 @@ function App() {
       {showConfirmModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <h2>Confirm Fee Update</h2>
-            <p className="muted">New transactions will use the updated fee table immediately.</p>
+            <h2>Confirm Platform Update</h2>
+            <p className="muted">Platform controls take effect immediately for new customer actions.</p>
             <div className="modal-summary">
               <div><span>Naira</span><strong>{feeFormData.nairaFeePercent}% + {feeFormData.nairaFeeFixed} NGN</strong></div>
               <div><span>USDC</span><strong>{feeFormData.usdcFeePercent}% + {feeFormData.usdcFeeFixed} USDC</strong></div>
+              <div><span>Mode</span><strong>{feeFormData.platformMode}</strong></div>
+              <div><span>Naira method</span><strong>{feeFormData.nairaPaymentMethod}</strong></div>
             </div>
             <div className="modal-actions">
               <button className="button secondary" onClick={() => setShowConfirmModal(false)} disabled={savingFees}>Cancel</button>

@@ -66,7 +66,7 @@ export const config = {
     receiverAccount: envValue("PAYSTACK_RECEIVER_ACCOUNT"),
     callbackUrl: envValue("PAYSTACK_CALLBACK_URL"),
     timeoutMs: envNumber("PAYSTACK_TIMEOUT_MS", 8000),
-    channels: envValue("PAYSTACK_CHANNELS", "bank_transfer")
+    channels: envValue("PAYSTACK_CHANNELS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
       .split(",")
       .map((channel) => channel.trim())
       .filter(Boolean),
@@ -74,8 +74,21 @@ export const config = {
   monnify: {
     apiKey: envValue("MONNIFY_API_KEY"),
     secretKey: envValue("MONNIFY_SECRET_KEY"),
+    contractCode: envValue("MONNIFY_CONTRACT_CODE"),
     baseUrl: envValue("MONNIFY_BASE_URL", "https://sandbox.monnify.com"),
+    webhookUrl: envValue("MONNIFY_WEBHOOK_URL"),
+    sourceAccountNumber: envValue("MONNIFY_SOURCE_ACCOUNT_NUMBER"),
     timeoutMs: envNumber("MONNIFY_TIMEOUT_MS", 8000),
+    paymentMethods: envValue("MONNIFY_PAYMENT_METHODS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
+      .split(",")
+      .map((method) => method.trim())
+      .filter(Boolean),
+  },
+  nairaPayments: {
+    methods: envValue("NAIRA_PAYMENT_METHODS", "bank_transfer")
+      .split(",")
+      .map((method) => method.trim())
+      .filter(Boolean),
   },
   app: {
     env: envValue("NODE_ENV", "development"),

@@ -301,6 +301,117 @@ describe("Admin Settings API Integration", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("should expose and update protected Naira payment provider controls", async () => {
+    const unauthorized = await request(app).get("/admin/payment-providers");
+    expect(unauthorized.status).toBe(401);
+
+    const status = await request(app)
+      .get("/admin/payment-providers")
+      .set("x-admin-key", "test-admin-key");
+    expect(status.status).toBe(200);
+    expect(status.body.activePaymentProvider).toBe("paystack");
+    expect(status.body.providers.some((provider: any) => provider.provider === "monnify")).toBe(true);
+
+    const invalid = await request(app)
+      .post("/admin/payment-providers")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        activePaymentProvider: "palmpay",
+        backupPaymentProvider: "paystack",
+        emergencyPaymentProvider: "flutterwave",
+        paymentProviderFallbackEnabled: false,
+        expectedVersion: status.body.version,
+      });
+    expect(invalid.status).toBe(400);
+
+    const updated = await request(app)
+      .post("/admin/payment-providers")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        activePaymentProvider: "paystack",
+        backupPaymentProvider: "monnify",
+        emergencyPaymentProvider: "flutterwave",
+        paymentProviderFallbackEnabled: false,
+        expectedVersion: status.body.version,
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      activePaymentProvider: "paystack",
+      backupPaymentProvider: "monnify",
+      emergencyPaymentProvider: "flutterwave",
+      paymentProviderFallbackEnabled: false,
+    });
+  });
+
+  it("should switch maintenance mode and return the admin maintenance message to customer APIs", async () => {
+    const currentResponse = await request(app).get("/admin/settings").set("x-admin-key", "test-admin-key");
+    expect(currentResponse.status).toBe(200);
+    const current = currentResponse.body;
+    const maintenanceMessage = "Sivan is in scheduled maintenance for testing. Please try again shortly.";
+
+    const maintenanceUpdate = await request(app)
+      .post("/admin/settings")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        nairaFeePercent: current.nairaFeePercent,
+        nairaFeeFixed: current.nairaFeeFixed,
+        usdcFeePercent: current.usdcFeePercent,
+        usdcFeeFixed: current.usdcFeeFixed,
+        nairaNewUserLimit: current.nairaNewUserLimit,
+        nairaTrustedUserLimit: current.nairaTrustedUserLimit,
+        nairaEstablishedUserLimit: current.nairaEstablishedUserLimit,
+        nairaSpecialApprovalLimit: current.nairaSpecialApprovalLimit,
+        nairaBuyerActiveExposureLimit: current.nairaBuyerActiveExposureLimit,
+        nairaPlatformActiveExposureLimit: current.nairaPlatformActiveExposureLimit,
+        trustedUserSuccessfulEscrows: current.trustedUserSuccessfulEscrows,
+        establishedUserSuccessfulEscrows: current.establishedUserSuccessfulEscrows,
+        platformMode: "maintenance",
+        maintenanceMessage,
+        nairaPaymentMethod: "bank_transfer",
+        expectedVersion: current.version,
+      });
+    expect(maintenanceUpdate.status).toBe(200);
+    expect(maintenanceUpdate.body.platformMode).toBe("maintenance");
+
+    const customerRequest = await request(app)
+      .post("/api/users/profile")
+      .set("x-core-api-key", "test-core-key")
+      .send({
+        whatsappNumber: "whatsapp:+2348000000991",
+        firstName: "Mode",
+        lastName: "Tester",
+      });
+    expect(customerRequest.status).toBe(503);
+    expect(customerRequest.body).toMatchObject({
+      error: "PLATFORM_MAINTENANCE",
+      message: maintenanceMessage,
+    });
+
+    const restore = await request(app)
+      .post("/admin/settings")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        nairaFeePercent: maintenanceUpdate.body.nairaFeePercent,
+        nairaFeeFixed: maintenanceUpdate.body.nairaFeeFixed,
+        usdcFeePercent: maintenanceUpdate.body.usdcFeePercent,
+        usdcFeeFixed: maintenanceUpdate.body.usdcFeeFixed,
+        nairaNewUserLimit: maintenanceUpdate.body.nairaNewUserLimit,
+        nairaTrustedUserLimit: maintenanceUpdate.body.nairaTrustedUserLimit,
+        nairaEstablishedUserLimit: maintenanceUpdate.body.nairaEstablishedUserLimit,
+        nairaSpecialApprovalLimit: maintenanceUpdate.body.nairaSpecialApprovalLimit,
+        nairaBuyerActiveExposureLimit: maintenanceUpdate.body.nairaBuyerActiveExposureLimit,
+        nairaPlatformActiveExposureLimit: maintenanceUpdate.body.nairaPlatformActiveExposureLimit,
+        trustedUserSuccessfulEscrows: maintenanceUpdate.body.trustedUserSuccessfulEscrows,
+        establishedUserSuccessfulEscrows: maintenanceUpdate.body.establishedUserSuccessfulEscrows,
+        platformMode: "test",
+        maintenanceMessage,
+        nairaPaymentMethod: "bank_transfer",
+        expectedVersion: maintenanceUpdate.body.version,
+      });
+    expect(restore.status).toBe(200);
+    expect(restore.body.platformMode).toBe("test");
+  });
+
   it("should expose protected disaster recovery readiness without secrets", async () => {
     const unauthorized = await request(app).get("/admin/dr/status");
     expect(unauthorized.status).toBe(401);

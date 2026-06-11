@@ -55,6 +55,9 @@ describe("SettingsStore", () => {
     expect(settings.nairaPlatformActiveExposureLimit).toBe(10000000);
     expect(settings.trustedUserSuccessfulEscrows).toBe(3);
     expect(settings.establishedUserSuccessfulEscrows).toBe(10);
+    expect(settings.platformMode).toBe("test");
+    expect(settings.maintenanceMessage).toMatch(/maintenance/i);
+    expect(settings.nairaPaymentMethod).toBe("bank_transfer");
     expect(settings.version).toBe(1);
   });
 
@@ -99,6 +102,18 @@ describe("SettingsStore", () => {
       establishedUserSuccessfulEscrows: 12,
       version: 2,
     });
+  });
+
+  it("updates platform mode and maintenance message", async () => {
+    const updated = await settingsStore.updateSettings(settingsUpdate({
+      platformMode: "maintenance",
+      maintenanceMessage: "Sivan is in scheduled maintenance for a short period. Please try again soon.",
+      nairaPaymentMethod: "bank_transfer",
+    }));
+
+    expect(updated.platformMode).toBe("maintenance");
+    expect(updated.maintenanceMessage).toContain("scheduled maintenance");
+    expect(updated.nairaPaymentMethod).toBe("bank_transfer");
   });
 
   it("rejects invalid tier ordering", async () => {

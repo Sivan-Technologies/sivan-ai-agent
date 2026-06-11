@@ -87,6 +87,9 @@ export const adminSettingsSchema = z.object({
   nairaPlatformActiveExposureLimit: z.coerce.number().positive().max(10_000_000_000).optional(),
   trustedUserSuccessfulEscrows: z.coerce.number().int().min(1).max(1000).optional(),
   establishedUserSuccessfulEscrows: z.coerce.number().int().min(2).max(1000).optional(),
+  platformMode: z.enum(["test", "live", "maintenance"]).optional(),
+  maintenanceMessage: z.string().trim().min(10).max(500).optional(),
+  nairaPaymentMethod: z.literal("bank_transfer").optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 
@@ -96,6 +99,16 @@ export const escrowLimitReviewDecisionSchema = z.object({
 
 export const whatsappProviderSwitchSchema = z.object({
   provider: z.enum(["twilio", "meta"]),
+});
+
+export const nairaPaymentProviderIdSchema = z.enum(["paystack", "monnify", "palmpay", "flutterwave"]);
+
+export const paymentProviderSettingsSchema = z.object({
+  activePaymentProvider: nairaPaymentProviderIdSchema,
+  backupPaymentProvider: nairaPaymentProviderIdSchema,
+  emergencyPaymentProvider: nairaPaymentProviderIdSchema,
+  paymentProviderFallbackEnabled: z.coerce.boolean().default(false),
+  expectedVersion: z.coerce.number().int().positive(),
 });
 
 export const supportCaseCreateSchema = z.object({

@@ -5,6 +5,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import * as Sentry from "@sentry/node";
 import { PaystackClient } from "./services/paystackClient";
+import { createNairaPaymentProvider, VerifiedNairaPayment } from "./services/nairaPaymentProvider";
 import { config, validateConfig } from "./config";
 import { info, warn, error } from "./lib/logger";
 import { SapAgent } from "./services/sapAgent";
@@ -30,6 +31,7 @@ import {
   limitQuerySchema,
   participantEscrowQuerySchema,
   participantDisputeEvidenceSchema,
+  paymentProviderSettingsSchema,
   paystackWebhookSchema,
   payoutAccountSchema,
   supportCaseCreateSchema,
@@ -54,7 +56,6 @@ import { MonnifyClient } from "./services/monnifyClient";
 import { ComplianceRisk, hasBlockingComplianceRisk, highValueReviewAmount, scoreComplianceRisk } from "./services/complianceRisk";
 import { createSandboxPaymentInstruction, getPayoutVerificationTestResolution, isSandboxPaymentReference } from "./services/payoutVerificationTestMode";
 import crypto from "crypto";
-import type { PaystackTransactionStatus } from "./services/paystackClient";
 
 validateConfig();
 
@@ -73,8 +74,33 @@ void escrowStore.initializeSchema();
 void opsStore.initializeSchema();
 const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 const paystackClient = new PaystackClient();
+const paystackPaymentProvider = createNairaPaymentProvider("paystack");
+const monnifyPaymentProvider = createNairaPaymentProvider("monnify");
 const monnifyClient = new MonnifyClient();
 let lastAbuseTrendAlertAt = 0;
+
+function createProviderForId(provider?: string) {
+  return createNairaPaymentProvider(provider || "paystack");
+}
+
+function providerConfigured(provider: string) {
+  const normalized = provider.trim().toLowerCase();
+  if (normalized === "paystack") return Boolean(config.paystack.secretKey);
+  if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
+  return false;
+}
+
+async function getActiveNairaPaymentProvider() {
+  const settings = await settingsStore.getSettings();
+  if (!providerConfigured(settings.activePaymentProvider)) {
+    throw new Error(`Active Naira payment provider is not configured: ${settings.activePaymentProvider}`);
+  }
+  return createProviderForId(settings.activePaymentProvider);
+}
+
+function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
+  return createProviderForId(escrow.paymentProvider || "paystack");
+}
 
 function safeSecretEquals(a: string, b: string) {
   const left = Buffer.from(a);
@@ -120,6 +146,26 @@ app.use((req, _res, next) => {
   next();
 });
 
+app.use(async (req, res, next) => {
+  if (!req.path.startsWith("/api/") || req.path === "/api/health") return next();
+  if (!hasValidStaticServiceAuth(req)) return next();
+  try {
+    const settings = await settingsStore.getSettings();
+    if (settings.platformMode !== "maintenance") return next();
+    return res.status(503).json({
+      error: "PLATFORM_MAINTENANCE",
+      message: settings.maintenanceMessage,
+      mode: settings.platformMode,
+    });
+  } catch (err: any) {
+    captureOperationalError("Failed to evaluate platform mode", err, { path: req.path });
+    return res.status(503).json({
+      error: "PLATFORM_MODE_UNAVAILABLE",
+      message: "Sivan is temporarily unavailable. Please try again soon.",
+    });
+  }
+});
+
 app.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok", uptime: process.uptime() });
 });
@@ -146,6 +192,7 @@ async function buildDatabaseStatus() {
     provider: config.app.databaseProvider,
     configured: Boolean(config.app.databaseUrl),
     settingsVersion: settings.version,
+    platformMode: settings.platformMode,
     latencyMs: Date.now() - startedAt,
   };
 }
@@ -720,17 +767,38 @@ async function buildReconciliationRows(limit = 250) {
   const escrows = await escrowStore.listEscrows(limit);
   return Promise.all(
     escrows.map(async (escrow) => {
-      const [buyer, seller, payout, payoutQuote, complianceRisk] = await Promise.all([
+      const [buyer, seller, payout, payoutQuote, complianceRisk, events] = await Promise.all([
         escrowStore.getUserById(escrow.buyerUserId),
         escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
         escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
         calculateEscrowPayoutQuote(escrow.amount, escrow.currency),
         calculateComplianceRisk(escrow),
+        escrowStore.listEvents(escrow.escrowId, 50),
       ]);
+      const settlementEvent = events.find((event) => event.eventType === "settlement_received");
+      let settlementMetadata: any = {};
+      try {
+        settlementMetadata = settlementEvent?.metadata ? JSON.parse(settlementEvent.metadata) : {};
+      } catch {
+        settlementMetadata = {};
+      }
+      const settlementTransaction = settlementMetadata.transaction || {};
+      const settlementReference = settlementMetadata.settlementReference || null;
+      const settlementAmount = settlementTransaction.settlementAmount !== undefined
+        ? Number(settlementTransaction.settlementAmount)
+        : settlementMetadata.settlementAmount !== undefined
+          ? Number(settlementMetadata.settlementAmount)
+          : null;
+      const settlementProviderFee = settlementTransaction.totalPayable !== undefined && settlementTransaction.settlementAmount !== undefined
+        ? Math.max(0, Number(settlementTransaction.totalPayable) - Number(settlementTransaction.settlementAmount))
+        : null;
       const flags = new Set(escrow.reconciliationFlags || []);
       if (escrow.status === "REVIEW_REQUIRED") flags.add("payment_review_required");
       if (escrow.status === "RELEASED" && !escrow.manualPayoutReference) flags.add("missing_payout_reference");
       if (escrow.status === "PENDING_RELEASE") flags.add("release_awaiting_manual_payout");
+      if (escrow.paymentProvider === "monnify" && !settlementReference && ["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status)) {
+        flags.add("settlement_pending");
+      }
       if ((escrow.reconciliationFlags || []).includes("payment_amount_mismatch")) flags.add("payment_amount_mismatch");
       const payoutVerified = payout?.verificationStatus === "verified";
       if (payout?.sharedAccountFlag) flags.add("shared_payout_account_review");
@@ -764,6 +832,10 @@ async function buildReconciliationRows(limit = 250) {
         paystackReference: escrow.paymentProvider === "paystack" ? escrow.paymentReference || null : null,
         paymentProvider: escrow.paymentProvider || null,
         paymentStatus: escrow.providerPaymentStatus || escrow.status,
+        settlementReference,
+        settlementAmount,
+        settlementProviderFee,
+        settlementReceivedAt: settlementEvent?.createdAt || null,
         payoutReference: escrow.manualPayoutReference || null,
         payoutApprover: escrow.releasedBy || null,
         releaseTimestamp: escrow.releasedAt || null,
@@ -805,7 +877,12 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     "amount source",
     "currency",
     "Paystack reference",
+    "payment provider",
     "payment status",
+    "settlement reference",
+    "settlement amount",
+    "settlement provider fee",
+    "settlement received at",
     "payout reference",
     "release approver",
     "release timestamp",
@@ -832,7 +909,12 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     row.amountSource,
     row.currency,
     row.paystackReference,
+    row.paymentProvider,
     row.paymentStatus,
+    row.settlementReference,
+    row.settlementAmount,
+    row.settlementProviderFee,
+    row.settlementReceivedAt,
     row.payoutReference,
     row.payoutApprover,
     row.releaseTimestamp,
@@ -925,6 +1007,44 @@ async function buildRevenueAnalytics() {
     processorFees: number;
     processorFeeKnownCount: number;
   }>));
+  const settlementEvents = (await Promise.all(
+    Array.from(new Set(productionFundingTransactions.map((transaction) => transaction.escrowId))).map((escrowId) =>
+      escrowStore.listEvents(escrowId, 50)
+    )
+  )).flat().filter((event) => event.eventType === "settlement_received");
+  const settlementSummary = Object.values(settlementEvents.reduce((acc, event) => {
+    let metadata: any = {};
+    try {
+      metadata = event.metadata ? JSON.parse(event.metadata) : {};
+    } catch {
+      metadata = {};
+    }
+    const provider = String(metadata.provider || "unknown");
+    const transaction = metadata.transaction || {};
+    const settlementAmount = Number(transaction.settlementAmount ?? metadata.settlementAmount ?? 0);
+    const totalPayable = Number(transaction.totalPayable ?? transaction.amountPaid ?? settlementAmount);
+    const providerFee = Math.max(0, totalPayable - settlementAmount);
+    acc[provider] ||= {
+      provider,
+      settlementCount: 0,
+      settlementAmount: 0,
+      providerFees: 0,
+      latestSettlementAt: event.createdAt,
+    };
+    acc[provider].settlementCount += 1;
+    acc[provider].settlementAmount += Number.isFinite(settlementAmount) ? settlementAmount : 0;
+    acc[provider].providerFees += Number.isFinite(providerFee) ? providerFee : 0;
+    if (new Date(event.createdAt).getTime() > new Date(acc[provider].latestSettlementAt).getTime()) {
+      acc[provider].latestSettlementAt = event.createdAt;
+    }
+    return acc;
+  }, {} as Record<string, {
+    provider: string;
+    settlementCount: number;
+    settlementAmount: number;
+    providerFees: number;
+    latestSettlementAt: string;
+  }>));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -943,6 +1063,7 @@ async function buildRevenueAnalytics() {
     },
     periods: snapshots,
     processorBreakdown,
+    settlementSummary,
   };
 }
 
@@ -952,33 +1073,35 @@ function amountsMatch(expected: number, received: number) {
 
 async function reconcileEscrowPayment(
   escrowId: string,
-  transaction: PaystackTransactionStatus,
+  transaction: VerifiedNairaPayment,
   source: "webhook" | "admin_recheck"
 ): Promise<EscrowRecord> {
   const escrow = await escrowStore.getEscrowById(escrowId);
   if (!escrow) throw new Error("Escrow not found");
 
   if (transaction.status !== "success") {
-    capturePaymentWarning("Paystack escrow transaction verification did not confirm success", {
+    capturePaymentWarning("Naira escrow transaction verification did not confirm success", {
       escrowId,
-      paymentReference: transaction.reference,
+      provider: transaction.provider,
+      paymentReference: transaction.paymentReference,
       status: transaction.status,
       source,
     });
     return escrowStore.markPaymentReviewRequired(escrowId, {
       receivedAmount: transaction.amount,
       providerPaymentStatus: transaction.status,
-      flags: ["paystack_verification_not_success"],
-      reason: `Paystack verification returned ${transaction.status}`,
-      reference: transaction.reference,
+      flags: [`${transaction.provider}_verification_not_success`],
+      reason: `${transaction.provider} verification returned ${transaction.status}`,
+      reference: transaction.paymentReference,
       metadata: { ...transaction, source },
     });
   }
 
   if (!amountsMatch(escrow.amount, transaction.amount)) {
-    capturePaymentWarning("Paystack escrow payment amount mismatch", {
+    capturePaymentWarning("Naira escrow payment amount mismatch", {
       escrowId,
-      paymentReference: transaction.reference,
+      provider: transaction.provider,
+      paymentReference: transaction.paymentReference,
       expectedAmount: escrow.amount,
       receivedAmount: transaction.amount,
       source,
@@ -988,14 +1111,14 @@ async function reconcileEscrowPayment(
       providerPaymentStatus: transaction.status,
       flags: ["payment_amount_mismatch"],
       reason: `Expected ${escrow.amount} ${escrow.currency}, received ${transaction.amount} ${transaction.currency}`,
-      reference: transaction.reference,
+      reference: transaction.paymentReference,
       metadata: { ...transaction, source },
     });
   }
 
-  const funded = await escrowStore.markFundedByPaymentReference(transaction.reference, { ...transaction, source });
+  const funded = await escrowStore.markFundedByPaymentReference(transaction.paymentReference, { ...transaction, source });
   if (!funded) {
-    throw new Error("Verified Paystack transaction did not match an escrow payment reference");
+    throw new Error(`Verified ${transaction.provider} transaction did not match an escrow payment reference`);
   }
   return funded;
 }
@@ -1014,7 +1137,7 @@ const retryWorker = new RetryWorker(opsStore, {
       ? await escrowStore.getEscrowById(String(payload.escrowId))
       : await escrowStore.findEscrowByPaymentReference(paymentReference);
     if (!escrow) throw new Error("No escrow found for Paystack payment reference");
-    const transaction = await paystackClient.fetchTransaction(paymentReference);
+    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
   },
   webhook_recovery: async (payload) => {
@@ -1022,7 +1145,7 @@ const retryWorker = new RetryWorker(opsStore, {
     if (!paymentReference) throw new Error("webhook_recovery requires paymentReference");
     const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
     if (!escrow) throw new Error("No escrow found for webhook recovery payment reference");
-    const transaction = await paystackClient.fetchTransaction(paymentReference);
+    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
   },
   payout_review: async (payload) => {
@@ -1399,26 +1522,41 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
+      const activeProvider = await getActiveNairaPaymentProvider();
       try {
-        const transaction = await paystackClient.initializeTransaction(
-          accepted.amount,
-          paystackEmailForWhatsapp(parsed.data.actorWhatsapp),
-          config.paystack.callbackUrl
-        );
+        const transaction = await activeProvider.initializeBankTransferPayment({
+          amount: accepted.amount,
+          customerEmail: paystackEmailForWhatsapp(parsed.data.actorWhatsapp),
+          callbackUrl: config.paystack.callbackUrl,
+          escrowId: accepted.escrowId,
+        });
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
-          paymentReference: transaction.reference,
+          paymentReference: transaction.paymentReference,
           paymentAuthorizationUrl: transaction.authorizationUrl,
-          paymentProvider: "paystack",
+          paymentProvider: transaction.provider,
+          paymentMetadata: transaction,
           status: "PENDING_PAYMENT",
         });
-        payment = { provider: "paystack", reference: transaction.reference, authorizationUrl: transaction.authorizationUrl };
+        payment = {
+          provider: transaction.provider,
+          reference: transaction.paymentReference,
+          transactionReference: transaction.transactionReference,
+          authorizationUrl: transaction.authorizationUrl,
+          accountNumber: transaction.accountNumber,
+          accountName: transaction.accountName,
+          bankName: transaction.bankName,
+          bankCode: transaction.bankCode,
+          expiresAt: transaction.expiresAt,
+          expiresInSeconds: transaction.expiresInSeconds,
+        };
       } catch (err: any) {
         const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
         if (!sandboxPayment) throw err;
-        warn("Using sandbox payment instruction after Paystack initialization failure", {
+        warn("Using sandbox payment instruction after Naira payment initialization failure", {
           escrowId: accepted.escrowId,
-          paystackError: err?.message || String(err),
+          provider: activeProvider.id,
+          paymentError: err?.message || String(err),
         });
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
@@ -1448,7 +1586,9 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
       if (buyer) {
         const instruction = payment.authorizationUrl
           ? `Seller accepted escrow ${updated.escrow.escrowId}.\nPay here: ${payment.authorizationUrl}`
-          : `Seller accepted escrow ${updated.escrow.escrowId}.\nPayment reference: ${payment.reference}`;
+          : payment.accountNumber
+            ? `Seller accepted escrow ${updated.escrow.escrowId}.\nTransfer ${updated.escrow.currency} ${updated.escrow.amount} to ${payment.bankName || "the assigned bank"} account ${payment.accountNumber}. Account name: ${payment.accountName || "Sivan escrow"}. Expires: ${payment.expiresAt || "soon"}.\nReference: ${payment.reference}`
+            : `Seller accepted escrow ${updated.escrow.escrowId}.\nPayment reference: ${payment.reference}`;
         await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
       }
     }
@@ -1601,7 +1741,7 @@ app.post("/webhooks/paystack", async (req, res) => {
       return res.status(400).send({ error: "Missing signature header" });
     }
 
-    const verified = await paystackClient.verifyWebhookSignature(rawBody, signature);
+    const verified = await paystackPaymentProvider.verifyWebhookSignature(rawBody, signature);
     if (!verified) {
       capturePaymentWarning("Invalid Paystack webhook signature", { paymentReference: req.body?.data?.reference || "unknown" });
       return res.status(400).send({ error: "Invalid webhook signature" });
@@ -1614,16 +1754,17 @@ app.post("/webhooks/paystack", async (req, res) => {
   }
 
   const event = parsedEvent.data;
-  info("Paystack webhook received", event.event, event.data.reference);
+  const normalizedWebhook = paystackPaymentProvider.normalizeWebhook(event);
+  info("Paystack webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
 
-  const paymentReference = event.data.reference;
-  const eventType = event.event || "unknown";
+  const paymentReference = normalizedWebhook.paymentReference;
+  const eventType = normalizedWebhook.eventType;
   if (paymentReference) {
-    await workflowStore.addWebhookEvent(String(event.id || crypto.randomUUID()), paymentReference, eventType, JSON.stringify(event));
+    await workflowStore.addWebhookEvent(normalizedWebhook.eventId || crypto.randomUUID(), paymentReference, eventType, JSON.stringify(event));
     const task = await workflowStore.findTaskByPaymentReference(paymentReference);
     if (task) {
       if (eventType === "charge.success") {
-        const transaction = await paystackClient.fetchTransaction(paymentReference);
+        const transaction = await paystackPaymentProvider.verifyPayment(paymentReference);
         if (transaction.status !== "success") {
           capturePaymentWarning("Paystack webhook was charge.success but transaction verification did not confirm success", {
             taskId: task.taskId,
@@ -1652,7 +1793,7 @@ app.post("/webhooks/paystack", async (req, res) => {
     } else {
       const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
       if (escrow && eventType === "charge.success") {
-        const transaction = await paystackClient.fetchTransaction(paymentReference);
+        const transaction = await paystackPaymentProvider.verifyPayment(paymentReference);
         const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
         if (funded.status === "IN_PROGRESS") {
           info("Escrow funded from verified Paystack webhook", { escrowId: funded.escrowId, paymentReference });
@@ -1685,6 +1826,7 @@ app.post("/webhooks/paystack", async (req, res) => {
       try {
         await opsStore.enqueueJob("webhook_recovery", {
           paymentReference: reference,
+          provider: "paystack",
           eventType: req.body?.event || "unknown",
           reason: "paystack_webhook_processing_failed",
         }, { maxAttempts: 8 });
@@ -1693,6 +1835,121 @@ app.post("/webhooks/paystack", async (req, res) => {
       }
     }
     captureOperationalError("Paystack webhook processing failed", err, { paymentReference: reference || "unknown" });
+    return res.status(500).send({ error: "Webhook processing failed" });
+  }
+});
+
+app.post("/webhooks/monnify", async (req, res) => {
+  const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+  let normalizedPaymentReference = "";
+  try {
+    const signature = req.headers["monnify-signature"] as string;
+    if (!signature) {
+      capturePaymentWarning("Missing Monnify webhook signature header", { path: req.path });
+      return res.status(400).send({ error: "Missing signature header" });
+    }
+
+    const verified = await monnifyPaymentProvider.verifyWebhookSignature(rawBody, signature);
+    if (!verified) {
+      capturePaymentWarning("Invalid Monnify webhook signature", { paymentReference: req.body?.eventData?.paymentReference || "unknown" });
+      return res.status(400).send({ error: "Invalid webhook signature" });
+    }
+
+    const normalizedWebhook = monnifyPaymentProvider.normalizeWebhook(req.body);
+    normalizedPaymentReference = normalizedWebhook.paymentReference;
+    info("Monnify webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
+    await workflowStore.addWebhookEvent(
+      normalizedWebhook.eventId || crypto.randomUUID(),
+      normalizedWebhook.paymentReference,
+      `monnify:${normalizedWebhook.eventType}`,
+      JSON.stringify(req.body)
+    );
+
+    if (normalizedWebhook.eventType === "SETTLEMENT") {
+      const transactions = Array.isArray(req.body?.eventData?.transactions) ? req.body.eventData.transactions : [];
+      for (const transaction of transactions) {
+        const paymentReference = String(transaction.paymentReference || transaction.product?.reference || "").trim();
+        if (!paymentReference) continue;
+        const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
+        if (!escrow) continue;
+        await escrowStore.addEvent({
+          escrowId: escrow.escrowId,
+          actor: "monnify",
+          actorRole: "payment_provider",
+          channel: "webhook",
+          previousStatus: escrow.status,
+          nextStatus: escrow.status,
+          eventType: "settlement_received",
+          reason: req.body?.eventData?.settlementReference || "monnify_settlement",
+          metadata: {
+            provider: "monnify",
+            settlementReference: req.body?.eventData?.settlementReference,
+            settlementAmount: req.body?.eventData?.amount,
+            transaction,
+          },
+        });
+      }
+      return res.status(200).send({ status: "received" });
+    }
+
+    if (normalizedWebhook.eventType !== "SUCCESSFUL_TRANSACTION") {
+      return res.status(200).send({ status: "received" });
+    }
+
+    const escrow = await escrowStore.findEscrowByPaymentReference(normalizedWebhook.paymentReference);
+    if (!escrow) {
+      capturePaymentWarning("Monnify webhook did not match any escrow", {
+        paymentReference: normalizedWebhook.paymentReference,
+        eventType: normalizedWebhook.eventType,
+      });
+      return res.status(202).send({ status: "unmatched" });
+    }
+    if (escrow.paymentProvider && escrow.paymentProvider !== "monnify") {
+      capturePaymentWarning("Monnify webhook matched escrow with different provider", {
+        escrowId: escrow.escrowId,
+        escrowProvider: escrow.paymentProvider,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      return res.status(409).send({ error: "Payment reference belongs to a different provider" });
+    }
+
+    const transaction = await monnifyPaymentProvider.verifyPayment(normalizedWebhook.paymentReference);
+    if (transaction.paymentReference !== normalizedWebhook.paymentReference) {
+      capturePaymentWarning("Monnify verification reference mismatch", {
+        webhookReference: normalizedWebhook.paymentReference,
+        verifiedReference: transaction.paymentReference,
+      });
+      return res.status(202).send({ status: "verification_reference_mismatch" });
+    }
+
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+    if (funded.status === "IN_PROGRESS") {
+      info("Escrow funded from verified Monnify webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+    } else if (funded.status === "REVIEW_REQUIRED") {
+      info("Escrow payment moved to review from Monnify webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+    }
+    return res.status(200).send({ status: "received" });
+  } catch (err: any) {
+    if (normalizedPaymentReference) {
+      try {
+        await opsStore.enqueueJob("webhook_recovery", {
+          paymentReference: normalizedPaymentReference,
+          provider: "monnify",
+          eventType: req.body?.eventType || "unknown",
+          reason: "monnify_webhook_processing_failed",
+        }, { maxAttempts: 8 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue Monnify webhook recovery job", enqueueErr, { paymentReference: normalizedPaymentReference });
+      }
+    }
+    captureOperationalError("Monnify webhook processing failed", err, { paymentReference: normalizedPaymentReference || "unknown" });
     return res.status(500).send({ error: "Webhook processing failed" });
   }
 });
@@ -1834,15 +2091,15 @@ app.post("/admin/escrows/:escrowId/recheck-payment", requireAdminAuth, logAdminA
       ? req.body.paymentReference.trim()
       : escrow.paymentReference;
     if (!paymentReference) {
-      return res.status(400).json({ error: "Escrow has no Paystack payment reference" });
+      return res.status(400).json({ error: "Escrow has no payment reference" });
     }
 
-    const transaction = await paystackClient.fetchTransaction(paymentReference);
+    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
     const updated = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
     const detail = await buildEscrowDetail(updated.escrowId);
     res.status(200).json({ escrow: updated, detail, transaction });
   } catch (err: any) {
-    capturePaymentWarning("Admin Paystack payment recheck failed", {
+    capturePaymentWarning("Admin payment recheck failed", {
       escrowId: req.params.escrowId,
       error: err.message || err,
     });
@@ -2352,6 +2609,9 @@ app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"),
       nairaPlatformActiveExposureLimit: updates.nairaPlatformActiveExposureLimit ?? current.nairaPlatformActiveExposureLimit,
       trustedUserSuccessfulEscrows: updates.trustedUserSuccessfulEscrows ?? current.trustedUserSuccessfulEscrows,
       establishedUserSuccessfulEscrows: updates.establishedUserSuccessfulEscrows ?? current.establishedUserSuccessfulEscrows,
+      platformMode: updates.platformMode ?? current.platformMode,
+      maintenanceMessage: updates.maintenanceMessage ?? current.maintenanceMessage,
+      nairaPaymentMethod: "bank_transfer",
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });
@@ -2364,6 +2624,120 @@ app.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings"),
     if (message.includes("version mismatch")) {
       return res.status(409).json({ error: message });
     }
+    res.status(400).json({ error: message });
+  }
+});
+
+function providerStatus() {
+  return [
+    {
+      provider: "paystack",
+      label: "Paystack",
+      implemented: true,
+      configured: providerConfigured("paystack"),
+      methods: ["bank_transfer"],
+    },
+    {
+      provider: "monnify",
+      label: "Monnify",
+      implemented: true,
+      configured: providerConfigured("monnify"),
+      methods: ["bank_transfer"],
+    },
+    {
+      provider: "palmpay",
+      label: "PalmPay",
+      implemented: false,
+      configured: false,
+      methods: ["bank_transfer"],
+    },
+    {
+      provider: "flutterwave",
+      label: "Flutterwave",
+      implemented: false,
+      configured: false,
+      methods: ["bank_transfer"],
+    },
+  ];
+}
+
+app.get("/admin/payment-providers", requireAdminAuth, async (_req, res) => {
+  try {
+    const settings = await settingsStore.getSettings();
+    res.status(200).json({
+      activePaymentProvider: settings.activePaymentProvider,
+      backupPaymentProvider: settings.backupPaymentProvider,
+      emergencyPaymentProvider: settings.emergencyPaymentProvider,
+      paymentProviderFallbackEnabled: settings.paymentProviderFallbackEnabled,
+      platformMode: settings.platformMode,
+      maintenanceMessage: settings.maintenanceMessage,
+      nairaPaymentMethod: settings.nairaPaymentMethod,
+      version: settings.version,
+      providers: providerStatus(),
+      fallbackPolicy: "fallback_only_for_new_payment_creation",
+    });
+  } catch (err: any) {
+    error("Failed to fetch payment provider settings", err.message || err);
+    res.status(500).json({ error: err.message || "Failed to fetch payment provider settings" });
+  }
+});
+
+app.post("/admin/payment-providers", requireAdminAuth, logAdminAction("update_payment_providers"), async (req, res) => {
+  try {
+    const parsed = paymentProviderSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid payment provider settings payload", details: formatZodError(parsed.error) });
+    }
+    const statuses = providerStatus();
+    const activeStatus = statuses.find((provider) => provider.provider === parsed.data.activePaymentProvider);
+    if (!activeStatus?.implemented || !activeStatus.configured) {
+      return res.status(400).json({ error: `Active payment provider is not configured: ${parsed.data.activePaymentProvider}` });
+    }
+    if (parsed.data.paymentProviderFallbackEnabled) {
+      const backupStatus = statuses.find((provider) => provider.provider === parsed.data.backupPaymentProvider);
+      if (!backupStatus?.implemented || !backupStatus.configured) {
+        return res.status(400).json({ error: "Fallback can only be enabled after the backup provider is implemented and configured" });
+      }
+    }
+
+    const adminUser = (req as any).adminUser || "unknown";
+    const current = await settingsStore.getSettings();
+    const updated = await settingsStore.updateSettings({
+      nairaFeePercent: current.nairaFeePercent,
+      nairaFeeFixed: current.nairaFeeFixed,
+      usdcFeePercent: current.usdcFeePercent,
+      usdcFeeFixed: current.usdcFeeFixed,
+      nairaNewUserLimit: current.nairaNewUserLimit,
+      nairaTrustedUserLimit: current.nairaTrustedUserLimit,
+      nairaEstablishedUserLimit: current.nairaEstablishedUserLimit,
+      nairaSpecialApprovalLimit: current.nairaSpecialApprovalLimit,
+      nairaBuyerActiveExposureLimit: current.nairaBuyerActiveExposureLimit,
+      nairaPlatformActiveExposureLimit: current.nairaPlatformActiveExposureLimit,
+      trustedUserSuccessfulEscrows: current.trustedUserSuccessfulEscrows,
+      establishedUserSuccessfulEscrows: current.establishedUserSuccessfulEscrows,
+      activePaymentProvider: parsed.data.activePaymentProvider,
+      backupPaymentProvider: parsed.data.backupPaymentProvider,
+      emergencyPaymentProvider: parsed.data.emergencyPaymentProvider,
+      paymentProviderFallbackEnabled: parsed.data.paymentProviderFallbackEnabled,
+      expectedVersion: parsed.data.expectedVersion,
+      updatedBy: adminUser,
+    });
+    res.status(200).json({
+      activePaymentProvider: updated.activePaymentProvider,
+      backupPaymentProvider: updated.backupPaymentProvider,
+      emergencyPaymentProvider: updated.emergencyPaymentProvider,
+      paymentProviderFallbackEnabled: updated.paymentProviderFallbackEnabled,
+      platformMode: updated.platformMode,
+      maintenanceMessage: updated.maintenanceMessage,
+      nairaPaymentMethod: updated.nairaPaymentMethod,
+      version: updated.version,
+      providers: providerStatus(),
+      fallbackPolicy: "fallback_only_for_new_payment_creation",
+    });
+  } catch (err: any) {
+    warn("Payment provider settings update failed", err.message || err);
+    const message = err.message || "Payment provider settings update failed";
+    if (message.includes("version mismatch")) return res.status(409).json({ error: message });
     res.status(400).json({ error: message });
   }
 });

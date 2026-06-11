@@ -1112,6 +1112,7 @@ export class EscrowStore {
     paymentReference: string;
     paymentAuthorizationUrl?: string;
     paymentProvider: string;
+    paymentMetadata?: any;
     status?: EscrowStatus;
   }): Promise<void> {
     await this.initializeSchema();
@@ -1126,7 +1127,14 @@ export class EscrowStore {
         SET payment_reference = @paymentReference, payment_authorization_url = @paymentAuthorizationUrl,
             payment_provider = @paymentProvider, status = @nextStatus, updated_at = @now
         WHERE escrow_id = @escrowId
-      `).run({ ...input, paymentAuthorizationUrl: input.paymentAuthorizationUrl || null, nextStatus, now });
+      `).run({
+        escrowId: input.escrowId,
+        paymentReference: input.paymentReference,
+        paymentAuthorizationUrl: input.paymentAuthorizationUrl || null,
+        paymentProvider: input.paymentProvider,
+        nextStatus,
+        now,
+      });
     } else {
       await this.pool!.query(
         `UPDATE escrows SET payment_reference = $1, payment_authorization_url = $2, payment_provider = $3, status = $4, updated_at = $5 WHERE escrow_id = $6`,
@@ -1142,6 +1150,7 @@ export class EscrowStore {
       reference: input.paymentReference,
       amount: current.amount,
       currency: current.currency,
+      rawPayload: input.paymentMetadata ? JSON.stringify(input.paymentMetadata) : undefined,
     });
     await this.addEvent({
       escrowId: input.escrowId,
@@ -1152,6 +1161,7 @@ export class EscrowStore {
       nextStatus,
       eventType: "payment_initialized",
       reason: input.paymentReference,
+      metadata: input.paymentMetadata,
     });
   }
 
@@ -1187,7 +1197,7 @@ export class EscrowStore {
       reconciliationFlags: [],
     });
     await this.transitionEscrow(escrow.escrowId, "IN_PROGRESS", {
-      actor: "paystack",
+      actor: metadata?.provider || escrow.paymentProvider || "payment_provider",
       actorRole: "payment_provider",
       channel: "webhook",
       eventType: "payment_verified",
@@ -1198,7 +1208,9 @@ export class EscrowStore {
     await this.addLedgerEntry({
       escrowId: escrow.escrowId,
       entryType: "funding",
-      debitAccount: escrow.currency === "NAIRA" ? "buyer_payment_paystack" : "buyer_payment_x402",
+      debitAccount: escrow.currency === "NAIRA"
+        ? `buyer_payment_${metadata?.provider || escrow.paymentProvider || "provider"}`
+        : "buyer_payment_x402",
       creditAccount: "escrow_liability",
       amount: metadata?.amount || escrow.amount,
       currency: escrow.currency,
@@ -1228,7 +1240,7 @@ export class EscrowStore {
       reconciliationFlags: input.flags,
     });
     await this.transitionEscrow(escrowId, "REVIEW_REQUIRED", {
-      actor: "paystack",
+      actor: input.metadata?.provider || escrow.paymentProvider || "payment_provider",
       actorRole: "payment_provider",
       channel: "reconciliation",
       eventType: "payment_review_required",
@@ -1682,7 +1694,7 @@ export class EscrowStore {
     }
   }
 
-  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt">): Promise<string> {
+  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt" | "metadata"> & { metadata?: any }): Promise<string> {
     await this.initializeSchema();
     const eventId = id("event");
     const createdAt = new Date().toISOString();
