@@ -159,12 +159,14 @@ If Monnify disbursement is added later:
 6. ✅ Add admin provider settings for active/backup/emergency provider.
 7. ✅ Add richer Monnify settlement fields to admin Reconciliation and Revenue tabs.
 8. ✅ Verify provider-neutral code paths with local build/tests and deployed smoke/DR checks.
-9. 🟡 Run `docs/monnify-live-test.md` before using Monnify for real users.
+9. ✅ Verify Monnify sandbox authentication, transaction initialization, bank-transfer account generation, and pending server-side verification.
+10. 🟡 Run the payment/webhook sections of `docs/monnify-live-test.md` before using Monnify for real users.
 
 ## Current Progress
 
 ```text
-Monnify transport progress: 85%
+Monnify transport progress: 88%
+Monnify sandbox initialization proof: 25%
 Monnify live-transfer proof: 0%
 ```
 
@@ -180,4 +182,7 @@ Monnify live-transfer proof: 0%
 | Local build/test proof | ✅ Passed on 2026-06-11 | `npm run build` passed; `npm test -- --run` passed with 14 files and 77 tests |
 | Live backend smoke proof | ✅ Passed on 2026-06-11 | `npm run smoke` passed against the deployed Render backend after allowing network access |
 | Live DR proof | ✅ Passed on 2026-06-11 | `npm run dr:check` passed against the deployed Render backend after allowing network access |
+| Live admin session smoke proof | ✅ Passed on 2026-06-11 | `npm run smoke:admin-page` passed against backend admin routes and Telegram auth session routes |
+| Monnify sandbox initialization proof | ✅ Passed on 2026-06-11 | Sandbox auth, bank-transfer instruction generation, and server-side verification of a pending transaction passed |
+| Monnify webhook route fail-closed proof | ✅ Passed on 2026-06-11 | Deployed `/webhooks/monnify` rejected an unsigned payload instead of processing it |
 | Monnify live sandbox test | 🟡 Next | Run the checklist with a real Monnify sandbox transfer before enabling Monnify for real users |
