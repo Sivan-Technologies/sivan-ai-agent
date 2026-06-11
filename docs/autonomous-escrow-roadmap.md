@@ -231,14 +231,14 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
-| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth works, Meta Cloud API foundation now exists as a second transport, outbound messages work, webhook routes exist, optional Meta app-secret signature verification is wired, private DM flow exists, escrow creation is idempotent for repeated confirmations, seller invites no longer block buyer confirmation, and escrow commands now cover accept, status, complete, release, and dispute |
+| Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth and Meta Cloud API paths exist; backend-authorized Deal Cards, participant-filtered My Deals, durable active-deal context, no-ID lifecycle commands, multiple-deal selection, concise customer copy, and confirmations for cancel/release/dispute are implemented |
 | Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, buyer profiles can be fetched for repeat WhatsApp deals, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
 | Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, account-number-first payout setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and verified payout account are complete; seller setup collects first name, last name, account number, then bank search/selection because provider resolution requires account number plus bank code. A fail-closed exact-account sandbox override supports controlled E2E testing only with Paystack test credentials |
-| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval requires payout/reference ID only, derives gross amount from the escrow record, calculates platform fee/seller net payout, and stores reconciliation details |
-| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
+| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval accepts payout/reference ID and notes only, rejects manual amount fields, derives gross amount from the escrow record, calculates platform fee/seller net payout, and stores reconciliation details |
+| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, combined risk, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, Telegram/direct alert routing, generic alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
@@ -246,8 +246,8 @@ Legend:
 | Phase 11C | Production environment hardening | ✅ Completed for MVP / 🟡 rotation cadence required | Env docs, secret placeholders, stricter admin/API auth gates, optional admin/core IP allowlists, explicit local-auth opt-in, CORS/rate limiting, HTTPS deploy assumptions, Postgres config guidance, DR env checks, and live Neon restore proof exist. Remaining operator work is recurring secret rotation plus setting allowlist values only after stable operator/bot egress IPs are known |
 | Phase 11D | Abuse prevention expansion | ✅ Completed for MVP | Escrow creation scoring covers velocity, self-dealing, high amounts, repeated scam keywords, abuse signal persistence, request/device fingerprint metadata, reputation watchlist, cross-device graph visibility, automated reputation action suggestions, velocity dashboard, operator analytics, and admin-configurable buyer-tier and active-exposure limits |
 | Phase 11E | Transaction recovery procedures | ✅ Completed for MVP | Runbooks and admin recovery endpoints cover payment mismatch, wrong amount, missing webhook, payout failure, stuck escrow, cancellation, double webhook, refund situations, and queue replay |
-| Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab now tracks pending releases, missing payout references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
-| Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, operator actions, release history, payment history, dispute history, and linked support cases |
+| Phase 11F | Payout automation safety layer | ✅ Completed for manual-payout MVP | Admin Payout Safety tab shows escrow amount, platform fee, seller net payout, masked bank, resolved account name, combined risk level, payout reference state, pending releases, missing references, amount mismatches, payout review jobs, queue recovery, and duplicate-risk operator review before future autonomous payout retries |
+| Phase 11G | Audit/event explorer | ✅ Completed for MVP | Admin Audit tab and escrow timeline endpoint expose events, transactions, ledger entries, operator actions, release history, payment history, dispute history, manual payout references, and linked support cases |
 | Phase 11H | Dispute evidence and resolution | ✅ Completed for manual-resolution MVP | Admin Disputes tab lists open disputes, captures evidence records, links support cases, records manual outcomes, writes release/refund/cancel events, closes related support cases, and accepts participant evidence from WhatsApp/private API |
 | Phase 11I | Deploy-time incident drills | ✅ Completed for operator-run drills | `npm run drill:incident` validates queue replay, webhook recovery readiness, and payout failure review paths after deploys, with execute mode for controlled recovery job creation; latest live read-only drill passed on 2026-06-02 |
 | Phase 11J | User-facing dispute history and notifications | ✅ Completed for API/notification MVP | Participant dispute history API exists, and admin evidence/resolution actions can notify buyer and seller through WhatsApp when enabled |
@@ -256,7 +256,7 @@ Legend:
 | Phase 11M | Compliance MVP | ✅ Completed for risk-gated MVP | See `docs/compliance.md`; name-match scoring, shared payout account detection, high-value release review, new-seller scoring, seller dispute-ratio gates, aggregate risk release checks, configurable Naira buyer tiers/exposure caps, durable one-time limit review decisions, escrow-derived seller-net payout approval, and funding/release/refund/fee ledger entries are implemented. Phase 2 KYC remains intentionally out of MVP scope |
 | Phase 12 | Smart autonomy | 🔮 Future | Auto-release only for low-risk transactions after rule checks |
 | Phase 13 | SAP/x402/USDC production settlement | 🟡 In progress | Verification runner and proof endpoints exist; full production settlement remains blocked on live credential run and proof artifact |
-| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, Telegram admin auth, and the admin frontend build and test cleanly; live backend smoke, incident drill, production DR checks, Neon/Postgres deploy verification, the live escrow-limit review matrix, and the Vercel admin Limit Reviews deployment passed. Latest backend and WhatsApp smoke checks passed on 2026-06-04. Admin Ops can proxy WhatsApp provider status/switching for Twilio or Meta. Remaining work is local GitHub CLI re-auth for machine-side secret verification, Meta live webhook verification, and keeping smoke/incident/DR proof current after every deploy |
+| Phase 14 | Cross-repo production operations | 🟡 In progress | Escrow backend, WhatsApp bot, Telegram admin auth, admin frontend, and public homepage build and test cleanly. GitHub CLI auth and exact Actions smoke secrets were verified, manual workflow run `26961031020` passed, scheduled runs are green, and live smoke/incident/DR checks passed. The WhatsApp bot's legacy/text fallback was verified live on 2026-06-04. The homepage is ✅ complete for controlled MVP launch: apex redirects to `www`, Vercel serves the canonical domain, SEO/social assets are present, and production-preview Lighthouse scored 98/100/100/100 on 2026-06-05. Remaining work is verifying the deployed backend participant `/api/users/escrows` contract, rotating the formerly exposed admin smoke key, Meta live webhook verification, legal counsel review of public Terms/Privacy before scaled real-money use, and keeping operational proof current after deploys |
 
 ## What Is Completed So Far
 
@@ -281,15 +281,15 @@ The current system already has:
 - ✅ idempotency guard against repeated webhook execution
 - ✅ operational warning logs for invalid signatures, payment mismatch, verification failure, blocked release, and payout approval
 - ✅ admin escrow ledger with release/dispute actions
-- ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, payout reference, approver, release timestamp
+- ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, escrow-derived gross amount, platform fee, seller net payout, masked payout account, resolved account name, combined risk level, payout reference, approver, release timestamp
 - ✅ reconciliation filters for `REVIEW_REQUIRED`, `PENDING_RELEASE`, `RELEASED`, missing payout references, and Paystack amount mismatches
-- ✅ reconciliation CSV export for accounting and manual operations
+- ✅ reconciliation CSV export for accounting, compliance risk, reconciliation risk, and manual operations
 - ✅ admin needs-attention view for payment reviews, payout queue, missing payout references, and amount mismatches
 - ✅ Naira release policy: buyer completion confirmation, then release request, then manual admin approval
 - ✅ explicit `COMPLETED` state before any release request
 - ✅ buyer-only completion and release authorization checks
 - ✅ participant-only non-admin dispute checks
-- ✅ manual Naira payout reconciliation fields: reference, notes, approver, released timestamp
+- ✅ manual Naira payout reconciliation fields: payout reference, notes, approver, released timestamp, escrow-derived gross amount, platform fee, and seller net payout
 - ✅ seller invite/accept flow before payment initialization
 - ✅ escrow creation idempotency for repeated WhatsApp `YES` confirmations
 - ✅ seller invite notification is asynchronous so Twilio/bot latency does not block escrow creation responses
@@ -300,7 +300,7 @@ The current system already has:
 - ✅ shared payout account detection using deterministic payout account tokens
 - ✅ high-value release review threshold before payout approval
 - ✅ release readiness checks for payout verification, acceptable name match, and shared-account review
-- ✅ compliance ledger entries for funding, release, and refund events
+- ✅ compliance ledger entries for funding, seller-net release, refund, and platform-fee capture events
 - ✅ backend user profile lookup for repeat WhatsApp buyers
 - ✅ guided seller profile setup in WhatsApp: first name, last name, bank search, account number, account verification
 - ✅ Naira escrow acceptance requires payout readiness before payment initialization
@@ -312,6 +312,8 @@ The current system already has:
 - ✅ WhatsApp private-DM escrow onboarding foundation
 - ✅ WhatsApp conversation sessions persisted in Postgres for Render restart recovery
 - ✅ WhatsApp commands: `accept SIV-...`, `status SIV-...`, `complete SIV-...`, `release SIV-...`, `dispute SIV-...`
+- ✅ participant-authorized escrow detail and dispute-history endpoints plus participant-filtered `/api/users/escrows`; participant detail omits internal events, ledger, compliance risk, payout records, and transaction data
+- ✅ provider-neutral WhatsApp Deal Cards with backend-calculated allowed actions, durable active-deal context, `MY DEALS`, no-ID lifecycle commands, deal selection, and explicit cancel/release/dispute confirmations
 - ✅ admin escrow detail shows payout reference, payout notes, release approver, and dispute state
 - ✅ WhatsApp group behavior limited to intent detection and private handoff
 - ✅ outbound WhatsApp message testing
@@ -483,9 +485,9 @@ Completed from the prior immediate implementation order:
 
 Next production-hardening focus:
 
-1. ✅ Latest live smoke checks against the deployed Render backend passed again on 2026-06-03; 🟡 GitHub CLI on this machine still has an invalid saved token, so local `gh`-based secret verification requires `gh auth login -h github.com`.
+1. ✅ GitHub CLI is authenticated as `Samswitchy`; exact Actions secrets/variables were verified, obsolete `SMOKE_TEST` configuration was removed, manual production smoke workflow run `26961031020` passed, and scheduled runs remain green on 2026-06-04.
 2. 🟡 Verify x402/SAP settlement with real credentials and record proof links/logs.
-3. ✅ Latest deploy-time incident drill passed on 2026-06-02 and proof was stored in `docs/release-notes/2026-06-02-production-checks.md`; repeat after each Render deploy.
+3. ✅ Latest live read-only incident drill passed again on 2026-06-04; repeat after each Render deploy.
 4. ✅ First Neon restore branch drill passed on 2026-06-02, `BACKUP_LAST_RESTORE_TEST_AT=2026-06-02T09:27:13Z` was recorded, proof was stored in `docs/release-notes/2026-06-02-production-checks.md`, Render env was updated, and production `npm run dr:check` now passes.
 5. ✅ Encrypt/tokenize payout account numbers at rest, mask payout API responses, and redact payout/payment secrets from logs.
 6. ✅ Implement compliance MVP from `docs/compliance.md`: name-match scoring, shared payout account detection, high-value review, new-seller scoring, seller dispute-ratio gates, aggregate release readiness gates, and funding/release/refund ledger entries.
@@ -494,3 +496,5 @@ Next production-hardening focus:
 9. ✅ Add admin-configurable Naira buyer trust tiers, active buyer exposure, platform exposure, and absolute maximum creation controls.
 10. ✅ Add durable escrow-limit review queue, protected approve/reject APIs, required operator notes, buyer notifications, and one-time approval escrow creation.
 11. ✅ Deploy and verify the live limit-review matrix on 2026-06-04: normal, over-tier, approved, rejected, and buyer-exposure paths passed; original production limits were restored.
+12. 🟡 Rotate the admin smoke key that was previously stored in the obsolete plaintext `SMOKE_TEST` repository variable, then update Render/local operator envs and `SIVAN_SMOKE_ADMIN_API_KEY`.
+13. 🟡 Complete Meta live inbound/outbound webhook verification before making Meta the permanent default provider.

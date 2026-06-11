@@ -1694,6 +1694,35 @@ export class EscrowStore {
     return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
   }
 
+  public async listEscrowsForWhatsapp(whatsappNumber: string, limit = 20): Promise<EscrowRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`
+        SELECT DISTINCT e.*
+        FROM escrows e
+        LEFT JOIN users buyer ON buyer.user_id = e.buyer_user_id
+        LEFT JOIN users seller ON seller.user_id = e.seller_user_id
+        WHERE buyer.whatsapp_number = @whatsappNumber
+           OR seller.whatsapp_number = @whatsappNumber
+           OR e.seller_whatsapp = @whatsappNumber
+        ORDER BY e.updated_at DESC
+        LIMIT @limit
+      `).all({ whatsappNumber, limit }).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+    }
+    const result = await this.pool!.query(`
+      SELECT DISTINCT e.*
+      FROM escrows e
+      LEFT JOIN users buyer ON buyer.user_id = e.buyer_user_id
+      LEFT JOIN users seller ON seller.user_id = e.seller_user_id
+      WHERE buyer.whatsapp_number = $1
+         OR seller.whatsapp_number = $1
+         OR e.seller_whatsapp = $1
+      ORDER BY e.updated_at DESC
+      LIMIT $2
+    `, [whatsappNumber, limit]);
+    return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+  }
+
   public async getNairaExposureForBuyer(buyerUserId: string) {
     await this.initializeSchema();
     const activeStatuses = ["CREATED", "PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT", "FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED", "DISPUTED"];

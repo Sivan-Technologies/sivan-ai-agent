@@ -28,6 +28,7 @@ import {
   escrowLimitReviewDecisionSchema,
   formatZodError,
   limitQuerySchema,
+  participantEscrowQuerySchema,
   participantDisputeEvidenceSchema,
   paystackWebhookSchema,
   payoutAccountSchema,
@@ -75,11 +76,40 @@ const paystackClient = new PaystackClient();
 const monnifyClient = new MonnifyClient();
 let lastAbuseTrendAlertAt = 0;
 
+function safeSecretEquals(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function hasValidStaticServiceAuth(req: express.Request) {
+  const coreSecret = process.env.CORE_API_SECRET || "";
+  const adminKey = process.env.ADMIN_API_KEY || "";
+  const providedCoreSecret = req.headers["x-core-api-key"];
+  const providedAdminKey = req.headers["x-admin-key"];
+
+  return Boolean(
+    coreSecret &&
+    typeof providedCoreSecret === "string" &&
+    safeSecretEquals(providedCoreSecret, coreSecret)
+  ) || Boolean(
+    adminKey &&
+    typeof providedAdminKey === "string" &&
+    safeSecretEquals(providedAdminKey, adminKey)
+  );
+}
+
 const corsOrigin = process.env.FRONTEND_URL || "*";
 app.use(cors({ origin: corsOrigin }));
 
-// Basic rate limiting to protect public endpoints
-const limiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
+// Basic rate limiting to protect public endpoints.
+// Valid bot/core/admin service calls have their own authentication and must not
+// be throttled by public IP limits during WhatsApp multi-step flows.
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  skip: hasValidStaticServiceAuth,
+});
 app.use(limiter);
 
 app.use(bodyParser.json({ verify: (req: any, res, buf) => { req.rawBody = buf.toString(); } }));
@@ -526,6 +556,77 @@ async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: str
   return null;
 }
 
+type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference";
+
+function participantDealStatus(status: EscrowRecord["status"]) {
+  const labels: Record<EscrowRecord["status"], string> = {
+    CREATED: "Getting ready",
+    PENDING_PROFILE: "Seller setup required",
+    PENDING_ACCEPTANCE: "Waiting for seller",
+    PENDING_PAYMENT: "Waiting for buyer payment",
+    FUNDED: "Payment secured",
+    IN_PROGRESS: "Work in progress",
+    COMPLETED: "Ready for release",
+    PENDING_RELEASE: "Payout awaiting approval",
+    RELEASED: "Payment released",
+    DISPUTED: "Dispute under review",
+    REVIEW_REQUIRED: "Under manual review",
+    FAILED: "Action required",
+    CANCELLED: "Cancelled",
+  };
+  return labels[status];
+}
+
+function participantDealActions(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, role: "buyer" | "seller"): ParticipantDealAction[] {
+  if (!detail) return [];
+  const { escrow } = detail;
+  const actions = new Set<ParticipantDealAction>(["status", "reference"]);
+
+  if (role === "seller" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE"].includes(escrow.status)) actions.add("accept");
+  if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
+  if (role === "buyer" && escrow.status === "PENDING_PAYMENT" && escrow.paymentAuthorizationUrl) actions.add("pay");
+  if (role === "buyer" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("complete");
+  if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
+  if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
+  if (escrow.status === "DISPUTED") actions.add("evidence");
+
+  return Array.from(actions);
+}
+
+async function buildParticipantDeal(detail: Awaited<ReturnType<typeof buildEscrowDetail>>, actorWhatsapp: string) {
+  if (!detail) return null;
+  const role = await roleForEscrowParticipant(detail.escrow, actorWhatsapp);
+  if (!role) return null;
+  return {
+    escrow: {
+      escrowId: detail.escrow.escrowId,
+      amount: detail.escrow.amount,
+      currency: detail.escrow.currency,
+      status: detail.escrow.status,
+      purpose: detail.escrow.purpose,
+      createdAt: detail.escrow.createdAt,
+      updatedAt: detail.escrow.updatedAt,
+      ...(role === "buyer" && detail.escrow.paymentAuthorizationUrl
+        ? { paymentAuthorizationUrl: detail.escrow.paymentAuthorizationUrl }
+        : {}),
+    },
+    readiness: {
+      sellerProfileComplete: detail.readiness.sellerProfileComplete,
+      payoutVerified: detail.readiness.payoutVerified,
+      sellerAccepted: detail.readiness.sellerAccepted,
+      fundingVerified: detail.readiness.fundingVerified,
+      buyerCompleted: detail.readiness.buyerCompleted,
+      releaseRequested: detail.readiness.releaseRequested,
+      nextAction: detail.readiness.nextAction,
+    },
+    participant: {
+      role,
+      displayStatus: participantDealStatus(detail.escrow.status),
+      allowedActions: participantDealActions(detail, role),
+    },
+  };
+}
+
 async function recordDisputeEvidence(input: {
   escrow: EscrowRecord;
   actor: string;
@@ -576,11 +677,12 @@ async function buildReconciliationRows(limit = 250) {
   const escrows = await escrowStore.listEscrows(limit);
   return Promise.all(
     escrows.map(async (escrow) => {
-      const [buyer, seller, payout, payoutQuote] = await Promise.all([
+      const [buyer, seller, payout, payoutQuote, complianceRisk] = await Promise.all([
         escrowStore.getUserById(escrow.buyerUserId),
         escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
         escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
         calculateEscrowPayoutQuote(escrow.amount, escrow.currency),
+        calculateComplianceRisk(escrow),
       ]);
       const flags = new Set(escrow.reconciliationFlags || []);
       if (escrow.status === "REVIEW_REQUIRED") flags.add("payment_review_required");
@@ -590,11 +692,19 @@ async function buildReconciliationRows(limit = 250) {
       const payoutVerified = payout?.verificationStatus === "verified";
       if (payout?.sharedAccountFlag) flags.add("shared_payout_account_review");
       if (payout && !["strong", "medium"].includes(payout.nameMatchLevel || "")) flags.add("payout_name_match_review");
-      const riskLevel = flags.has("payment_amount_mismatch") || flags.has("shared_payout_account_review") || flags.has("payout_name_match_review")
+      const reconciliationRiskLevel = flags.has("payment_amount_mismatch") || flags.has("shared_payout_account_review") || flags.has("payout_name_match_review")
         ? "HIGH"
         : flags.size > 0
         ? "MEDIUM"
         : "LOW";
+      const riskLevel =
+        complianceRisk.riskLevel === "CRITICAL" || reconciliationRiskLevel === "HIGH"
+          ? complianceRisk.riskLevel === "CRITICAL" ? "CRITICAL" : "HIGH"
+          : complianceRisk.riskLevel === "HIGH" || reconciliationRiskLevel === "MEDIUM"
+          ? complianceRisk.riskLevel === "HIGH" ? "HIGH" : "MEDIUM"
+          : complianceRisk.riskLevel === "MEDIUM"
+          ? "MEDIUM"
+          : "LOW";
 
       return {
         escrowId: escrow.escrowId,
@@ -624,6 +734,10 @@ async function buildReconciliationRows(limit = 250) {
         resolvedAccountName: payout?.resolvedAccountName || payout?.accountName || null,
         nameMatchScore: payout?.nameMatchScore ?? null,
         nameMatchLevel: payout?.nameMatchLevel || null,
+        complianceRiskScore: complianceRisk.riskScore,
+        complianceRiskLevel: complianceRisk.riskLevel,
+        complianceRiskReasons: complianceRisk.riskReasons,
+        reconciliationRiskLevel,
         riskLevel,
         paymentCheckedAt: escrow.paymentCheckedAt || null,
       };
@@ -656,6 +770,10 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     "payout account",
     "resolved account name",
     "name match",
+    "compliance risk score",
+    "compliance risk level",
+    "compliance risk reasons",
+    "reconciliation risk level",
     "risk level",
     "status",
     "flags",
@@ -679,6 +797,10 @@ function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildReconcilia
     row.payoutAccountNumber,
     row.resolvedAccountName,
     row.nameMatchLevel,
+    row.complianceRiskScore,
+    row.complianceRiskLevel,
+    row.complianceRiskReasons,
+    row.reconciliationRiskLevel,
     row.riskLevel,
     row.status,
     row.flags,
@@ -1160,13 +1282,40 @@ app.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
   }
 });
 
+app.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
+  const escrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
+  const deals = await Promise.all(escrows.map(async (escrow) =>
+    buildParticipantDeal(await buildEscrowDetail(escrow.escrowId), parsed.data.actorWhatsapp)
+  ));
+  res.status(200).json({ deals: deals.filter(Boolean) });
+});
+
 app.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
   const detail = await buildEscrowDetail(req.params.escrowId);
   if (!detail) return res.status(404).json({ error: "Escrow not found" });
-  res.status(200).json(detail);
+  const participantDeal = await buildParticipantDeal(detail, parsed.data.actorWhatsapp);
+  if (!participantDeal) return res.status(403).json({ error: "Only escrow participants can view this deal" });
+  res.status(200).json(participantDeal);
 });
 
 app.get("/api/escrows/:escrowId/dispute-history", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (!await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp)) {
+    return res.status(403).json({ error: "Only escrow participants can view dispute history" });
+  }
   const history = await disputeHistoryForEscrow(req.params.escrowId);
   if (!history) return res.status(404).json({ error: "Escrow not found" });
   res.status(200).json(history);

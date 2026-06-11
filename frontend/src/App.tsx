@@ -77,7 +77,11 @@ type ReconciliationRow = {
   resolvedAccountName?: string | null;
   nameMatchScore?: number | null;
   nameMatchLevel?: string | null;
-  riskLevel?: "LOW" | "MEDIUM" | "HIGH";
+  complianceRiskScore?: number | null;
+  complianceRiskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  complianceRiskReasons?: string[];
+  reconciliationRiskLevel?: "LOW" | "MEDIUM" | "HIGH";
+  riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   paymentCheckedAt?: string | null;
 };
 
@@ -448,7 +452,7 @@ function compactId(value?: string, length = 10) {
 }
 
 function statusTone(status: string) {
-  if (/^high$/i.test(status)) return "critical";
+  if (/^(high|critical)$/i.test(status)) return "critical";
   if (/^medium$/i.test(status)) return "watch";
   if (/^low$/i.test(status)) return "good";
   if (/failed|error|invalid|release_failed|review_required|mismatch/i.test(status)) return "critical";
@@ -2104,7 +2108,13 @@ function App() {
                       <td>{money.format(row.grossAmount ?? row.expectedAmount)} {row.currency}</td>
                       <td>{money.format(row.platformFeeAmount ?? 0)} {row.currency}</td>
                       <td><strong>{money.format(row.sellerNetAmount ?? row.expectedAmount)} {row.currency}</strong></td>
-                      <td><span className={`status ${statusTone(row.riskLevel || "LOW")}`}>{row.riskLevel || "LOW"}</span></td>
+                      <td>
+                        <span className={`status ${statusTone(row.riskLevel || "LOW")}`}>{row.riskLevel || "LOW"}</span>
+                        <small>
+                          compliance {row.complianceRiskScore ?? 0}
+                          {row.reconciliationRiskLevel ? ` · recon ${row.reconciliationRiskLevel}` : ""}
+                        </small>
+                      </td>
                       <td>{row.payoutReference || "missing"}</td>
                       <td>
                         <button
