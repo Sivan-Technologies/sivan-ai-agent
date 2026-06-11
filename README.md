@@ -4,7 +4,7 @@ Sivan Escrow Agent is a WhatsApp-first escrow and AI task orchestration system f
 
 The project is designed for people who already negotiate work through WhatsApp, Telegram, Discord, and informal communities, but need a safer way to collect money before work starts and confirm payment before releasing execution.
 
-Today, the strongest working flow is Nigerian Naira collection through Paystack using **bank transfer only**. Paystack confirms payment through a signed webhook before the backend runs the AI/SAP work. USDC/x402 and SAP paths are wired into the architecture, but still need live production credentials and deeper end-to-end verification before they should be treated as production-ready.
+Today, the strongest proven live flow is Nigerian Naira collection through Paystack using **bank transfer only**. Paystack confirms payment through a signed webhook before the backend runs the AI/SAP work. Monnify is now implemented as a contained provider-neutral bank-transfer adapter with signed webhook handling and server-side verification, but it still needs a full Monnify sandbox/live transfer test before it should be used for real users. USDC/x402 and SAP paths are wired into the architecture, but still need live production credentials and deeper end-to-end verification before they should be treated as production-ready.
 
 ## What Sivan Can Do Today
 
@@ -13,6 +13,9 @@ Today, the strongest working flow is Nigerian Naira collection through Paystack 
 - Parse user intent into task type, amount, instructions, and payment preference.
 - Create Naira payment requests through Paystack.
 - Restrict Paystack checkout to bank transfer via `PAYSTACK_CHANNELS=bank_transfer`.
+- Keep the Naira payment strategy bank-transfer only; do not collect card data inside Sivan.
+- Use Monnify Name Enquiry as an optional fallback for payout account resolution when configured.
+- Use Monnify as an optional Naira bank-transfer collection provider after `docs/monnify-live-test.md` passes.
 - Store the real Paystack transaction reference for webhook matching.
 - Wait for Paystack payment confirmation before running Naira tasks.
 - Verify Paystack webhook signatures.
@@ -72,6 +75,16 @@ For the phased autonomous escrow roadmap, see:
 
 ```text
 docs/autonomous-escrow-roadmap.md
+```
+
+For provider-neutral Naira payment transport planning, see:
+
+```text
+docs/payment-provider-strategy.md
+docs/monnify-payment-transport.md
+docs/monnify-live-test.md
+docs/flutterwave-payment-transport.md
+docs/flutterwave-backup-test.md
 ```
 
 ### 1. User Sends A WhatsApp Message

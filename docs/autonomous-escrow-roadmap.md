@@ -78,6 +78,9 @@ The payment layer handles:
 - Paystack transfer-only payment initialization
 - Paystack webhook verification
 - Paystack transaction verification
+- provider-neutral Naira transport switching
+- Monnify bank-transfer payment initialization
+- Monnify webhook verification and basic settlement event capture
 - future Paystack transfer recipient creation
 - future Paystack seller payout
 - future x402/SAP/USDC settlement
@@ -216,8 +219,9 @@ Current estimate:
 
 ```text
 MVP escrow-core readiness: 94%
-Production financial-readiness: 91%
+Production financial-readiness: 92%
 Cross-repo production-readiness: 91%
+Provider-neutral Naira transport readiness: 82%
 ```
 
 Legend:
@@ -231,6 +235,7 @@ Legend:
 | --- | --- | --- | --- |
 | Phase 0 | Core backend/API foundation | ✅ Completed | Express API, config, persistence, tests, admin endpoints exist |
 | Phase 1 | Paystack transfer-only payment verification | ✅ Completed for MVP | Transfer-only initialization, webhook verification, reference matching, idempotency, amount mismatch detection, and admin re-check are implemented |
+| Phase 1B | Provider-neutral Naira payment transports | 🟡 Implemented / live proof pending | `src/services/nairaPaymentProvider.ts` defines the provider-neutral Naira collection contract. Paystack and Monnify now run behind it without changing existing escrow rules. Monnify supports token caching, transfer-only initialization, payment verification, signed webhook handling, duplicate-safe event persistence, and settlement event visibility in Revenue/Reconciliation analytics. Admin Platform Controls can set active/backup/emergency providers, platform mode, maintenance message, and bank-transfer-only policy with audit history. Flutterwave is documented as an emergency backup transport with a dedicated backup checklist, but adapter/webhook implementation remains future work. Remaining work is Monnify sandbox/live transfer proof and future PalmPay/Flutterwave adapters |
 | Phase 2 | WhatsApp bot bridge | ✅ Completed for MVP | Twilio auth and Meta Cloud API paths exist; backend-authorized Deal Cards, participant-filtered My Deals, durable active-deal context, no-ID lifecycle commands, multiple-deal selection, concise customer copy, and confirmations for cancel/release/dispute are implemented |
 | Phase 3 | First-class users | ✅ Completed for MVP | `users` table exists, WhatsApp numbers are first-class identities, buyer profiles can be fetched for repeat WhatsApp deals, and seller profile setup is now guided in WhatsApp |
 | Phase 4 | First-class escrows | ✅ Completed for MVP | `escrows` table exists separate from legacy `workflow_tasks`, with buyer/seller, amount, payout, payment, and audit links |

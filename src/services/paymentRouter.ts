@@ -1,7 +1,7 @@
-import { PaystackClient } from "./paystackClient";
 import { X402Client } from "./x402Client";
 import { SapAgent } from "./sapAgent";
 import { config } from "../config";
+import { createNairaPaymentProvider, PaymentProvider } from "./nairaPaymentProvider";
 
 export type PaymentMethod = "USDC" | "NAIRA";
 
@@ -15,13 +15,15 @@ export interface PaymentResult {
 }
 
 export class PaymentRouter {
-  private paystackClient = new PaystackClient();
+  private nairaPaymentProvider: PaymentProvider;
   private x402Client = new X402Client(
     config.x402.rpcUrl,
     config.x402.clientId,
     config.x402.clientSecret
   );
-  constructor(private sapAgent?: SapAgent) {}
+  constructor(private sapAgent?: SapAgent, nairaPaymentProvider = createNairaPaymentProvider()) {
+    this.nairaPaymentProvider = nairaPaymentProvider;
+  }
 
   public determinePaymentMethod(userPreference: string): PaymentMethod {
     const normalized = userPreference.trim().toLowerCase();
@@ -32,20 +34,22 @@ export class PaymentRouter {
   }
 
   public async processNairaPayment(amount: number, email: string): Promise<PaymentResult> {
-    const transaction = await this.paystackClient.initializeTransaction(
+    const transaction = await this.nairaPaymentProvider.initializeBankTransferPayment({
       amount,
-      email,
-      config.paystack.callbackUrl
-    );
+      customerEmail: email,
+      callbackUrl: config.paystack.callbackUrl,
+    });
 
     return {
       method: "NAIRA",
       status: "pending",
-      reference: transaction.reference,
+      reference: transaction.paymentReference,
       authorizationUrl: transaction.authorizationUrl,
       details: {
+        provider: transaction.provider,
         authorizationUrl: transaction.authorizationUrl,
         accessCode: transaction.accessCode,
+        transactionReference: transaction.transactionReference,
       },
     };
   }

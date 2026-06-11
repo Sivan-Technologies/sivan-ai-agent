@@ -42,16 +42,45 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `PAYSTACK_BASE_URL` - Paystack API base URL.
 - `PAYSTACK_WEBHOOK_SECRET` - Secret for validating Paystack webhook signatures.
 - `PAYSTACK_RECEIVER_ACCOUNT` - Optional receiver account identifier for Paystack.
+- `NAIRA_PAYMENT_METHODS` - Global Naira collection method policy. Must be exactly `bank_transfer`; Sivan does not support card collection for escrow payments.
 - `PAYSTACK_CHANNELS` - Comma-separated Paystack checkout channels. Use `bank_transfer` for transfer-only escrow collection.
 - `PAYSTACK_CALLBACK_URL` - Browser redirect URL after Paystack checkout. This is not the webhook URL.
 - `PAYSTACK_TIMEOUT_MS` - Timeout for Paystack API calls, including account resolution. Defaults to `8000`; keep it below the WhatsApp webhook timeout so seller setup returns a retry message instead of hanging.
 - `PAYOUT_VERIFICATION_TEST_MODE` - Controlled E2E test override. Set `true` only while using a Paystack `sk_test_...` key. It allows exact-account payout verification, creates a clearly marked sandbox payment reference when Paystack test transaction initialization is unavailable, and permits buyer-only sandbox funding through the protected core API. It never activates with live Paystack credentials or real payment references.
 - `PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS` - Required comma-separated exact account allowlist for the controlled payout-verification test override. Never use a wildcard or production payout account.
 - `PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS` - Optional comma-separated WhatsApp identity allowlist that further restricts the controlled payout-verification test override.
-- `MONNIFY_API_KEY` - Optional Monnify API key. When set with `MONNIFY_SECRET_KEY`, Sivan can use Monnify Name Enquiry as a fallback for payout account resolution.
-- `MONNIFY_SECRET_KEY` - Optional Monnify secret key for access-token generation.
+
+### Naira payment provider transport
+
+- `ACTIVE_PAYMENT_PROVIDER` - Default provider selector for new Naira payment creation before DB settings are loaded. Supported implemented values are `paystack` and `monnify`; `palmpay` and `flutterwave` are reserved future values.
+- `BACKUP_PAYMENT_PROVIDER` - Default backup provider setting. Fallback applies only to new payment creation after policy allows it, never to existing escrows with a created payment reference.
+- `EMERGENCY_PAYMENT_PROVIDER` - Default emergency provider setting for operator-approved continuity.
+- `PAYMENT_PROVIDER_FALLBACK_ENABLED` - Default explicit toggle for fallback behavior. Keep `false` until both active and backup providers pass live transfer tests.
+- `PLATFORM_MODE` - Initial DB setting for the admin-controlled runtime mode. Use `test`, `live`, or `maintenance`. The admin Platform Controls tab becomes the source of truth after the database row exists.
+- `MAINTENANCE_MESSAGE` - Initial user-facing maintenance message. Admins can edit it without redeploying.
+
+### Monnify
+
+- `MONNIFY_API_KEY` - Monnify API key. Required for Monnify Name Enquiry and Monnify collection.
+- `MONNIFY_SECRET_KEY` - Monnify secret key for access-token generation and webhook signature verification.
 - `MONNIFY_BASE_URL` - Monnify API base URL. Use sandbox for testing and production URL only after Monnify live access is approved.
-- `MONNIFY_TIMEOUT_MS` - Timeout for Monnify auth/name-enquiry calls. Defaults to `8000`.
+- `MONNIFY_TIMEOUT_MS` - Timeout for Monnify auth, verification, name-enquiry, and collection calls. Defaults to `8000`.
+- `MONNIFY_CONTRACT_CODE` - Monnify contract code required for Monnify payment initialization.
+- `MONNIFY_PAYMENT_METHODS` - Legacy Monnify-specific allowlist. Prefer `NAIRA_PAYMENT_METHODS=bank_transfer`; if set, this must also resolve to bank transfer only.
+- `MONNIFY_WEBHOOK_URL` - Monnify webhook callback URL, expected to be `/webhooks/monnify`.
+- `MONNIFY_SOURCE_ACCOUNT_NUMBER` - Future Monnify disbursement source wallet/account number. Required only if automated Monnify payouts are later implemented.
+
+### Flutterwave
+
+Flutterwave is documented as an emergency backup transport but is not implemented yet. Add these only when building or staging the Flutterwave adapter:
+
+- `FLUTTERWAVE_SECRET_KEY` - Flutterwave secret key for API calls.
+- `FLUTTERWAVE_PUBLIC_KEY` - Flutterwave public key for dashboard/reference metadata if needed.
+- `FLUTTERWAVE_BASE_URL` - Flutterwave API base URL.
+- `FLUTTERWAVE_WEBHOOK_SECRET` - Flutterwave webhook signature/secret value.
+- `FLUTTERWAVE_WEBHOOK_URL` - Future webhook callback URL, expected to be `/webhooks/flutterwave`.
+- `FLUTTERWAVE_TIMEOUT_MS` - Timeout for Flutterwave API calls. Suggested default: `8000`.
+- `FLUTTERWAVE_PAYMENT_METHODS` - Must be `bank_transfer` if set. Sivan must not enable card collection.
 
 ### Application and workflow
 
@@ -166,11 +195,30 @@ PAYSTACK_PUBLIC_KEY=your-paystack-public-key
 PAYSTACK_BASE_URL=https://api.paystack.co
 PAYSTACK_WEBHOOK_SECRET=your-paystack-webhook-secret
 PAYSTACK_RECEIVER_ACCOUNT=your-paystack-receiver-account
+NAIRA_PAYMENT_METHODS=bank_transfer
 PAYSTACK_CHANNELS=bank_transfer
 PAYSTACK_CALLBACK_URL=https://yourapp.example.com/payment/callback
+ACTIVE_PAYMENT_PROVIDER=paystack
+BACKUP_PAYMENT_PROVIDER=monnify
+EMERGENCY_PAYMENT_PROVIDER=flutterwave
+PAYMENT_PROVIDER_FALLBACK_ENABLED=false
+PLATFORM_MODE=test
+MAINTENANCE_MESSAGE=Sivan is temporarily under maintenance. Please try again soon.
 MONNIFY_API_KEY=
 MONNIFY_SECRET_KEY=
 MONNIFY_BASE_URL=https://sandbox.monnify.com
+MONNIFY_CONTRACT_CODE=
+MONNIFY_PAYMENT_METHODS=bank_transfer
+MONNIFY_WEBHOOK_URL=https://yourapp.example.com/webhooks/monnify
+MONNIFY_SOURCE_ACCOUNT_NUMBER=
+
+FLUTTERWAVE_SECRET_KEY=
+FLUTTERWAVE_PUBLIC_KEY=
+FLUTTERWAVE_BASE_URL=https://api.flutterwave.com
+FLUTTERWAVE_WEBHOOK_SECRET=
+FLUTTERWAVE_WEBHOOK_URL=https://yourapp.example.com/webhooks/flutterwave
+FLUTTERWAVE_TIMEOUT_MS=8000
+FLUTTERWAVE_PAYMENT_METHODS=bank_transfer
 
 NODE_ENV=development
 LOG_LEVEL=debug

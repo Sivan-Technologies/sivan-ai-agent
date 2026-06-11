@@ -167,6 +167,17 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
+function whatsappLookupVariants(whatsappNumber: string) {
+  const trimmed = whatsappNumber.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  return Array.from(new Set([
+    trimmed,
+    digits ? `whatsapp:+${digits}` : "",
+    digits ? `whatsapp:${digits}` : "",
+    digits,
+  ].filter(Boolean)));
+}
+
 function payoutEncryptionKey() {
   const configured = process.env.PAYOUT_ENCRYPTION_KEY || "";
   if (!configured && process.env.NODE_ENV === "production") {
@@ -663,10 +674,16 @@ export class EscrowStore {
 
   public async findUserByWhatsapp(whatsappNumber: string): Promise<UserRecord | null> {
     await this.initializeSchema();
+    const variants = whatsappLookupVariants(whatsappNumber);
     if (this.provider === "sqlite") {
-      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE whatsapp_number = @whatsappNumber`).get({ whatsappNumber }));
+      return this.mapUser(this.sqlite!.prepare(
+        `SELECT * FROM users WHERE whatsapp_number IN (${variants.map(() => "?").join(",")}) ORDER BY updated_at DESC LIMIT 1`
+      ).get(...variants));
     }
-    const result = await this.pool!.query(`SELECT * FROM users WHERE whatsapp_number = $1`, [whatsappNumber]);
+    const result = await this.pool!.query(
+      `SELECT * FROM users WHERE whatsapp_number = ANY($1::text[]) ORDER BY updated_at DESC LIMIT 1`,
+      [variants]
+    );
     return this.mapUser(result.rows[0]);
   }
 
@@ -1095,6 +1112,7 @@ export class EscrowStore {
     paymentReference: string;
     paymentAuthorizationUrl?: string;
     paymentProvider: string;
+    paymentMetadata?: any;
     status?: EscrowStatus;
   }): Promise<void> {
     await this.initializeSchema();
@@ -1109,7 +1127,14 @@ export class EscrowStore {
         SET payment_reference = @paymentReference, payment_authorization_url = @paymentAuthorizationUrl,
             payment_provider = @paymentProvider, status = @nextStatus, updated_at = @now
         WHERE escrow_id = @escrowId
-      `).run({ ...input, paymentAuthorizationUrl: input.paymentAuthorizationUrl || null, nextStatus, now });
+      `).run({
+        escrowId: input.escrowId,
+        paymentReference: input.paymentReference,
+        paymentAuthorizationUrl: input.paymentAuthorizationUrl || null,
+        paymentProvider: input.paymentProvider,
+        nextStatus,
+        now,
+      });
     } else {
       await this.pool!.query(
         `UPDATE escrows SET payment_reference = $1, payment_authorization_url = $2, payment_provider = $3, status = $4, updated_at = $5 WHERE escrow_id = $6`,
@@ -1125,6 +1150,7 @@ export class EscrowStore {
       reference: input.paymentReference,
       amount: current.amount,
       currency: current.currency,
+      rawPayload: input.paymentMetadata ? JSON.stringify(input.paymentMetadata) : undefined,
     });
     await this.addEvent({
       escrowId: input.escrowId,
@@ -1135,6 +1161,7 @@ export class EscrowStore {
       nextStatus,
       eventType: "payment_initialized",
       reason: input.paymentReference,
+      metadata: input.paymentMetadata,
     });
   }
 
@@ -1170,7 +1197,7 @@ export class EscrowStore {
       reconciliationFlags: [],
     });
     await this.transitionEscrow(escrow.escrowId, "IN_PROGRESS", {
-      actor: "paystack",
+      actor: metadata?.provider || escrow.paymentProvider || "payment_provider",
       actorRole: "payment_provider",
       channel: "webhook",
       eventType: "payment_verified",
@@ -1181,7 +1208,9 @@ export class EscrowStore {
     await this.addLedgerEntry({
       escrowId: escrow.escrowId,
       entryType: "funding",
-      debitAccount: escrow.currency === "NAIRA" ? "buyer_payment_paystack" : "buyer_payment_x402",
+      debitAccount: escrow.currency === "NAIRA"
+        ? `buyer_payment_${metadata?.provider || escrow.paymentProvider || "provider"}`
+        : "buyer_payment_x402",
       creditAccount: "escrow_liability",
       amount: metadata?.amount || escrow.amount,
       currency: escrow.currency,
@@ -1211,7 +1240,7 @@ export class EscrowStore {
       reconciliationFlags: input.flags,
     });
     await this.transitionEscrow(escrowId, "REVIEW_REQUIRED", {
-      actor: "paystack",
+      actor: input.metadata?.provider || escrow.paymentProvider || "payment_provider",
       actorRole: "payment_provider",
       channel: "reconciliation",
       eventType: "payment_review_required",
@@ -1665,7 +1694,7 @@ export class EscrowStore {
     }
   }
 
-  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt">): Promise<string> {
+  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt" | "metadata"> & { metadata?: any }): Promise<string> {
     await this.initializeSchema();
     const eventId = id("event");
     const createdAt = new Date().toISOString();
@@ -1696,30 +1725,31 @@ export class EscrowStore {
 
   public async listEscrowsForWhatsapp(whatsappNumber: string, limit = 20): Promise<EscrowRecord[]> {
     await this.initializeSchema();
+    const variants = whatsappLookupVariants(whatsappNumber);
     if (this.provider === "sqlite") {
       return this.sqlite!.prepare(`
         SELECT DISTINCT e.*
         FROM escrows e
         LEFT JOIN users buyer ON buyer.user_id = e.buyer_user_id
         LEFT JOIN users seller ON seller.user_id = e.seller_user_id
-        WHERE buyer.whatsapp_number = @whatsappNumber
-           OR seller.whatsapp_number = @whatsappNumber
-           OR e.seller_whatsapp = @whatsappNumber
+        WHERE buyer.whatsapp_number IN (${variants.map(() => "?").join(",")})
+           OR seller.whatsapp_number IN (${variants.map(() => "?").join(",")})
+           OR e.seller_whatsapp IN (${variants.map(() => "?").join(",")})
         ORDER BY e.updated_at DESC
-        LIMIT @limit
-      `).all({ whatsappNumber, limit }).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+        LIMIT ?
+      `).all(...variants, ...variants, ...variants, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
     }
     const result = await this.pool!.query(`
       SELECT DISTINCT e.*
       FROM escrows e
       LEFT JOIN users buyer ON buyer.user_id = e.buyer_user_id
       LEFT JOIN users seller ON seller.user_id = e.seller_user_id
-      WHERE buyer.whatsapp_number = $1
-         OR seller.whatsapp_number = $1
-         OR e.seller_whatsapp = $1
+      WHERE buyer.whatsapp_number = ANY($1::text[])
+         OR seller.whatsapp_number = ANY($1::text[])
+         OR e.seller_whatsapp = ANY($1::text[])
       ORDER BY e.updated_at DESC
       LIMIT $2
-    `, [whatsappNumber, limit]);
+    `, [variants, limit]);
     return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
   }
 
