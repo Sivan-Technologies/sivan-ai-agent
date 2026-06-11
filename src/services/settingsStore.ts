@@ -17,6 +17,13 @@ export interface PlatformSettings {
   nairaPlatformActiveExposureLimit: number;
   trustedUserSuccessfulEscrows: number;
   establishedUserSuccessfulEscrows: number;
+  activePaymentProvider: string;
+  backupPaymentProvider: string;
+  emergencyPaymentProvider: string;
+  paymentProviderFallbackEnabled: boolean;
+  platformMode: "test" | "live" | "maintenance";
+  maintenanceMessage: string;
+  nairaPaymentMethod: "bank_transfer";
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -91,6 +98,13 @@ export class SettingsStore {
       nairaPlatformActiveExposureLimit: Number(row.naira_platform_active_exposure_limit ?? 10000000),
       trustedUserSuccessfulEscrows: Number(row.trusted_user_successful_escrows ?? 3),
       establishedUserSuccessfulEscrows: Number(row.established_user_successful_escrows ?? 10),
+      activePaymentProvider: row.active_payment_provider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
+      backupPaymentProvider: row.backup_payment_provider || process.env.BACKUP_PAYMENT_PROVIDER || "monnify",
+      emergencyPaymentProvider: row.emergency_payment_provider || process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
+      paymentProviderFallbackEnabled: Boolean(row.payment_provider_fallback_enabled ?? (process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0)),
+      platformMode: ["test", "live", "maintenance"].includes(row.platform_mode) ? row.platform_mode : (process.env.PLATFORM_MODE as any) || "test",
+      maintenanceMessage: row.maintenance_message || process.env.MAINTENANCE_MESSAGE || "Sivan is temporarily under maintenance. Please try again soon.",
+      nairaPaymentMethod: "bank_transfer",
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -147,6 +161,13 @@ export class SettingsStore {
       "naira_platform_active_exposure_limit REAL NOT NULL DEFAULT 10000000",
       "trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3",
       "established_user_successful_escrows INTEGER NOT NULL DEFAULT 10",
+      "active_payment_provider TEXT NOT NULL DEFAULT 'paystack'",
+      "backup_payment_provider TEXT NOT NULL DEFAULT 'monnify'",
+      "emergency_payment_provider TEXT NOT NULL DEFAULT 'flutterwave'",
+      "payment_provider_fallback_enabled INTEGER NOT NULL DEFAULT 0",
+      "platform_mode TEXT NOT NULL DEFAULT 'test'",
+      "maintenance_message TEXT NOT NULL DEFAULT 'Sivan is temporarily under maintenance. Please try again soon.'",
+      "naira_payment_method TEXT NOT NULL DEFAULT 'bank_transfer'",
     ];
     for (const column of columns) {
       try {
@@ -208,6 +229,13 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_platform_active_exposure_limit DOUBLE PRECISION NOT NULL DEFAULT 10000000;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS established_user_successful_escrows INTEGER NOT NULL DEFAULT 10;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS active_payment_provider TEXT NOT NULL DEFAULT 'paystack';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS backup_payment_provider TEXT NOT NULL DEFAULT 'monnify';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS emergency_payment_provider TEXT NOT NULL DEFAULT 'flutterwave';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS payment_provider_fallback_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS platform_mode TEXT NOT NULL DEFAULT 'test';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_message TEXT NOT NULL DEFAULT 'Sivan is temporarily under maintenance. Please try again soon.';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_payment_method TEXT NOT NULL DEFAULT 'bank_transfer';
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
@@ -243,6 +271,13 @@ export class SettingsStore {
     nairaPlatformActiveExposureLimit?: number;
     trustedUserSuccessfulEscrows?: number;
     establishedUserSuccessfulEscrows?: number;
+    activePaymentProvider?: string;
+    backupPaymentProvider?: string;
+    emergencyPaymentProvider?: string;
+    paymentProviderFallbackEnabled?: boolean;
+    platformMode?: "test" | "live" | "maintenance";
+    maintenanceMessage?: string;
+    nairaPaymentMethod?: "bank_transfer";
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
@@ -258,6 +293,13 @@ export class SettingsStore {
       nairaPlatformActiveExposureLimit: settings.nairaPlatformActiveExposureLimit ?? current.nairaPlatformActiveExposureLimit,
       trustedUserSuccessfulEscrows: settings.trustedUserSuccessfulEscrows ?? current.trustedUserSuccessfulEscrows,
       establishedUserSuccessfulEscrows: settings.establishedUserSuccessfulEscrows ?? current.establishedUserSuccessfulEscrows,
+      activePaymentProvider: settings.activePaymentProvider ?? current.activePaymentProvider,
+      backupPaymentProvider: settings.backupPaymentProvider ?? current.backupPaymentProvider,
+      emergencyPaymentProvider: settings.emergencyPaymentProvider ?? current.emergencyPaymentProvider,
+      paymentProviderFallbackEnabled: settings.paymentProviderFallbackEnabled ?? current.paymentProviderFallbackEnabled,
+      platformMode: settings.platformMode ?? current.platformMode,
+      maintenanceMessage: settings.maintenanceMessage ?? current.maintenanceMessage,
+      nairaPaymentMethod: "bank_transfer",
     };
     if (resolved.nairaFeePercent < 0 || resolved.nairaFeePercent > 50) throw new Error("Naira fee percent must be between 0 and 50");
     if (resolved.nairaFeeFixed < 0) throw new Error("Naira fixed fee must be non-negative");
@@ -271,6 +313,24 @@ export class SettingsStore {
     if (resolved.nairaNewUserLimit <= 0 || resolved.nairaPlatformActiveExposureLimit <= 0) throw new Error("Naira limits must be positive");
     if (resolved.trustedUserSuccessfulEscrows < 1 || resolved.establishedUserSuccessfulEscrows <= resolved.trustedUserSuccessfulEscrows) {
       throw new Error("Established-user successful escrow threshold must be greater than trusted-user threshold");
+    }
+    if (!["test", "live", "maintenance"].includes(resolved.platformMode)) {
+      throw new Error("Platform mode must be test, live, or maintenance");
+    }
+    if (resolved.maintenanceMessage.trim().length < 10 || resolved.maintenanceMessage.length > 500) {
+      throw new Error("Maintenance message must be between 10 and 500 characters");
+    }
+    if (resolved.nairaPaymentMethod !== "bank_transfer") {
+      throw new Error("Sivan only supports bank-transfer Naira payments");
+    }
+    for (const [label, provider] of [
+      ["active payment provider", resolved.activePaymentProvider],
+      ["backup payment provider", resolved.backupPaymentProvider],
+      ["emergency payment provider", resolved.emergencyPaymentProvider],
+    ] as const) {
+      if (!["paystack", "monnify", "palmpay", "flutterwave"].includes(provider)) {
+        throw new Error(`Unsupported ${label}: ${provider}`);
+      }
     }
 
     const expectedVersion = resolved.expectedVersion;
@@ -297,11 +357,18 @@ export class SettingsStore {
             naira_platform_active_exposure_limit = @nairaPlatformActiveExposureLimit,
             trusted_user_successful_escrows = @trustedUserSuccessfulEscrows,
             established_user_successful_escrows = @establishedUserSuccessfulEscrows,
+            active_payment_provider = @activePaymentProvider,
+            backup_payment_provider = @backupPaymentProvider,
+            emergency_payment_provider = @emergencyPaymentProvider,
+            payment_provider_fallback_enabled = @paymentProviderFallbackEnabled,
+            platform_mode = @platformMode,
+            maintenance_message = @maintenanceMessage,
+            naira_payment_method = @nairaPaymentMethod,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
         WHERE id = 'default' AND version = @expectedVersion
-      `).run({ ...resolved, newVersion, now });
+      `).run({ ...resolved, paymentProviderFallbackEnabled: resolved.paymentProviderFallbackEnabled ? 1 : 0, newVersion, now });
       changes = result.changes;
     } else {
       const result = await this.pool!.query(
@@ -318,10 +385,17 @@ export class SettingsStore {
              naira_platform_active_exposure_limit = $10,
              trusted_user_successful_escrows = $11,
              established_user_successful_escrows = $12,
-             version = $13,
-             updated_at = $14,
-             updated_by = $15
-         WHERE id = 'default' AND version = $16`,
+             active_payment_provider = $13,
+             backup_payment_provider = $14,
+             emergency_payment_provider = $15,
+             payment_provider_fallback_enabled = $16,
+             platform_mode = $17,
+             maintenance_message = $18,
+             naira_payment_method = $19,
+             version = $20,
+             updated_at = $21,
+             updated_by = $22
+         WHERE id = 'default' AND version = $23`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -335,6 +409,13 @@ export class SettingsStore {
           resolved.nairaPlatformActiveExposureLimit,
           resolved.trustedUserSuccessfulEscrows,
           resolved.establishedUserSuccessfulEscrows,
+          resolved.activePaymentProvider,
+          resolved.backupPaymentProvider,
+          resolved.emergencyPaymentProvider,
+          resolved.paymentProviderFallbackEnabled ? 1 : 0,
+          resolved.platformMode,
+          resolved.maintenanceMessage,
+          resolved.nairaPaymentMethod,
           newVersion,
           now,
           resolved.updatedBy,

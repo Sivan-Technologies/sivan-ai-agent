@@ -15,7 +15,8 @@
 3. **Payment Router**
    - Implemented in `src/services/paymentRouter.ts`.
    - Decides whether to use Naira or USDC settlement based on user preference.
-   - Calls Paystack or x402 service flows accordingly.
+   - Current Naira collection calls the provider-neutral interface in `src/services/nairaPaymentProvider.ts`, with Paystack as the implemented adapter.
+   - Target Naira architecture is provider-neutral so Monnify, PalmPay, and Flutterwave can be added without changing escrow rules.
 
 4. **x402 Payment Facility**
    - Implemented in `src/services/x402Client.ts`.
@@ -27,12 +28,18 @@
    - Initializes Naira transactions and verifies webhook signatures.
    - Confirms payment status for Naira settlement.
 
-6. **Orchestration Layer**
+6. **Monnify Name Enquiry / Optional Transport**
+   - Implemented partially in `src/services/monnifyClient.ts`.
+   - Authenticates with Monnify and validates bank account names as a fallback resolver.
+   - Can initialize transfer-only Monnify collections and verify signed Monnify webhooks after the provider is enabled in Platform Controls.
+   - Remaining work is live Monnify transfer proof and optional disbursement support after manual payout operations are proven.
+
+7. **Orchestration Layer**
    - Implemented in `src/services/agentOrchestrator.ts`.
    - Coordinates discovery, execution, payment routing, and settlement.
    - Ensures the workflow runs end-to-end without manual intervention.
 
-7. **Webhook Server**
+8. **Webhook Server**
    - Implemented in `src/server.ts`.
    - Receives Paystack webhook events and validates signatures.
    - Triggers workflow progress once payment is confirmed.
@@ -42,13 +49,15 @@
 - **Discovery Layer**: `sapAgent.ts` discovers tools and selects execution candidates.
 - **Execution Layer**: `aceData.ts` runs AI work and returns results.
 - **Decision Layer**: `paymentRouter.ts` chooses Naira or USDC settlement.
-- **Payment Layer**: `paystackClient.ts` handles fiat; `x402Client.ts` handles USDC.
+- **Payment Layer**: `nairaPaymentProvider.ts` normalizes Paystack and Monnify collection; `paystackClient.ts` handles Paystack calls; `monnifyClient.ts` handles Monnify name enquiry, collection, verification, and webhook signing; `x402Client.ts` handles USDC.
+- **Naira Provider Interface**: `nairaPaymentProvider.ts` exposes `initializeBankTransferPayment`, `verifyPayment`, webhook signature verification, and webhook normalization. Paystack is the first adapter behind this contract.
 - **Orchestration Layer**: `agentOrchestrator.ts` ties the whole flow together.
 - **Webhook Layer**: `server.ts` listens for Paystack events to finalize workflows.
 
 ## Hybrid Settlement Model
 
-- **Naira flow**: buyer preference triggers Paystack initialization and stores Paystack's transaction reference for webhook matching. AI execution waits until a signed Paystack `charge.success` webhook is received and the transaction verifies successfully.
+- **Naira flow today**: buyer preference triggers Paystack initialization and stores Paystack's transaction reference for webhook matching. AI execution waits until a signed Paystack `charge.success` webhook is received and the transaction verifies successfully.
+- **Naira flow target**: the escrow engine emits a provider-neutral payment request and receives normalized payment events from Paystack, Monnify, PalmPay, or Flutterwave. See `docs/payment-provider-strategy.md` and `docs/monnify-payment-transport.md`.
 - **USDC flow**: x402 payment facility is created on the USDC path, the agent executes the task, and the payment is settled on success.
 
 ## Security and Trust
@@ -57,6 +66,7 @@
 - Sensitive values are excluded from source control via `.gitignore`.
 - SAP and Ace Data Cloud API interactions are authenticated.
 - Payment settlement uses x402 and Paystack primitives with retry-safe logic.
+- Naira collection must stay bank-transfer only. Do not add card data capture, card charge flows, or card-token storage to Sivan.
 - `/api/tasks` requires `CORE_API_SECRET` in production through the `x-core-api-key` header.
 - Admin endpoints require `ADMIN_API_KEY` through the `x-admin-key` header.
 - The WhatsApp bot validates Twilio webhook signatures before forwarding user requests.
