@@ -546,13 +546,20 @@ async function notifyEscrowParticipants(escrow: EscrowRecord, message: string) {
   await Promise.all(Array.from(new Set(targets)).map((target) => notifyWhatsAppBot(target, message)));
 }
 
+function whatsappIdentityMatches(left?: string | null, right?: string | null) {
+  if (!left || !right) return false;
+  const leftDigits = left.replace(/\D/g, "");
+  const rightDigits = right.replace(/\D/g, "");
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
+}
+
 async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: string): Promise<"buyer" | "seller" | null> {
   const [buyer, seller] = await Promise.all([
     escrowStore.getUserById(escrow.buyerUserId),
     escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
   ]);
-  if (buyer?.whatsappNumber === actorWhatsapp) return "buyer";
-  if (seller?.whatsappNumber === actorWhatsapp || escrow.sellerWhatsapp === actorWhatsapp) return "seller";
+  if (whatsappIdentityMatches(buyer?.whatsappNumber, actorWhatsapp)) return "buyer";
+  if (whatsappIdentityMatches(seller?.whatsappNumber, actorWhatsapp) || whatsappIdentityMatches(escrow.sellerWhatsapp, actorWhatsapp)) return "seller";
   return null;
 }
 
