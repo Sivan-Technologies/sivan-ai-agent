@@ -90,6 +90,42 @@ function providerConfigured(provider: string) {
   return false;
 }
 
+function sellerInviteMessage(escrowId: string, currency: string, amount: number, purpose: string) {
+  return `You have been invited to Sivan escrow ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
+}
+
+function queueSellerInviteNotification(params: {
+  sellerWhatsapp: string;
+  escrowId: string;
+  currency: string;
+  amount: number;
+  purpose: string;
+  context?: Record<string, any>;
+}) {
+  const message = sellerInviteMessage(params.escrowId, params.currency, params.amount, params.purpose);
+  void notifyWhatsAppBotStrict(
+    params.sellerWhatsapp,
+    message
+  ).catch(async (err) => {
+    const context = {
+      escrowId: params.escrowId,
+      sellerWhatsapp: params.sellerWhatsapp,
+      ...params.context,
+    };
+    captureOperationalError("Failed to send seller escrow invite", err, context);
+    try {
+      await opsStore.enqueueJob("whatsapp_notification", {
+        to: params.sellerWhatsapp,
+        message,
+        escrowId: params.escrowId,
+        reason: "seller_invite",
+      }, { maxAttempts: 5 });
+    } catch (enqueueErr) {
+      captureOperationalError("Failed to enqueue seller invite retry", enqueueErr, context);
+    }
+  });
+}
+
 async function getActiveNairaPaymentProvider() {
   const settings = await settingsStore.getSettings();
   if (!providerConfigured(settings.activePaymentProvider)) {
@@ -1310,10 +1346,14 @@ app.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
 
     let payment: any = null;
     if (seller) {
-      void notifyWhatsAppBot(
-        seller.whatsappNumber,
-        `You have been invited to Sivan escrow ${escrow.escrowId} for ${input.currency} ${input.amount}.\nPurpose: ${input.purpose}\nReply: accept ${escrow.escrowId}`
-      ).catch((err) => captureOperationalError("Failed to send seller escrow invite", err));
+      queueSellerInviteNotification({
+        sellerWhatsapp: seller.whatsappNumber,
+        escrowId: escrow.escrowId,
+        currency: input.currency,
+        amount: input.amount,
+        purpose: input.purpose,
+        context: { channel: input.channel },
+      });
     }
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
@@ -2532,8 +2572,14 @@ app.post("/admin/escrow-limit-reviews/:reviewId/approve", requireAdminAuth, logA
         .catch((err) => captureOperationalError("Failed to notify buyer about approved limit review", err, { reviewId: claimed.reviewId }));
     }
     if (seller && claimed.createdByChannel.startsWith("whatsapp")) {
-      void notifyWhatsAppBot(seller.whatsappNumber, `You have been invited to Sivan escrow ${escrow.escrowId} for ${escrow.currency} ${escrow.amount}.\nPurpose: ${escrow.purpose}\nReply: accept ${escrow.escrowId}`)
-        .catch((err) => captureOperationalError("Failed to notify seller about approved limit review", err, { reviewId: claimed.reviewId }));
+      queueSellerInviteNotification({
+        sellerWhatsapp: seller.whatsappNumber,
+        escrowId: escrow.escrowId,
+        currency: escrow.currency,
+        amount: escrow.amount,
+        purpose: escrow.purpose,
+        context: { reviewId: claimed.reviewId, channel: claimed.createdByChannel },
+      });
     }
     return res.status(200).json({ review, escrow });
   } catch (err: any) {

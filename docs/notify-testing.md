@@ -31,6 +31,14 @@ node -r ts-node/register src/scripts/send-notify.ts "whatsapp:+123456789" "Hello
 
 5. Observing results: the bot console should log the incoming notify and Twilio message send attempts. If using Twilio test credentials, no real message will be delivered.
 
+   For live Twilio sandbox testing, the destination phone must have joined the Twilio WhatsApp sandbox. If the backend creates the escrow and the seller sees it later in `MY DEALS` but receives no incoming invite, check:
+
+   - `NOTIFICATION_SECRET` on the backend exactly matches `NOTIFY_SECRET` on the WhatsApp bot.
+   - `NOTIFICATION_URL` points to the live WhatsApp bot base URL.
+   - `GET /admin/ops/events` has no `Failed to send seller escrow invite` errors.
+   - `GET /admin/queue/jobs` has no failed or dead `whatsapp_notification` retry jobs.
+   - the seller phone has joined the Twilio sandbox, or the production WhatsApp sender is approved for outbound messages.
+
 6. To test end-to-end via WhatsApp, use the real Twilio sandbox/webhook flow. The bot now validates `x-twilio-signature`, so a plain manual POST to `/webhooks/twilio` will be rejected unless you generate a valid Twilio signature for the exact URL and form body.
 
 7. For local webhook testing, expose the bot with ngrok, set `PUBLIC_BASE_URL` to the ngrok HTTPS base URL, and configure Twilio's incoming message webhook to `https://<ngrok-id>.ngrok.io/webhooks/twilio`.

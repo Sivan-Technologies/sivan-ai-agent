@@ -277,6 +277,23 @@ type ToastNotice = {
   message: string;
 };
 
+type PayoutApprovalQuote = {
+  grossAmount?: number;
+  platformFeeAmount?: number;
+  sellerNetAmount: number;
+  amountSource?: "escrow_record" | string;
+  currency: "NAIRA" | "USDC";
+};
+
+type PayoutApprovalState = {
+  escrow: EscrowRecord;
+  quote: PayoutApprovalQuote;
+  manualPayoutReference: string;
+  payoutNotes: string;
+  error?: string;
+  submitting: boolean;
+};
+
 function Toast({ notice, onDismiss }: { notice: ToastNotice; onDismiss: () => void }) {
   return (
     <div
@@ -571,6 +588,7 @@ function App() {
   const [feeError, setFeeError] = useState<string | null>(null);
   const [feeSuccess, setFeeSuccess] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [payoutApproval, setPayoutApproval] = useState<PayoutApprovalState | null>(null);
   const [savingFees, setSavingFees] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [authSessions, setAuthSessions] = useState<AuthSessionRecord[]>([]);
@@ -1115,21 +1133,53 @@ function App() {
     }
   };
 
-  const approveEscrowRelease = async (escrowId: string, payoutAmount?: number, currency?: string) => {
-    const amountLabel = payoutAmount !== undefined && currency
-      ? ` Seller net payout is ${money.format(payoutAmount)} ${currency}.`
-      : "";
-    const manualPayoutReference = window.prompt(`Enter payout reference from Paystack/bank transfer.${amountLabel}\nDo not enter a payout amount here.`);
-    if (!manualPayoutReference) return;
-    const payoutNotes = window.prompt("Optional payout notes:") || undefined;
-    const response = await fetch(`${apiBase}/admin/escrows/${escrowId}/approve-release`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ manualPayoutReference, payoutNotes }),
+  const openPayoutApproval = (escrow: EscrowRecord, quote: PayoutApprovalQuote) => {
+    setPayoutApproval({
+      escrow,
+      quote,
+      manualPayoutReference: "",
+      payoutNotes: "",
+      submitting: false,
     });
-    if (!response.ok) throw new Error(await parseError(response, "Failed to approve release"));
-    await loadEscrows();
-    await loadReconciliation();
+  };
+
+  const submitPayoutApproval = async () => {
+    if (!payoutApproval) return;
+    const manualPayoutReference = payoutApproval.manualPayoutReference.trim();
+    if (manualPayoutReference.length < 4) {
+      setPayoutApproval((current) => current ? {
+        ...current,
+        error: "Enter the payout or bank transfer reference before approving release.",
+      } : current);
+      return;
+    }
+
+    setPayoutApproval((current) => current ? { ...current, error: undefined, submitting: true } : current);
+    try {
+      const response = await fetch(`${apiBase}/admin/escrows/${payoutApproval.escrow.escrowId}/approve-release`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          manualPayoutReference,
+          payoutNotes: payoutApproval.payoutNotes.trim() || undefined,
+        }),
+      });
+      if (!response.ok) throw new Error(await parseError(response, "Failed to approve release"));
+      await loadEscrows();
+      await loadReconciliation();
+      setToast({
+        tone: "success",
+        title: "Payout release recorded",
+        message: `${payoutApproval.escrow.escrowId} was released with payout reference ${manualPayoutReference}.`,
+      });
+      setPayoutApproval(null);
+    } catch (err: any) {
+      setPayoutApproval((current) => current ? {
+        ...current,
+        error: err.message || "Failed to approve release",
+        submitting: false,
+      } : current);
+    }
   };
 
   const decideLimitReview = async (decision: "approve" | "reject") => {
@@ -1709,17 +1759,13 @@ function App() {
                 <button
                   className="button primary full"
                   disabled={selectedEscrow.status !== "PENDING_RELEASE"}
-                  onClick={async () => {
-                    try {
-                      await approveEscrowRelease(
-                        selectedEscrow.escrowId,
-                        selectedPayoutQuote?.sellerNetAmount ?? selectedEscrow.amount,
-                        selectedEscrow.currency
-                      );
-                    } catch (err: any) {
-                      setError(err.message || "Release approval failed");
-                    }
-                  }}
+                  onClick={() => openPayoutApproval(selectedEscrow, {
+                    sellerNetAmount: selectedPayoutQuote?.sellerNetAmount ?? selectedEscrow.amount,
+                    platformFeeAmount: selectedPayoutQuote?.platformFeeAmount ?? 0,
+                    grossAmount: selectedPayoutQuote?.grossAmount ?? selectedEscrow.amount,
+                    amountSource: selectedPayoutQuote?.amountSource || "escrow_record",
+                    currency: selectedEscrow.currency,
+                  })}
                 >
                   Approve Naira release
                 </button>
@@ -2254,13 +2300,21 @@ function App() {
                           className="button small"
                           disabled={actionBusy}
                           onClick={async () => {
-                            setActionBusy(true);
                             try {
                               if (row.status === "PENDING_RELEASE") {
-                                await approveEscrowRelease(row.escrowId, row.sellerNetAmount ?? row.expectedAmount, row.currency);
-                              } else {
-                                await enqueuePayoutReview(row.escrowId, "operator_requested_from_payout_safety");
+                                const escrow = escrows.find((item) => item.escrowId === row.escrowId);
+                                if (!escrow) throw new Error("Open the escrow ledger once before approving payout.");
+                                openPayoutApproval(escrow, {
+                                  grossAmount: row.grossAmount ?? row.expectedAmount,
+                                  platformFeeAmount: row.platformFeeAmount ?? 0,
+                                  sellerNetAmount: row.sellerNetAmount ?? row.expectedAmount,
+                                  amountSource: row.amountSource || "escrow_record",
+                                  currency: row.currency,
+                                });
+                                return;
                               }
+                              setActionBusy(true);
+                              await enqueuePayoutReview(row.escrowId, "operator_requested_from_payout_safety");
                             } catch (err: any) {
                               setError(err.message || "Payout action failed");
                             } finally {
@@ -3196,6 +3250,99 @@ function App() {
               <button className="button secondary" onClick={() => setShowConfirmModal(false)} disabled={savingFees}>Cancel</button>
               <button className="button primary" onClick={handleSaveFees} disabled={savingFees}>
                 {savingFees ? "Saving" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {payoutApproval && (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !payoutApproval.submitting) {
+              setPayoutApproval(null);
+            }
+          }}
+        >
+          <div
+            className="modal payout-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payout-approval-title"
+          >
+            <div className="payout-modal-head">
+              <div>
+                <span className="eyebrow">Manual Payout Approval</span>
+                <h2 id="payout-approval-title">Record seller payout</h2>
+                <p className="muted">Confirm the bank transfer reference after paying the seller. The payout amount is locked to the escrow record.</p>
+              </div>
+              <span className={`status ${statusTone(payoutApproval.escrow.status)}`}>{payoutApproval.escrow.status}</span>
+            </div>
+
+            <div className="payout-amount-band" aria-label="Seller net payout">
+              <span>Seller net payout</span>
+              <strong>{money.format(payoutApproval.quote.sellerNetAmount)} {payoutApproval.quote.currency}</strong>
+              <small>Amount source: {payoutApproval.quote.amountSource || "escrow_record"}</small>
+            </div>
+
+            <div className="modal-summary payout-summary">
+              <div><span>Escrow</span><strong>{payoutApproval.escrow.escrowId}</strong></div>
+              <div><span>Gross amount</span><strong>{money.format(payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount)} {payoutApproval.quote.currency}</strong></div>
+              <div><span>Platform fee</span><strong>{money.format(payoutApproval.quote.platformFeeAmount ?? 0)} {payoutApproval.quote.currency}</strong></div>
+              <div><span>Seller</span><strong>{payoutApproval.escrow.sellerWhatsapp || payoutApproval.escrow.sellerUserId || "pending"}</strong></div>
+            </div>
+
+            <div className="payout-safety-note">
+              <strong>Safety check</strong>
+              <span>Enter only the Paystack, bank transfer, or provider payout reference. Do not enter or edit a payout amount.</span>
+            </div>
+
+            <label className="field">
+              <span>Payout reference</span>
+              <input
+                type="text"
+                value={payoutApproval.manualPayoutReference}
+                onChange={(event) => setPayoutApproval((current) => current ? {
+                  ...current,
+                  manualPayoutReference: event.target.value,
+                  error: undefined,
+                } : current)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitPayoutApproval();
+                  }
+                  if (event.key === "Escape" && !payoutApproval.submitting) {
+                    setPayoutApproval(null);
+                  }
+                }}
+                autoComplete="off"
+                autoFocus
+                placeholder="e.g. TRF-20260611-001"
+              />
+            </label>
+
+            <label className="field">
+              <span>Notes optional</span>
+              <textarea
+                rows={3}
+                value={payoutApproval.payoutNotes}
+                onChange={(event) => setPayoutApproval((current) => current ? {
+                  ...current,
+                  payoutNotes: event.target.value,
+                } : current)}
+                placeholder="Add operator context, if needed"
+              />
+            </label>
+
+            {payoutApproval.error && <div className="modal-error" role="alert">{payoutApproval.error}</div>}
+
+            <div className="modal-actions">
+              <button className="button secondary" type="button" onClick={() => setPayoutApproval(null)} disabled={payoutApproval.submitting}>Cancel</button>
+              <button className="button primary" type="button" onClick={submitPayoutApproval} disabled={payoutApproval.submitting}>
+                {payoutApproval.submitting ? "Recording" : "Record payout"}
               </button>
             </div>
           </div>
