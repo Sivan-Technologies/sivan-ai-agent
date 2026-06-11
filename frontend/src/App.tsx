@@ -604,6 +604,38 @@ function App() {
     }
   };
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const isTransientFetchError = (err: unknown) => {
+    const message = err instanceof Error ? err.message.toLowerCase() : String(err || "").toLowerCase();
+    return message.includes("failed to fetch")
+      || message.includes("networkerror")
+      || message.includes("connection")
+      || message.includes("load failed");
+  };
+
+  const adminFetch = async (url: string, init?: RequestInit, attempts = 3): Promise<Response> => {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await fetch(url, init);
+      } catch (err) {
+        lastError = err;
+        if (attempt >= attempts || !isTransientFetchError(err)) break;
+        await sleep(350 * attempt);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Network request failed");
+  };
+
+  const runLoadStep = async (label: string, loader: () => Promise<void>) => {
+    try {
+      await loader();
+    } catch (err: any) {
+      throw new Error(`${label}: ${err.message || "load failed"}`);
+    }
+  };
+
   const saveAdminKey = () => {
     const trimmed = adminKeyInput.trim();
     if (!trimmed) {
@@ -808,21 +840,21 @@ function App() {
 
   const loadTasks = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/tasks`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/tasks`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load tasks"));
     setTasks((await response.json()) || []);
   };
 
   const loadEscrows = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/escrows?limit=100`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/escrows?limit=100`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load escrows"));
     setEscrows((await response.json()) || []);
   };
 
   const loadReconciliation = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/reconciliation?limit=250`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/reconciliation?limit=250`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load reconciliation"));
     const payload = await response.json();
     setReconciliationRows(payload.rows || []);
@@ -835,21 +867,22 @@ function App() {
   };
 
   const loadRevenue = async () => {
-    const response = await fetch(`${apiBase}/admin/revenue`, { headers: authHeaders() });
+    if (!adminKey) return;
+    const response = await adminFetch(`${apiBase}/admin/revenue`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load revenue analytics"));
     setRevenueAnalytics(await response.json());
   };
 
   const loadWebhooks = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/webhooks?limit=100`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/webhooks?limit=100`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load webhooks"));
     setWebhooks((await response.json()) || []);
   };
 
   const loadDisputes = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/disputes?limit=100`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/disputes?limit=100`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load disputes"));
     const rows = (await response.json()) || [];
     setDisputes(rows);
@@ -860,7 +893,7 @@ function App() {
 
   const loadFeeSettings = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/settings`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/settings`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load fee settings"));
     const data = await response.json();
     setFeeSettings(data);
@@ -885,7 +918,7 @@ function App() {
 
   const loadPaymentProviders = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/payment-providers`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/payment-providers`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load payment provider settings"));
     const data = await response.json();
     setPaymentProviderStatus(data);
@@ -899,7 +932,7 @@ function App() {
 
   const loadLimitReviews = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/escrow-limit-reviews?limit=100`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/escrow-limit-reviews?limit=100`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load escrow limit reviews"));
     const rows = (await response.json()) || [];
     setLimitReviews(rows);
@@ -910,25 +943,24 @@ function App() {
 
   const loadAuditHistory = async () => {
     if (!adminKey) return;
-    const response = await fetch(`${apiBase}/admin/audit-history?limit=20`, { headers: authHeaders() });
+    const response = await adminFetch(`${apiBase}/admin/audit-history?limit=20`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await parseError(response, "Failed to load audit history"));
     setAuditHistory((await response.json()) || []);
   };
 
   const loadOperations = async () => {
     if (!adminKey) return;
-    const [statusResponse, drResponse, eventsResponse, settlementResponse, queueResponse, queueJobsResponse, abuseResponse, abuseAnalyticsResponse, supportResponse, whatsappProviderResponse] = await Promise.all([
-      fetch(`${apiBase}/admin/ops/status`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/dr/status`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/ops/events?limit=50`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/settlement/verification`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/queue/status`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/queue/jobs?limit=50`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/abuse/signals?limit=100`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/abuse/analytics?limit=250`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/support/cases?limit=100`, { headers: authHeaders() }),
-      fetch(`${apiBase}/admin/whatsapp-provider`, { headers: authHeaders() }),
-    ]);
+    const headers = authHeaders();
+    const statusResponse = await adminFetch(`${apiBase}/admin/ops/status`, { headers });
+    const drResponse = await adminFetch(`${apiBase}/admin/dr/status`, { headers });
+    const eventsResponse = await adminFetch(`${apiBase}/admin/ops/events?limit=50`, { headers });
+    const settlementResponse = await adminFetch(`${apiBase}/admin/settlement/verification`, { headers });
+    const queueResponse = await adminFetch(`${apiBase}/admin/queue/status`, { headers });
+    const queueJobsResponse = await adminFetch(`${apiBase}/admin/queue/jobs?limit=50`, { headers });
+    const abuseResponse = await adminFetch(`${apiBase}/admin/abuse/signals?limit=100`, { headers });
+    const abuseAnalyticsResponse = await adminFetch(`${apiBase}/admin/abuse/analytics?limit=250`, { headers });
+    const supportResponse = await adminFetch(`${apiBase}/admin/support/cases?limit=100`, { headers });
+    const whatsappProviderResponse = await adminFetch(`${apiBase}/admin/whatsapp-provider`, { headers });
     if (!statusResponse.ok) throw new Error(await parseError(statusResponse, "Failed to load operations status"));
     if (!drResponse.ok) throw new Error(await parseError(drResponse, "Failed to load disaster recovery status"));
     if (!eventsResponse.ok) throw new Error(await parseError(eventsResponse, "Failed to load operations events"));
@@ -976,7 +1008,17 @@ function App() {
     setError(null);
     setFeeError(null);
     try {
-      await Promise.all([loadEscrows(), loadLimitReviews(), loadReconciliation(), loadRevenue(), loadDisputes(), loadTasks(), loadWebhooks(), loadFeeSettings(), loadPaymentProviders(), loadAuditHistory(), loadOperations()]);
+      await runLoadStep("Platform controls", loadFeeSettings);
+      await runLoadStep("Payment providers", loadPaymentProviders);
+      await runLoadStep("Escrows", loadEscrows);
+      await runLoadStep("Limit reviews", loadLimitReviews);
+      await runLoadStep("Reconciliation", loadReconciliation);
+      await runLoadStep("Revenue", loadRevenue);
+      await runLoadStep("Disputes", loadDisputes);
+      await runLoadStep("Tasks", loadTasks);
+      await runLoadStep("Webhooks", loadWebhooks);
+      await runLoadStep("Audit history", loadAuditHistory);
+      await runLoadStep("Operations", loadOperations);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
       setError(err.message || "Refresh failed");
