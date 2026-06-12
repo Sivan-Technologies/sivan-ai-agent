@@ -103,23 +103,33 @@ function queueWhatsAppNotification(params: {
   message: string;
   reason: string;
   escrowId?: string;
+  dealCard?: any;
   context?: Record<string, any>;
 }) {
-  void notifyWhatsAppBotStrict(params.to, params.message).catch(async (err) => {
+  void notifyWhatsAppBotStrict(params.to, params.message, params.dealCard).catch(async (err) => {
     const context = {
       escrowId: params.escrowId,
       to: params.to,
       reason: params.reason,
       ...params.context,
     };
-    captureOperationalError("Failed to send WhatsApp notification", err, context);
+    const isRateLimited = err instanceof Error && /\b429\b|Too Many Requests/i.test(err.message);
+    if (isRateLimited) {
+      capturePaymentWarning("WhatsApp notification rate-limited; queued for retry", context);
+    } else {
+      captureOperationalError("Failed to send WhatsApp notification", err, context);
+    }
     try {
       await opsStore.enqueueJob("whatsapp_notification", {
         to: params.to,
         message: params.message,
         escrowId: params.escrowId,
         reason: params.reason,
-      }, { maxAttempts: 5 });
+        ...(params.dealCard ? { dealCard: params.dealCard } : {}),
+      }, {
+        maxAttempts: 5,
+        runAfter: new Date(Date.now() + (isRateLimited ? 60_000 : 15_000)).toISOString(),
+      });
     } catch (enqueueErr) {
       captureOperationalError("Failed to enqueue WhatsApp notification retry", enqueueErr, context);
     }
@@ -976,16 +986,28 @@ async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
 
   await Promise.all([
     buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
-      notifyWhatsAppBot(buyerWhatsapp, message, dealCard ? {
-        escrow: dealCard.escrow,
-        participant: dealCard.participant,
-      } : undefined)
+      queueWhatsAppNotification({
+        to: buyerWhatsapp,
+        message,
+        reason: "escrow_funded",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
     ) : Promise.resolve(),
     sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
-      notifyWhatsAppBot(sellerWhatsapp, message, dealCard ? {
-        escrow: dealCard.escrow,
-        participant: dealCard.participant,
-      } : undefined)
+      queueWhatsAppNotification({
+        to: sellerWhatsapp,
+        message,
+        reason: "escrow_funded",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
     ) : Promise.resolve(),
   ]);
 }
@@ -1448,7 +1470,7 @@ const retryWorker = new RetryWorker(opsStore, {
     if (!payload.to || !payload.message) {
       throw new Error("whatsapp_notification requires payload.to and payload.message");
     }
-    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message));
+    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message), payload.dealCard);
   },
   paystack_recheck: async (payload) => {
     const paymentReference = String(payload.paymentReference || "").trim();
