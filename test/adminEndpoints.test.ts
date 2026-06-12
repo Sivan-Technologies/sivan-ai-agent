@@ -716,7 +716,6 @@ describe("Admin Settings API Integration", () => {
     const payoutRow = reconciliation.body.rows.find((row: any) => row.escrowId === escrowId);
     expect(payoutRow).toMatchObject({
       escrowId,
-      expectedAmount: 25000,
       grossAmount: 25000,
       amountSource: "escrow_record",
       currency: "NAIRA",
@@ -729,8 +728,9 @@ describe("Admin Settings API Integration", () => {
       status: "PENDING_RELEASE",
     });
     expect(payoutRow.platformFeeAmount).toBeGreaterThan(0);
-    expect(payoutRow.sellerNetAmount).toBe(payoutRow.grossAmount - payoutRow.platformFeeAmount);
-    expect(payoutRow.sellerNetAmount).toBeLessThan(payoutRow.grossAmount);
+    expect(payoutRow.expectedAmount).toBe(payoutRow.grossAmount + payoutRow.platformFeeAmount);
+    expect(payoutRow.sellerNetAmount).toBe(payoutRow.grossAmount);
+    expect(payoutRow.receivedAmount).toBe(payoutRow.expectedAmount);
     expect(payoutRow.flags).toContain("release_awaiting_manual_payout");
     expect(payoutRow.riskLevel).toMatch(/LOW|MEDIUM|HIGH|CRITICAL/);
     expect(payoutRow.complianceRiskScore).toEqual(expect.any(Number));
@@ -783,7 +783,7 @@ describe("Admin Settings API Integration", () => {
       .get(`/admin/escrows/${escrowId}`)
       .set(adminHeaders);
     expect(detail.status).toBe(200);
-    expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "funding" && entry.amount === 25000)).toBe(true);
+    expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "funding" && entry.amount === payoutRow.expectedAmount)).toBe(true);
     expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "release" && entry.amount === payoutRow.sellerNetAmount)).toBe(true);
     expect(detail.body.ledgerEntries.some((entry: any) => entry.entryType === "fee" && entry.amount === payoutRow.platformFeeAmount)).toBe(true);
 

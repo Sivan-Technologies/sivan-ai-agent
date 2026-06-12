@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "crypto";
-import { MonnifyPaymentProvider, PaystackPaymentProvider } from "../src/services/nairaPaymentProvider";
+import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PaystackPaymentProvider } from "../src/services/nairaPaymentProvider";
 import { config } from "../src/config";
 import { PaystackClient } from "../src/services/paystackClient";
 import { MonnifyClient } from "../src/services/monnifyClient";
+import { FlutterwaveClient } from "../src/services/flutterwaveClient";
 
 describe("PaystackPaymentProvider", () => {
   it("initializes bank-transfer-only payments through Paystack", async () => {
@@ -212,6 +213,113 @@ describe("MonnifyPaymentProvider", () => {
       eventId: "monnify:SUCCESSFUL_TRANSACTION:monnify-ref-2:MNFY|202",
       eventType: "SUCCESSFUL_TRANSACTION",
       paymentReference: "monnify-ref-2",
+    });
+  });
+});
+
+describe("FlutterwavePaymentProvider", () => {
+  it("initializes dynamic bank-transfer-only Flutterwave virtual accounts", async () => {
+    (config.flutterwave as any).paymentMethods = ["bank_transfer"];
+    const client = {
+      initializeBankTransferPayment: vi.fn().mockResolvedValue({
+        paymentReference: "flutterwave-SIV-300",
+        transactionReference: "van_300",
+        accountNumber: "4032866864",
+        accountName: "Please make a bank transfer to Sivan Buyer",
+        bankName: "WEMA BANK",
+        expiresAt: "2026-06-11T11:40:00Z",
+        expiresInSeconds: 3600,
+        raw: { ok: true },
+      }),
+      verifyPayment: vi.fn(),
+      verifyChargeById: vi.fn(),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as FlutterwaveClient;
+    const provider = new FlutterwavePaymentProvider(client);
+
+    await expect(provider.initializeBankTransferPayment({
+      amount: 12000,
+      customerEmail: "buyer@example.com",
+      escrowId: "SIV-300",
+    })).resolves.toMatchObject({
+      provider: "flutterwave",
+      status: "pending",
+      paymentReference: "flutterwave-SIV-300",
+      transactionReference: "van_300",
+      accountNumber: "4032866864",
+      bankName: "WEMA BANK",
+      expiresInSeconds: 3600,
+    });
+  });
+
+  it("normalizes succeeded Flutterwave bank transfer as success", async () => {
+    const provider = new FlutterwavePaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "flutterwave-ref-1",
+        transactionReference: "chg_1",
+        status: "succeeded",
+        amount: 15000,
+        currency: "NGN",
+        paymentMethod: "bank_transfer",
+        processorFee: 100,
+        paidAt: "2026-06-11T10:00:00Z",
+        raw: { ok: true },
+      }),
+      verifyChargeById: vi.fn(),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as FlutterwaveClient);
+
+    await expect(provider.verifyPayment("flutterwave-ref-1")).resolves.toMatchObject({
+      provider: "flutterwave",
+      status: "success",
+      paymentReference: "flutterwave-ref-1",
+      transactionReference: "chg_1",
+      amount: 15000,
+      currency: "NGN",
+      channel: "bank_transfer",
+    });
+  });
+
+  it("does not normalize non-transfer Flutterwave payments as success", async () => {
+    const provider = new FlutterwavePaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "flutterwave-card-ref",
+        status: "succeeded",
+        amount: 15000,
+        currency: "NGN",
+        paymentMethod: "card",
+        raw: { ok: true },
+      }),
+      verifyChargeById: vi.fn(),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as FlutterwaveClient);
+
+    await expect(provider.verifyPayment("flutterwave-card-ref")).resolves.toMatchObject({
+      provider: "flutterwave",
+      status: "invalid_payment_method",
+      paymentReference: "flutterwave-card-ref",
+    });
+  });
+
+  it("normalizes Flutterwave charge.completed webhook payloads", () => {
+    const provider = new FlutterwavePaymentProvider();
+    const event = provider.normalizeWebhook({
+      webhook_id: "wbk_123",
+      type: "charge.completed",
+      data: {
+        id: "chg_123",
+        reference: "flutterwave-ref-2",
+      },
+    });
+
+    expect(event).toMatchObject({
+      provider: "flutterwave",
+      eventId: "wbk_123",
+      eventType: "charge.completed",
+      paymentReference: "flutterwave-ref-2",
+      transactionReference: "chg_123",
     });
   });
 });

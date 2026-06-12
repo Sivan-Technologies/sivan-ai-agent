@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { config } from "../config";
+import { FlutterwaveClient, FlutterwaveVerifiedCharge } from "./flutterwaveClient";
 import { MonnifyClient, MonnifyVerifiedTransaction } from "./monnifyClient";
 import { PaystackClient, PaystackTransactionStatus } from "./paystackClient";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
@@ -11,6 +12,7 @@ export interface BankTransferPaymentRequest {
   customerEmail: string;
   callbackUrl?: string;
   escrowId?: string;
+  paymentReference?: string;
 }
 
 export interface BankTransferPayment {
@@ -47,6 +49,7 @@ export interface NormalizedPaymentWebhook {
   eventId: string;
   eventType: string;
   paymentReference: string;
+  transactionReference?: string;
   raw: unknown;
 }
 
@@ -105,6 +108,38 @@ function mapMonnifyStatus(transaction: MonnifyVerifiedTransaction): VerifiedNair
   };
 }
 
+function normalizeFlutterwaveStatus(transaction: FlutterwaveVerifiedCharge): string {
+  if (
+    transaction.status === "succeeded" &&
+    transaction.currency === "NGN" &&
+    transaction.paymentMethod === "bank_transfer"
+  ) {
+    return "success";
+  }
+  if (transaction.status === "succeeded" && transaction.paymentMethod !== "bank_transfer") {
+    return "invalid_payment_method";
+  }
+  if (transaction.status === "succeeded" && transaction.currency !== "NGN") {
+    return "invalid_currency";
+  }
+  return transaction.status || "unknown";
+}
+
+function mapFlutterwaveStatus(transaction: FlutterwaveVerifiedCharge): VerifiedNairaPayment {
+  return {
+    provider: "flutterwave",
+    status: normalizeFlutterwaveStatus(transaction),
+    paymentReference: transaction.paymentReference,
+    transactionReference: transaction.transactionReference,
+    amount: transaction.amount,
+    currency: transaction.currency,
+    processorFee: transaction.processorFee,
+    channel: transaction.paymentMethod,
+    paidAt: transaction.paidAt,
+    raw: transaction.raw,
+  };
+}
+
 export class PaystackPaymentProvider implements PaymentProvider {
   public readonly id = "paystack";
 
@@ -158,7 +193,7 @@ export class MonnifyPaymentProvider implements PaymentProvider {
   constructor(private client = new MonnifyClient()) {}
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
-    const paymentReference = `monnify-${input.escrowId || crypto.randomUUID()}`;
+    const paymentReference = input.paymentReference || `monnify-${input.escrowId || crypto.randomUUID()}-${crypto.randomUUID().slice(0, 8)}`;
     const instruction = await this.client.initializeBankTransferPayment({
       amount: input.amount,
       customerEmail: input.customerEmail,
@@ -216,9 +251,70 @@ export class MonnifyPaymentProvider implements PaymentProvider {
   }
 }
 
+export class FlutterwavePaymentProvider implements PaymentProvider {
+  public readonly id = "flutterwave";
+
+  constructor(private client = new FlutterwaveClient()) {}
+
+  public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
+    const paymentReference = input.paymentReference || `flutterwave-${input.escrowId || crypto.randomUUID()}-${crypto.randomUUID().slice(0, 8)}`;
+    const instruction = await this.client.initializeBankTransferPayment({
+      amount: input.amount,
+      customerEmail: input.customerEmail,
+      paymentReference,
+      paymentDescription: `Sivan escrow ${input.escrowId || paymentReference}`,
+      metadata: {
+        escrowId: input.escrowId,
+        provider: this.id,
+        paymentMethod: "bank_transfer",
+      },
+    });
+    return {
+      provider: this.id,
+      status: "pending",
+      paymentReference: instruction.paymentReference,
+      transactionReference: instruction.transactionReference,
+      accountNumber: instruction.accountNumber,
+      accountName: instruction.accountName,
+      bankName: instruction.bankName,
+      expiresAt: instruction.expiresAt,
+      expiresInSeconds: instruction.expiresInSeconds,
+      raw: instruction.raw,
+    };
+  }
+
+  public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
+    const transaction = paymentReference.startsWith("chg_")
+      ? await this.client.verifyChargeById(paymentReference)
+      : await this.client.verifyPayment(paymentReference);
+    return mapFlutterwaveStatus(transaction);
+  }
+
+  public async verifyWebhookSignature(_rawBody: string, signature: string): Promise<boolean> {
+    return this.client.verifyWebhookSignature(signature);
+  }
+
+  public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
+    const eventType = String(payload?.type || payload?.event || "unknown").trim();
+    const data = payload?.data || {};
+    const paymentReference = String(data.reference || data.tx_ref || "").trim();
+    const chargeId = String(data.id || "").trim();
+    if (!paymentReference) throw new Error("Flutterwave webhook payload is missing payment reference");
+    return {
+      provider: this.id,
+      eventId: String(payload?.webhook_id || `${this.id}:${eventType}:${paymentReference}:${chargeId || "none"}`),
+      eventType,
+      paymentReference,
+      transactionReference: chargeId || undefined,
+      raw: payload,
+    };
+  }
+}
+
 export function createNairaPaymentProvider(provider = process.env.ACTIVE_PAYMENT_PROVIDER || "paystack"): PaymentProvider {
   const normalized = provider.trim().toLowerCase();
   if (!normalized || normalized === "paystack") return new PaystackPaymentProvider();
   if (normalized === "monnify") return new MonnifyPaymentProvider();
+  if (normalized === "flutterwave") return new FlutterwavePaymentProvider();
   throw new Error(`Naira payment provider is not implemented yet: ${provider}`);
 }

@@ -18,10 +18,11 @@ Implemented Monnify capabilities:
 - duplicate-safe webhook persistence
 - server-side re-query before funding an escrow
 - basic `SETTLEMENT` event capture linked to escrow events
+- payment-instruction expiry that expires only the stale provider reference while the escrow remains fundable until its funding deadline
 
 Still pending:
 
-- real Monnify sandbox/live transfer proof
+- signed Monnify webhook delivery proof into deployed Sivan
 - live-proven settlement proof from Monnify sandbox/live testing
 - automated disbursement/payout, which should remain out of MVP until manual payout operations are proven
 
@@ -87,14 +88,17 @@ Use `https://sandbox.monnify.com` with sandbox keys until live access is approve
    - expected amount
    - currency
    - expiry timestamp
-5. On webhook, verify the Monnify signature/hash before processing.
-6. Re-query Monnify server-side before marking the escrow funded.
-7. Mark funded only when:
+5. If the provider instruction expiry timestamp passes before verified funding, mark that funding transaction `expired`, clear it as the active payment reference, and keep the escrow `PENDING_PAYMENT` so the buyer can request fresh payment details.
+6. On webhook, verify the Monnify signature/hash before processing.
+7. Re-query Monnify server-side before marking the escrow funded.
+8. Mark funded only when:
    - `paymentStatus` is `PAID`
    - `paymentMethod` is `ACCOUNT_TRANSFER`
    - `currency`/`currencyCode` is `NGN`
    - amount paid matches the escrow amount exactly
    - payment reference maps to one open escrow
+
+If Monnify reports a payment after Sivan already marked the payment instruction expired or inactive, keep the escrow out of automatic funding and route it to manual payment review. The full escrow moves to `EXPIRED` only when the configured funding window closes.
 
 ## Webhook Rules
 
@@ -159,13 +163,19 @@ If Monnify disbursement is added later:
 6. ✅ Add admin provider settings for active/backup/emergency provider.
 7. ✅ Add richer Monnify settlement fields to admin Reconciliation and Revenue tabs.
 8. ✅ Verify provider-neutral code paths with local build/tests and deployed smoke/DR checks.
-9. 🟡 Run `docs/monnify-live-test.md` before using Monnify for real users.
+9. ✅ Verify Monnify sandbox authentication, transaction initialization, bank-transfer account generation, and pending server-side verification.
+10. ✅ Verify a paid Monnify sandbox bank-transfer transaction server-side.
+11. 🟡 Prove signed Monnify webhook delivery into deployed `/webhooks/monnify` before using Monnify for real users.
+12. ✅ Expire stale provider payment instructions without closing the escrow, regenerate fresh references on the same escrow before the funding deadline, send a one-time funding reminder before escrow expiry, and route late payments to expired/inactive references to manual review.
 
 ## Current Progress
 
 ```text
-Monnify transport progress: 85%
-Monnify live-transfer proof: 0%
+Monnify transport progress: 92%
+Monnify sandbox initialization proof: 100%
+Monnify paid-transfer verification proof: 100%
+Monnify signed webhook proof: 0%
+Monnify live-readiness proof: 75%
 ```
 
 | Area | Status | Notes |
@@ -174,10 +184,15 @@ Monnify live-transfer proof: 0%
 | Paystack behavior preserved | ✅ Done | Current live Naira behavior remains Paystack bank transfer |
 | Monnify auth token cache | ✅ Done | Existing client authenticates and caches token |
 | Monnify account/name validation | ✅ Done for fallback verification | Used only for payout account resolution fallback |
-| Monnify bank-transfer collection | ✅ Implemented / live proof pending | Init transaction and Pay with Bank Transfer instruction generation are implemented |
-| Monnify webhook verification | ✅ Implemented / live proof pending | Raw-body HMAC-SHA512 validation and server-side verification are implemented |
+| Monnify bank-transfer collection | ✅ Implemented / paid sandbox proof passed | Init transaction, Pay with Bank Transfer instruction generation, and paid server-side verification are implemented |
+| Monnify webhook verification | ✅ Implemented / signed delivery proof pending | Raw-body HMAC-SHA512 validation and server-side verification are implemented; deployed signed provider webhook receipt remains next |
 | Monnify settlement/reconciliation | ✅ Implemented / live proof pending | Settlement events are persisted, linked to escrows, and surfaced in Revenue/Reconciliation analytics |
-| Local build/test proof | ✅ Passed on 2026-06-11 | `npm run build` passed; `npm test -- --run` passed with 14 files and 77 tests |
+| Local build/test proof | ✅ Passed on 2026-06-11 | `npm run build` passed; `npm test -- --run` passed with 14 files and 81 tests |
 | Live backend smoke proof | ✅ Passed on 2026-06-11 | `npm run smoke` passed against the deployed Render backend after allowing network access |
 | Live DR proof | ✅ Passed on 2026-06-11 | `npm run dr:check` passed against the deployed Render backend after allowing network access |
-| Monnify live sandbox test | 🟡 Next | Run the checklist with a real Monnify sandbox transfer before enabling Monnify for real users |
+| Live admin session smoke proof | ✅ Passed on 2026-06-11 | `npm run smoke:admin-page` passed against backend admin routes and Telegram auth session routes |
+| Monnify sandbox initialization proof | ✅ Passed on 2026-06-11 | Sandbox auth, bank-transfer instruction generation, and server-side verification of a pending transaction passed |
+| Monnify sandbox transfer-account proof | ✅ Passed on 2026-06-11 | Generated sandbox payment reference `monnify-proof-1781193317611`, transaction reference `MNFY\|54\|20260611165519\|000008`, Sterling bank virtual account ending `1050`, then verified the transaction as `PENDING` |
+| Monnify paid-transfer verification proof | ✅ Passed on 2026-06-11 | Generated sandbox payment reference `monnify-click-proof-1781205462197`, transaction reference `MNFY\|54\|20260611201745\|000028`, funded NGN 100 by account transfer, then verified status `PAID`, amount `100`, currency `NGN`, method `ACCOUNT_TRANSFER`, settlement amount `90` |
+| Monnify webhook route fail-closed proof | ✅ Passed on 2026-06-11 | Deployed `/webhooks/monnify` rejected an unsigned payload instead of processing it |
+| Monnify signed webhook delivery proof | 🟡 Next | Confirm Monnify sends the signed `SUCCESSFUL_TRANSACTION` webhook to deployed `/webhooks/monnify` and Sivan persists it |

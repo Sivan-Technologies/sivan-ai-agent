@@ -49,7 +49,7 @@ This applies when the active or backup Naira provider is set to Monnify. Current
 1. Confirm the escrow is `PENDING_RELEASE` or `RELEASED` and inspect payout reference/notes.
 2. Enqueue `POST /admin/escrows/:escrowId/payout-review`.
 3. Verify seller payout account through Paystack before any retry.
-4. Use the admin Payout Safety row as the source of truth for amount: gross comes from the escrow record, fees come from platform settings, and seller net payout is the amount to pay.
+4. Use the admin Payout Safety row as the source of truth for amount: escrow amount comes from the escrow record, buyer-paid fees come from platform settings, buyer total funding is escrow amount plus fee, and seller net payout is the escrow amount to pay.
 5. Admin records only the Paystack/bank payout reference. Do not manually override the payout amount in Sivan.
 6. If a transfer may already have succeeded, do not retry payout until provider reconciliation confirms no duplicate movement.
 

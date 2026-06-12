@@ -29,6 +29,7 @@ The escrow engine should not branch on provider-specific concepts. Provider clie
 | --- | --- |
 | `PAYMENT_PENDING` | A payment instruction has been created and the buyer can pay |
 | `PAYMENT_VERIFIED` | Provider confirmed exact successful payment for the expected escrow amount |
+| `PAYMENT_EXPIRED` | Provider payment instruction expired before verified funding |
 | `PAYMENT_REJECTED` | Provider reported underpayment, invalid payment, expired payment, or rejected payment |
 | `SETTLEMENT_PENDING` | Provider has collected funds but settlement to Sivan wallet/bank is not yet final |
 | `SETTLEMENT_RECEIVED` | Provider settlement has landed and can be reconciled |
@@ -76,20 +77,26 @@ Every checklist should prove:
 
 Paystack is the currently proven Naira collection rail. It runs behind `PaymentProvider.initializeBankTransferPayment`, `verifyPayment`, `verifyWebhookSignature`, and `normalizeWebhook`, and live behavior remains Paystack bank-transfer only until another provider passes live testing.
 
-Monnify is now implemented as a provider-neutral Naira collection adapter. The backend can authenticate with Monnify, initialize a transaction, generate a bank-transfer payment instruction, verify payments by `paymentReference`, validate `monnify-signature` over the raw webhook body, persist webhook events, and re-query Monnify before funding an escrow. Build, automated tests, deployed smoke checks, and DR checks passed on 2026-06-11. Monnify is not yet live-enabled for users because the full sandbox/live checklist still needs to pass with real Monnify credentials and a real transfer event.
+Monnify is now implemented as a provider-neutral Naira collection adapter. The backend can authenticate with Monnify, initialize a transaction, generate a bank-transfer payment instruction, verify payments by `paymentReference`, validate `monnify-signature` over the raw webhook body, persist webhook events, and re-query Monnify before funding an escrow. Build, automated tests, deployed smoke checks, DR checks, admin-page session smoke, Monnify sandbox initialization, paid sandbox transfer verification, and fail-closed webhook reachability checks passed on 2026-06-11. Monnify is not yet live-enabled for users because signed provider webhook delivery into deployed Sivan still needs to be proven.
 
-Flutterwave is documented as an emergency backup transport only. It should not be implemented or enabled before Sivan confirms the exact Flutterwave bank-transfer collection endpoint, webhook signature scheme, server-side verification endpoint, and settlement reporting shape. Do not use Flutterwave for card payments.
+Payment instruction expiry is now split from escrow expiry. When a provider returns expiry metadata for a pending payment instruction, Sivan marks only that provider reference as expired, keeps the escrow in `PENDING_PAYMENT`, and lets the buyer regenerate a fresh bank-transfer instruction on the same escrow before the funding deadline. Old provider references are never reused and remain in transaction history. If a provider later reports money for an expired or inactive reference, Sivan sends the escrow to `REVIEW_REQUIRED` instead of auto-funding it. The full escrow moves to `EXPIRED` only when the configured funding window closes before verified payment. Lifecycle refresh also sends a one-time reminder before the funding deadline and stores `last_payment_reminder_at` for audit; production should enable `PAYMENT_LIFECYCLE_WORKER_ENABLED=true` so this runs without waiting for a user/admin page view.
+
+Flutterwave is implemented as an emergency backup collection adapter using dynamic virtual accounts for bank transfer only. The backend can create a Flutterwave virtual account, persist `provider=flutterwave`, verify signed `charge.completed` webhooks, re-query Flutterwave by charge ID before funding, and support admin recheck by the stored payment reference. Do not enable Flutterwave for users until the backup checklist passes with a low-value transfer and signed webhook proof. Do not use Flutterwave for card payments.
 
 ## Progress
 
 ```text
 Provider-neutral Naira interface: 82%
 Paystack behind provider interface: 100%
-Monnify collection transport: 85%
-Payment-provider admin switching: 85%
-Flutterwave backup transport: 10%
-Provider live-test readiness: 55%
-Monnify live-transfer proof: 0%
+Monnify collection transport: 92%
+Payment-provider admin switching: 90%
+Flutterwave backup transport: 65%
+Provider live-test readiness: 75%
+Monnify sandbox initialization proof: 100%
+Monnify paid-transfer verification proof: 100%
+Monnify signed webhook proof: 0%
+Monnify live-readiness proof: 75%
+Flutterwave live backup proof: 0%
 ```
 
 | Area | Status | Notes |
@@ -99,10 +106,10 @@ Monnify live-transfer proof: 0%
 | Provider ID on escrow/transactions | ✅ Done | Escrows already store `payment_provider`; transactions/ledger now use the active provider name |
 | Bank-transfer-only guard | ✅ Done | Global `NAIRA_PAYMENT_METHODS=bank_transfer` policy is enforced across implemented Naira providers; provider-specific aliases must also resolve to bank transfer |
 | Monnify name enquiry fallback | ✅ Done for payout verification fallback | Existing `MonnifyClient` can validate account name when configured |
-| Monnify collection initialization | ✅ Implemented / live proof pending | Monnify adapter initializes transfer-only transactions and stores transfer instruction metadata; local build/tests passed on 2026-06-11 |
-| Monnify webhook endpoint | ✅ Implemented / live proof pending | `POST /webhooks/monnify` verifies raw-body HMAC, persists events, handles duplicates, and re-queries before funding |
+| Monnify collection initialization | ✅ Implemented / paid sandbox proof passed | Monnify adapter initializes transfer-only transactions and stores transfer instruction metadata; sandbox auth/init/verify-pending and paid transfer verification passed on 2026-06-11 |
+| Monnify webhook endpoint | ✅ Implemented / signed payment proof pending | `POST /webhooks/monnify` verifies raw-body HMAC, persists events, handles duplicates, and re-queries before funding; deployed route rejected unsigned payload on 2026-06-11 |
 | Provider-aware recovery/recheck | ✅ Done | Admin recheck and retry jobs verify through each escrow's stored `paymentProvider` |
-| Admin provider/settings controls | ✅ Implemented / smoke verified | DB-backed provider routing, platform mode, maintenance message, and bank-transfer-only policy controls exist in admin Platform Controls with audit history; deployed smoke checks passed on 2026-06-11 |
+| Admin provider/settings controls | ✅ Implemented / smoke verified | DB-backed provider routing, platform mode, maintenance message, and bank-transfer-only policy controls exist in admin Platform Controls with audit history; deployed admin-page smoke passed on 2026-06-11 |
 | Monnify settlement events | ✅ Implemented / live proof pending | `SETTLEMENT` webhooks are persisted, linked to matching escrows, and surfaced in Revenue/Reconciliation analytics; live settlement proof remains next |
-| Flutterwave backup transport | 🟡 Documented / not implemented | `docs/flutterwave-payment-transport.md` and `docs/flutterwave-backup-test.md` define emergency backup rules, env shape, webhook requirements, and go/no-go tests |
+| Flutterwave backup transport | 🟡 Implemented / live proof pending | Dynamic virtual account adapter, signed webhook endpoint, server-side charge verification, and admin provider visibility exist; low-value backup transfer proof and settlement reconciliation remain next |
 | PalmPay transport | 🔴 Not started | Keep as future backup/provider adapter |

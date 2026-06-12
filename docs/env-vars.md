@@ -52,12 +52,19 @@ This file documents the environment variables required to run the Sivan Escrow A
 
 ### Naira payment provider transport
 
-- `ACTIVE_PAYMENT_PROVIDER` - Default provider selector for new Naira payment creation before DB settings are loaded. Supported implemented values are `paystack` and `monnify`; `palmpay` and `flutterwave` are reserved future values.
+- `ACTIVE_PAYMENT_PROVIDER` - Default provider selector for new Naira payment creation before DB settings are loaded. Supported implemented values are `paystack`, `monnify`, and `flutterwave`; keep `flutterwave` for emergency backup only until its low-value proof passes. `palmpay` is reserved for a future adapter.
 - `BACKUP_PAYMENT_PROVIDER` - Default backup provider setting. Fallback applies only to new payment creation after policy allows it, never to existing escrows with a created payment reference.
 - `EMERGENCY_PAYMENT_PROVIDER` - Default emergency provider setting for operator-approved continuity.
 - `PAYMENT_PROVIDER_FALLBACK_ENABLED` - Default explicit toggle for fallback behavior. Keep `false` until both active and backup providers pass live transfer tests.
 - `PLATFORM_MODE` - Initial DB setting for the admin-controlled runtime mode. Use `test`, `live`, or `maintenance`. The admin Platform Controls tab becomes the source of truth after the database row exists.
 - `MAINTENANCE_MESSAGE` - Initial user-facing maintenance message. Admins can edit it without redeploying.
+- `NAIRA_FUNDING_WINDOW_HOURS` - Default time before an unfunded Naira escrow expires. Recommended pilot default: `24`.
+- `NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS` - Funding window for high-value Naira escrows. Recommended pilot default: `48`.
+- `NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT` - Amount threshold that switches an escrow to the high-value funding window. Recommended pilot default: `100000`.
+- `NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS` - Reminder lead time before the escrow funding deadline. Recommended pilot default: `6`.
+- `PAYMENT_LIFECYCLE_WORKER_ENABLED` - Enables the background sweep that expires stale payment instructions, sends one reminder before the funding deadline, and expires unfunded escrows after the funding window. Set `true` on the backend worker/runtime after deploy.
+- `PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS` - Sweep interval for the payment lifecycle worker. Suggested default: `300000`.
+- `PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE` - Maximum recent escrows scanned per sweep. Suggested default: `250`.
 
 ### Monnify
 
@@ -72,15 +79,16 @@ This file documents the environment variables required to run the Sivan Escrow A
 
 ### Flutterwave
 
-Flutterwave is documented as an emergency backup transport but is not implemented yet. Add these only when building or staging the Flutterwave adapter:
+Flutterwave is implemented as an emergency backup bank-transfer collection transport. Add these only when staging or enabling the Flutterwave adapter:
 
 - `FLUTTERWAVE_SECRET_KEY` - Flutterwave secret key for API calls.
 - `FLUTTERWAVE_PUBLIC_KEY` - Flutterwave public key for dashboard/reference metadata if needed.
 - `FLUTTERWAVE_BASE_URL` - Flutterwave API base URL.
 - `FLUTTERWAVE_WEBHOOK_SECRET` - Flutterwave webhook signature/secret value.
-- `FLUTTERWAVE_WEBHOOK_URL` - Future webhook callback URL, expected to be `/webhooks/flutterwave`.
+- `FLUTTERWAVE_WEBHOOK_URL` - Webhook callback URL, expected to be `/webhooks/flutterwave`.
 - `FLUTTERWAVE_TIMEOUT_MS` - Timeout for Flutterwave API calls. Suggested default: `8000`.
 - `FLUTTERWAVE_PAYMENT_METHODS` - Must be `bank_transfer` if set. Sivan must not enable card collection.
+- `FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS` - Dynamic virtual account expiry. Suggested default: `3600`.
 
 ### Application and workflow
 
@@ -204,6 +212,13 @@ EMERGENCY_PAYMENT_PROVIDER=flutterwave
 PAYMENT_PROVIDER_FALLBACK_ENABLED=false
 PLATFORM_MODE=test
 MAINTENANCE_MESSAGE=Sivan is temporarily under maintenance. Please try again soon.
+NAIRA_FUNDING_WINDOW_HOURS=24
+NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS=48
+NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT=100000
+NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS=6
+PAYMENT_LIFECYCLE_WORKER_ENABLED=false
+PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS=300000
+PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE=250
 MONNIFY_API_KEY=
 MONNIFY_SECRET_KEY=
 MONNIFY_BASE_URL=https://sandbox.monnify.com
@@ -219,6 +234,7 @@ FLUTTERWAVE_WEBHOOK_SECRET=
 FLUTTERWAVE_WEBHOOK_URL=https://yourapp.example.com/webhooks/flutterwave
 FLUTTERWAVE_TIMEOUT_MS=8000
 FLUTTERWAVE_PAYMENT_METHODS=bank_transfer
+FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS=3600
 
 NODE_ENV=development
 LOG_LEVEL=debug
