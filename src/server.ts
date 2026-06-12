@@ -963,6 +963,33 @@ async function buildParticipantDeal(detail: Awaited<ReturnType<typeof buildEscro
   };
 }
 
+async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
+  const detail = await buildEscrowDetail(escrow.escrowId);
+  if (!detail) return;
+  const buyerWhatsapp = detail.buyer?.whatsappNumber;
+  const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
+  const message = participantLifecycleMessage(
+    detail.escrow,
+    "Payment has been received and secured in escrow.",
+    "Reply STATUS or tap View status to see what to do next."
+  );
+
+  await Promise.all([
+    buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
+      notifyWhatsAppBot(buyerWhatsapp, message, dealCard ? {
+        escrow: dealCard.escrow,
+        participant: dealCard.participant,
+      } : undefined)
+    ) : Promise.resolve(),
+    sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
+      notifyWhatsAppBot(sellerWhatsapp, message, dealCard ? {
+        escrow: dealCard.escrow,
+        participant: dealCard.participant,
+      } : undefined)
+    ) : Promise.resolve(),
+  ]);
+}
+
 async function recordDisputeEvidence(input: {
   escrow: EscrowRecord;
   actor: string;
@@ -2141,7 +2168,7 @@ app.post("/webhooks/paystack", async (req, res) => {
         const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
         if (funded.status === "IN_PROGRESS") {
           info("Escrow funded from verified Paystack webhook", { escrowId: funded.escrowId, paymentReference });
-          await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+          await notifyEscrowFundedParticipants(funded);
         } else if (funded.status === "REVIEW_REQUIRED") {
           info("Escrow payment moved to review from Paystack webhook", { escrowId: funded.escrowId, paymentReference });
         }
@@ -2272,7 +2299,7 @@ app.post("/webhooks/monnify", async (req, res) => {
         escrowId: funded.escrowId,
         paymentReference: normalizedWebhook.paymentReference,
       });
-      await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+      await notifyEscrowFundedParticipants(funded);
     } else if (funded.status === "REVIEW_REQUIRED") {
       info("Escrow payment moved to review from Monnify webhook", {
         escrowId: funded.escrowId,
@@ -2366,7 +2393,7 @@ app.post("/webhooks/flutterwave", async (req, res) => {
         escrowId: funded.escrowId,
         paymentReference: normalizedWebhook.paymentReference,
       });
-      await notifyWhatsAppBot(funded.sellerWhatsapp || escrow.buyerUserId, `Escrow ${funded.escrowId} is funded. Seller may proceed.`);
+      await notifyEscrowFundedParticipants(funded);
     } else if (funded.status === "REVIEW_REQUIRED") {
       info("Escrow payment moved to review from Flutterwave webhook", {
         escrowId: funded.escrowId,

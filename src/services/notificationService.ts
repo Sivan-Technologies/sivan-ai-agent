@@ -1,15 +1,15 @@
 import { config } from "../config";
 import { WorkflowTaskRecord } from "./workflowStore";
 
-export async function notifyWhatsAppBot(to: string, message: string) {
+export async function notifyWhatsAppBot(to: string, message: string, dealCard?: any) {
   try {
-    await notifyWhatsAppBotStrict(to, message);
+    await notifyWhatsAppBotStrict(to, message, dealCard);
   } catch (error) {
     console.error("Failed to notify WhatsApp bot", error);
   }
 }
 
-export async function notifyWhatsAppBotStrict(to: string, message: string) {
+export async function notifyWhatsAppBotStrict(to: string, message: string, dealCard?: any) {
   const notifyUrl = config.app.notificationUrl;
   const secret = config.app.notificationSecret;
 
@@ -23,7 +23,7 @@ export async function notifyWhatsAppBotStrict(to: string, message: string) {
       "Content-Type": "application/json",
       ...(secret ? { "x-notify-secret": secret } : {}),
     },
-    body: JSON.stringify({ to, message }),
+    body: JSON.stringify({ to, message, ...(dealCard ? { dealCard } : {}) }),
   });
 
   if (!response.ok) {
