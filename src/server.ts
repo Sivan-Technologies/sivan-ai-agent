@@ -156,6 +156,137 @@ function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
   return createProviderForId(escrow.paymentProvider || "paystack");
 }
 
+function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
+  if (escrow.currency !== "NAIRA") return 24;
+  return escrow.amount >= config.nairaPayments.highValueFundingWindowAmount
+    ? config.nairaPayments.highValueFundingWindowHours
+    : config.nairaPayments.fundingWindowHours;
+}
+
+function fundingDeadlineForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
+  return new Date(Date.now() + fundingWindowHoursForEscrow(escrow) * 60 * 60 * 1000).toISOString();
+}
+
+function uniqueProviderReference(providerId: string, escrowId: string) {
+  return `${providerId}-${escrowId}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
+  const currency = escrow.currency === "NAIRA" ? "NGN" : escrow.currency;
+  const total = new Intl.NumberFormat("en-NG").format(payment.totalPayable || escrow.amount);
+  const escrowAmount = new Intl.NumberFormat("en-NG").format(escrow.amount);
+  const feeAmount = new Intl.NumberFormat("en-NG").format(payment.platformFeeAmount || 0);
+  if (payment.authorizationUrl) {
+    return [
+      `Payment details for ${escrow.escrowId}`,
+      `Total to pay: ${currency} ${total}`,
+      `Escrow amount: ${currency} ${escrowAmount}`,
+      `Sivan fee: ${currency} ${feeAmount}`,
+      "",
+      `Pay securely: ${payment.authorizationUrl}`,
+      payment.expiresAt ? `Payment link expires: ${payment.expiresAt}` : null,
+    ].filter(Boolean).join("\n");
+  }
+  if (payment.accountNumber) {
+    return [
+      `Payment details for ${escrow.escrowId}`,
+      `Transfer ${currency} ${total}`,
+      `Bank: ${payment.bankName || "assigned bank"}`,
+      `Account number: ${payment.accountNumber}`,
+      `Account name: ${payment.accountName || "Sivan escrow"}`,
+      `Reference: ${payment.reference}`,
+      "",
+      `Escrow amount: ${currency} ${escrowAmount}`,
+      `Sivan fee: ${currency} ${feeAmount}`,
+      payment.expiresAt ? `Payment details expire: ${payment.expiresAt}` : null,
+    ].filter(Boolean).join("\n");
+  }
+  return [
+    `Payment details for ${escrow.escrowId}`,
+    `Payment reference: ${payment.reference}`,
+    `Total to pay: ${currency} ${total}`,
+    `Escrow amount: ${currency} ${escrowAmount}`,
+    `Sivan fee: ${currency} ${feeAmount}`,
+  ].join("\n");
+}
+
+async function createNairaPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
+  const provider = escrow.paymentProvider ? getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
+  const transaction = await provider.initializeBankTransferPayment({
+    amount: payoutQuote.totalWithFee,
+    customerEmail: paystackEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
+    callbackUrl: config.paystack.callbackUrl,
+    escrowId: escrow.escrowId,
+    paymentReference,
+  });
+  const fundingExpiresAt = escrow.fundingExpiresAt || fundingDeadlineForEscrow(escrow);
+  await escrowStore.attachPayment({
+    escrowId: escrow.escrowId,
+    paymentReference: transaction.paymentReference,
+    paymentAuthorizationUrl: transaction.authorizationUrl,
+    paymentProvider: transaction.provider,
+    paymentMetadata: {
+      ...transaction,
+      escrowAmount: escrow.amount,
+      platformFeeAmount: payoutQuote.platformFeeAmount,
+      totalPayable: payoutQuote.totalWithFee,
+      fundingExpiresAt,
+      feePolicy: "buyer_pays_fee_on_top",
+    },
+    fundingExpiresAt,
+    activePaymentExpiresAt: transaction.expiresAt,
+    status: "PENDING_PAYMENT",
+    regenerate: Boolean(options.regenerate),
+  });
+  return {
+    provider: transaction.provider,
+    reference: transaction.paymentReference,
+    transactionReference: transaction.transactionReference,
+    authorizationUrl: transaction.authorizationUrl,
+    accountNumber: transaction.accountNumber,
+    accountName: transaction.accountName,
+    bankName: transaction.bankName,
+    bankCode: transaction.bankCode,
+    expiresAt: transaction.expiresAt,
+    expiresInSeconds: transaction.expiresInSeconds,
+    escrowAmount: escrow.amount,
+    platformFeeAmount: payoutQuote.platformFeeAmount,
+    totalPayable: payoutQuote.totalWithFee,
+    fundingExpiresAt,
+  };
+}
+
+async function activeNairaPaymentInstructionForEscrow(detail: Awaited<ReturnType<typeof buildEscrowDetail>>) {
+  if (!detail?.escrow.paymentReference) return null;
+  const transaction = await escrowStore.getTransactionByReference(detail.escrow.paymentReference);
+  if (!transaction || transaction.status === "expired") return null;
+  let rawPayload: any = {};
+  try {
+    rawPayload = transaction.rawPayload ? JSON.parse(transaction.rawPayload) : {};
+  } catch {
+    rawPayload = {};
+  }
+  return {
+    provider: detail.escrow.paymentProvider,
+    reference: detail.escrow.paymentReference,
+    transactionReference: rawPayload.transactionReference || null,
+    authorizationUrl: detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl,
+    accountNumber: rawPayload.accountNumber,
+    accountName: rawPayload.accountName,
+    bankName: rawPayload.bankName,
+    bankCode: rawPayload.bankCode,
+    expiresAt: detail.escrow.activePaymentExpiresAt || rawPayload.expiresAt,
+    expiresInSeconds: rawPayload.expiresInSeconds,
+    escrowAmount: detail.escrow.amount,
+    platformFeeAmount: detail.payoutQuote.platformFeeAmount,
+    totalPayable: detail.payoutQuote.totalWithFee,
+    fundingExpiresAt: detail.escrow.fundingExpiresAt,
+    reusedActiveInstruction: true,
+  };
+}
+
 function safeSecretEquals(a: string, b: string) {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -404,7 +535,7 @@ async function buildAbuseAnalytics(limit = 500) {
       latestAt: escrow.updatedAt,
     };
     current.escrows += 1;
-    if (!["RELEASED", "FAILED", "CANCELLED"].includes(escrow.status)) current.active += 1;
+    if (!["RELEASED", "FAILED", "EXPIRED", "CANCELLED"].includes(escrow.status)) current.active += 1;
     if (escrow.status === "DISPUTED") current.disputed += 1;
     if (escrow.status === "REVIEW_REQUIRED") current.reviewRequired += 1;
     current.latestAt = current.latestAt > escrow.updatedAt ? current.latestAt : escrow.updatedAt;
@@ -500,8 +631,8 @@ async function calculateEscrowPayoutQuote(amount: number, currency: EscrowCurren
   const fees = currency === "NAIRA"
     ? settingsStore.calculateNairaFee(amount, settings)
     : settingsStore.calculateUSDCFee(amount, settings);
-  const platformFeeAmount = Math.min(amount, Math.max(0, fees.totalPlatformFee));
-  const sellerNetAmount = Math.max(0, amount - platformFeeAmount);
+  const platformFeeAmount = Math.max(0, fees.totalPlatformFee);
+  const sellerNetAmount = amount;
   return {
     ...fees,
     totalPlatformFee: platformFeeAmount,
@@ -534,8 +665,41 @@ async function calculateComplianceRisk(escrow: EscrowRecord): Promise<Compliance
   });
 }
 
+async function refreshEscrowPaymentLifecycle(escrowId: string) {
+  const before = await escrowStore.getEscrowById(escrowId);
+  const escrow = await escrowStore.expirePendingPaymentIfDue(escrowId);
+  if (before && escrow && before.status !== "EXPIRED" && escrow.status === "EXPIRED") {
+    await notifyEscrowParticipants(
+      escrow,
+      participantLifecycleMessage(
+        escrow,
+        "This escrow expired because payment was not received within the funding window.",
+        "Create a new escrow if both parties still want to continue."
+      )
+    );
+  }
+  if (escrow?.status === "PENDING_PAYMENT" && escrow.fundingExpiresAt && !escrow.lastPaymentReminderAt) {
+    const fundingExpiresAt = new Date(escrow.fundingExpiresAt);
+    const reminderAt = new Date(fundingExpiresAt.getTime() - config.nairaPayments.fundingReminderBeforeExpiryHours * 60 * 60 * 1000);
+    const now = new Date();
+    if (!Number.isNaN(fundingExpiresAt.getTime()) && now.getTime() >= reminderAt.getTime() && now.getTime() < fundingExpiresAt.getTime()) {
+      const reminded = await escrowStore.markPaymentReminderSent(escrow.escrowId, now.toISOString());
+      await notifyEscrowParticipants(
+        reminded || escrow,
+        participantLifecycleMessage(
+          reminded || escrow,
+          "Payment is still pending and this escrow will expire soon.",
+          "Buyer can reply PAY to get the current payment details."
+        )
+      );
+      return reminded || escrow;
+    }
+  }
+  return escrow;
+}
+
 async function buildEscrowDetail(escrowId: string) {
-  const escrow = await escrowStore.getEscrowById(escrowId);
+  const escrow = await refreshEscrowPaymentLifecycle(escrowId);
   if (!escrow) return null;
 
   const [buyer, seller, transactions, events, ledgerEntries] = await Promise.all([
@@ -578,7 +742,9 @@ async function buildEscrowDetail(escrowId: string) {
       buyerCompleted: ["COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
       releaseRequested: escrow.status === "PENDING_RELEASE",
       nextAction:
-        escrow.status === "REVIEW_REQUIRED"
+        escrow.status === "EXPIRED"
+          ? "payment_expired"
+          : escrow.status === "REVIEW_REQUIRED"
           ? "payment_reconciliation_required"
           : escrow.status === "PENDING_ACCEPTANCE"
           ? "seller_acceptance_required"
@@ -699,6 +865,7 @@ function participantDealStatus(status: EscrowRecord["status"]) {
     DISPUTED: "Dispute under review",
     REVIEW_REQUIRED: "Under manual review",
     FAILED: "Action required",
+    EXPIRED: "Payment expired",
     CANCELLED: "Cancelled",
   };
   return labels[status];
@@ -709,7 +876,7 @@ function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buyer" | "
 
   if (role === "seller" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE"].includes(escrow.status)) actions.add("accept");
   if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
-  if (role === "buyer" && escrow.status === "PENDING_PAYMENT" && escrow.paymentAuthorizationUrl) actions.add("pay");
+  if (role === "buyer" && escrow.status === "PENDING_PAYMENT") actions.add("pay");
   if (role === "buyer" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("complete");
   if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
   if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
@@ -735,6 +902,9 @@ async function buildParticipantDealSummary(escrow: EscrowRecord, actorWhatsapp: 
       purpose: escrow.purpose,
       createdAt: escrow.createdAt,
       updatedAt: escrow.updatedAt,
+      fundingExpiresAt: escrow.fundingExpiresAt,
+      activePaymentExpiresAt: escrow.activePaymentExpiresAt,
+      paymentRegenerationCount: escrow.paymentRegenerationCount || 0,
       ...(role === "buyer" && escrow.paymentAuthorizationUrl
         ? { paymentAuthorizationUrl: escrow.paymentAuthorizationUrl }
         : {}),
@@ -769,6 +939,9 @@ async function buildParticipantDeal(detail: Awaited<ReturnType<typeof buildEscro
       purpose: detail.escrow.purpose,
       createdAt: detail.escrow.createdAt,
       updatedAt: detail.escrow.updatedAt,
+      fundingExpiresAt: detail.escrow.fundingExpiresAt,
+      activePaymentExpiresAt: detail.escrow.activePaymentExpiresAt,
+      paymentRegenerationCount: detail.escrow.paymentRegenerationCount || 0,
       ...(role === "buyer" && detail.escrow.paymentAuthorizationUrl
         ? { paymentAuthorizationUrl: detail.escrow.paymentAuthorizationUrl }
         : {}),
@@ -837,7 +1010,9 @@ async function recordDisputeEvidence(input: {
 }
 
 async function buildReconciliationRows(limit = 250) {
-  const escrows = await escrowStore.listEscrows(limit);
+  const rawEscrows = await escrowStore.listEscrows(limit);
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+    .filter(Boolean) as EscrowRecord[];
   return Promise.all(
     escrows.map(async (escrow) => {
       const [buyer, seller, payout, payoutQuote, complianceRisk, events] = await Promise.all([
@@ -895,7 +1070,7 @@ async function buildReconciliationRows(limit = 250) {
         buyer: buyer?.whatsappNumber || escrow.buyerUserId,
         seller: seller?.whatsappNumber || escrow.sellerWhatsapp || escrow.sellerUserId || "unassigned",
         sellerName: seller ? [seller.firstName, seller.lastName].filter(Boolean).join(" ") || null : null,
-        expectedAmount: escrow.amount,
+        expectedAmount: escrow.currency === "NAIRA" ? payoutQuote.totalWithFee : escrow.amount,
         receivedAmount: escrow.receivedAmount ?? null,
         currency: escrow.currency,
         grossAmount: payoutQuote.grossAmount,
@@ -1144,13 +1319,56 @@ function amountsMatch(expected: number, received: number) {
   return Math.round(expected * 100) === Math.round(received * 100);
 }
 
+async function expectedFundingAmount(escrow: EscrowRecord) {
+  const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  return escrow.currency === "NAIRA" ? quote.totalWithFee : escrow.amount;
+}
+
 async function reconcileEscrowPayment(
   escrowId: string,
   transaction: VerifiedNairaPayment,
   source: "webhook" | "admin_recheck"
 ): Promise<EscrowRecord> {
-  const escrow = await escrowStore.getEscrowById(escrowId);
+  const escrow = await refreshEscrowPaymentLifecycle(escrowId);
   if (!escrow) throw new Error("Escrow not found");
+  const storedTransaction = await escrowStore.getTransactionByReference(transaction.paymentReference);
+
+  if (storedTransaction?.status === "expired" || (escrow.paymentReference && escrow.paymentReference !== transaction.paymentReference)) {
+    capturePaymentWarning("Naira escrow payment arrived for an expired or inactive payment instruction", {
+      escrowId,
+      provider: transaction.provider,
+      paymentReference: transaction.paymentReference,
+      activePaymentReference: escrow.paymentReference || null,
+      receivedAmount: transaction.amount,
+      source,
+    });
+    return escrowStore.markPaymentReviewRequired(escrowId, {
+      receivedAmount: transaction.amount,
+      providerPaymentStatus: transaction.status,
+      flags: ["late_payment_after_expired_instruction"],
+      reason: "Payment arrived for an expired or inactive payment instruction",
+      reference: transaction.paymentReference,
+      metadata: { ...transaction, source, activePaymentReference: escrow.paymentReference || null },
+    });
+  }
+
+  if (escrow.status === "EXPIRED") {
+    capturePaymentWarning("Naira escrow payment arrived after payment instruction expiry", {
+      escrowId,
+      provider: transaction.provider,
+      paymentReference: transaction.paymentReference,
+      receivedAmount: transaction.amount,
+      source,
+    });
+    return escrowStore.markPaymentReviewRequired(escrowId, {
+      receivedAmount: transaction.amount,
+      providerPaymentStatus: transaction.status,
+      flags: ["late_payment_after_expiry"],
+      reason: "Payment arrived after the payment instruction expired",
+      reference: transaction.paymentReference,
+      metadata: { ...transaction, source, expiredStatus: escrow.status },
+    });
+  }
 
   if (transaction.status !== "success") {
     capturePaymentWarning("Naira escrow transaction verification did not confirm success", {
@@ -1170,12 +1388,14 @@ async function reconcileEscrowPayment(
     });
   }
 
-  if (!amountsMatch(escrow.amount, transaction.amount)) {
+  const expectedAmount = await expectedFundingAmount(escrow);
+  if (!amountsMatch(expectedAmount, transaction.amount)) {
     capturePaymentWarning("Naira escrow payment amount mismatch", {
       escrowId,
       provider: transaction.provider,
       paymentReference: transaction.paymentReference,
-      expectedAmount: escrow.amount,
+      expectedAmount,
+      escrowAmount: escrow.amount,
       receivedAmount: transaction.amount,
       source,
     });
@@ -1183,9 +1403,9 @@ async function reconcileEscrowPayment(
       receivedAmount: transaction.amount,
       providerPaymentStatus: transaction.status,
       flags: ["payment_amount_mismatch"],
-      reason: `Expected ${escrow.amount} ${escrow.currency}, received ${transaction.amount} ${transaction.currency}`,
+      reason: `Expected ${expectedAmount} ${escrow.currency}, received ${transaction.amount} ${transaction.currency}`,
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source },
+      metadata: { ...transaction, source, expectedAmount, escrowAmount: escrow.amount },
     });
   }
 
@@ -1238,11 +1458,26 @@ const retryWorker = new RetryWorker(opsStore, {
   lockTimeoutSeconds: Number(process.env.QUEUE_LOCK_TIMEOUT_SECONDS || "300"),
 });
 
+async function runPaymentLifecycleSweep(limit = Number(process.env.PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE || "250")) {
+  const escrows = await escrowStore.listEscrows(limit);
+  const pending = escrows.filter((escrow) => escrow.status === "PENDING_PAYMENT");
+  await Promise.all(pending.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId)));
+  return { scanned: escrows.length, refreshed: pending.length };
+}
+
 if (process.env.QUEUE_WORKER_ENABLED === "true") {
   const intervalMs = Number(process.env.QUEUE_WORKER_INTERVAL_MS || "15000");
   setInterval(() => {
     retryWorker.processBatch(Number(process.env.QUEUE_WORKER_BATCH_SIZE || "5"), "background-worker")
       .catch((err) => captureOperationalError("Background retry worker failed", err));
+  }, intervalMs);
+}
+
+if (process.env.PAYMENT_LIFECYCLE_WORKER_ENABLED === "true") {
+  const intervalMs = Number(process.env.PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS || "300000");
+  setInterval(() => {
+    runPaymentLifecycleSweep()
+      .catch((err) => captureOperationalError("Payment lifecycle sweep failed", err));
   }, intervalMs);
 }
 
@@ -1531,7 +1766,9 @@ app.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
     }
-    const escrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
+    const rawEscrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
+    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+      .filter(Boolean) as EscrowRecord[];
     const deals = await Promise.all(escrows.map(async (escrow) => {
       try {
         return await buildParticipantDealSummary(escrow, parsed.data.actorWhatsapp);
@@ -1577,6 +1814,45 @@ app.get("/api/escrows/:escrowId/dispute-history", requireCoreApiAuth, async (req
   res.status(200).json(history);
 });
 
+app.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const detail = await buildEscrowDetail(req.params.escrowId);
+    if (!detail) return res.status(404).json({ error: "Escrow not found" });
+    if (detail.buyer?.whatsappNumber !== parsed.data.actorWhatsapp) {
+      return res.status(403).json({ error: "Only the escrow buyer can request payment details" });
+    }
+    if (detail.escrow.currency !== "NAIRA") {
+      return res.status(409).json({ error: "Payment instruction regeneration is available only for Naira escrows" });
+    }
+    if (detail.escrow.status === "EXPIRED") {
+      return res.status(409).json({ error: "This escrow has expired. Create a new escrow to continue." });
+    }
+    if (detail.escrow.status !== "PENDING_PAYMENT") {
+      return res.status(409).json({ error: `Payment details are not available while escrow is ${detail.escrow.status}` });
+    }
+    const activeInstruction = await activeNairaPaymentInstructionForEscrow(detail);
+    if (activeInstruction) {
+      return res.status(200).json({
+        escrow: detail,
+        payment: activeInstruction,
+      });
+    }
+
+    const payment = await createNairaPaymentInstruction(detail.escrow, {
+      regenerate: true,
+      buyerWhatsapp: parsed.data.actorWhatsapp,
+    });
+    const updated = await buildEscrowDetail(req.params.escrowId);
+    res.status(200).json({ escrow: updated, payment });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Payment instruction refresh failed" });
+  }
+});
+
 app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = escrowActionSchema.safeParse(req.body);
@@ -1599,51 +1875,34 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
-      const activeProvider = await getActiveNairaPaymentProvider();
       try {
-        const transaction = await activeProvider.initializeBankTransferPayment({
-          amount: accepted.amount,
-          customerEmail: paystackEmailForWhatsapp(parsed.data.actorWhatsapp),
-          callbackUrl: config.paystack.callbackUrl,
-          escrowId: accepted.escrowId,
-        });
-        await escrowStore.attachPayment({
-          escrowId: accepted.escrowId,
-          paymentReference: transaction.paymentReference,
-          paymentAuthorizationUrl: transaction.authorizationUrl,
-          paymentProvider: transaction.provider,
-          paymentMetadata: transaction,
-          status: "PENDING_PAYMENT",
-        });
-        payment = {
-          provider: transaction.provider,
-          reference: transaction.paymentReference,
-          transactionReference: transaction.transactionReference,
-          authorizationUrl: transaction.authorizationUrl,
-          accountNumber: transaction.accountNumber,
-          accountName: transaction.accountName,
-          bankName: transaction.bankName,
-          bankCode: transaction.bankCode,
-          expiresAt: transaction.expiresAt,
-          expiresInSeconds: transaction.expiresInSeconds,
-        };
+        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
       } catch (err: any) {
         const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
         if (!sandboxPayment) throw err;
         warn("Using sandbox payment instruction after Naira payment initialization failure", {
           escrowId: accepted.escrowId,
-          provider: activeProvider.id,
+          provider: accepted.paymentProvider || "active_provider",
           paymentError: err?.message || String(err),
         });
+        const fundingExpiresAt = accepted.fundingExpiresAt || fundingDeadlineForEscrow(accepted);
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
           paymentReference: sandboxPayment.reference,
           paymentProvider: sandboxPayment.provider,
+          paymentMetadata: {
+            provider: sandboxPayment.provider,
+            reference: sandboxPayment.reference,
+            fundingExpiresAt,
+            testOnly: true,
+          },
+          fundingExpiresAt,
           status: "PENDING_PAYMENT",
         });
         payment = {
           provider: sandboxPayment.provider,
           reference: sandboxPayment.reference,
+          fundingExpiresAt,
           testOnly: true,
         };
       }
@@ -1661,11 +1920,7 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     if (updated?.escrow && payment) {
       const buyer = updated.buyer;
       if (buyer) {
-        const instruction = payment.authorizationUrl
-          ? `Seller accepted escrow ${updated.escrow.escrowId}.\nPay here: ${payment.authorizationUrl}`
-          : payment.accountNumber
-            ? `Seller accepted escrow ${updated.escrow.escrowId}.\nTransfer ${updated.escrow.currency} ${updated.escrow.amount} to ${payment.bankName || "the assigned bank"} account ${payment.accountNumber}. Account name: ${payment.accountName || "Sivan escrow"}. Expires: ${payment.expiresAt || "soon"}.\nReference: ${payment.reference}`
-            : `Seller accepted escrow ${updated.escrow.escrowId}.\nPayment reference: ${payment.reference}`;
+        const instruction = `Seller accepted escrow ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
         await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
       }
     }
@@ -1692,8 +1947,10 @@ app.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, res
   ) {
     return res.status(409).json({ error: "Sandbox funding is available only for pending sandbox payment references" });
   }
+  const sandboxFundingAmount = await expectedFundingAmount(detail.escrow);
   const funded = await escrowStore.markFundedByPaymentReference(detail.escrow.paymentReference!, {
-    amount: detail.escrow.amount,
+    amount: sandboxFundingAmount,
+    escrowAmount: detail.escrow.amount,
     currency: detail.escrow.currency,
     status: "sandbox_success",
     channel: "sandbox_test_override",
@@ -2153,8 +2410,17 @@ app.get("/admin/escrows", requireAdminAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
-  const escrows = await escrowStore.listEscrows(parsed.data.limit);
-  res.status(200).json(escrows);
+  const rawEscrows = await escrowStore.listEscrows(parsed.data.limit);
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+    .filter(Boolean) as EscrowRecord[];
+  const rows = await Promise.all(escrows.map(async (escrow) => {
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const expiredPaymentReferences = transactions
+      .filter((transaction) => transaction.transactionType === "funding" && transaction.status === "expired" && transaction.reference)
+      .map((transaction) => transaction.reference);
+    return { ...escrow, expiredPaymentReferences };
+  }));
+  res.status(200).json(rows);
 });
 
 app.get("/admin/escrows/:escrowId", requireAdminAuth, async (req, res) => {

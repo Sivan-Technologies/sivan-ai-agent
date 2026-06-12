@@ -29,6 +29,7 @@ The escrow engine should not branch on provider-specific concepts. Provider clie
 | --- | --- |
 | `PAYMENT_PENDING` | A payment instruction has been created and the buyer can pay |
 | `PAYMENT_VERIFIED` | Provider confirmed exact successful payment for the expected escrow amount |
+| `PAYMENT_EXPIRED` | Provider payment instruction expired before verified funding |
 | `PAYMENT_REJECTED` | Provider reported underpayment, invalid payment, expired payment, or rejected payment |
 | `SETTLEMENT_PENDING` | Provider has collected funds but settlement to Sivan wallet/bank is not yet final |
 | `SETTLEMENT_RECEIVED` | Provider settlement has landed and can be reconciled |
@@ -77,6 +78,8 @@ Every checklist should prove:
 Paystack is the currently proven Naira collection rail. It runs behind `PaymentProvider.initializeBankTransferPayment`, `verifyPayment`, `verifyWebhookSignature`, and `normalizeWebhook`, and live behavior remains Paystack bank-transfer only until another provider passes live testing.
 
 Monnify is now implemented as a provider-neutral Naira collection adapter. The backend can authenticate with Monnify, initialize a transaction, generate a bank-transfer payment instruction, verify payments by `paymentReference`, validate `monnify-signature` over the raw webhook body, persist webhook events, and re-query Monnify before funding an escrow. Build, automated tests, deployed smoke checks, DR checks, admin-page session smoke, Monnify sandbox initialization, paid sandbox transfer verification, and fail-closed webhook reachability checks passed on 2026-06-11. Monnify is not yet live-enabled for users because signed provider webhook delivery into deployed Sivan still needs to be proven.
+
+Payment instruction expiry is now split from escrow expiry. When a provider returns expiry metadata for a pending payment instruction, Sivan marks only that provider reference as expired, keeps the escrow in `PENDING_PAYMENT`, and lets the buyer regenerate a fresh bank-transfer instruction on the same escrow before the funding deadline. Old provider references are never reused and remain in transaction history. If a provider later reports money for an expired or inactive reference, Sivan sends the escrow to `REVIEW_REQUIRED` instead of auto-funding it. The full escrow moves to `EXPIRED` only when the configured funding window closes before verified payment. Lifecycle refresh also sends a one-time reminder before the funding deadline and stores `last_payment_reminder_at` for audit; production should enable `PAYMENT_LIFECYCLE_WORKER_ENABLED=true` so this runs without waiting for a user/admin page view.
 
 Flutterwave is implemented as an emergency backup collection adapter using dynamic virtual accounts for bank transfer only. The backend can create a Flutterwave virtual account, persist `provider=flutterwave`, verify signed `charge.completed` webhooks, re-query Flutterwave by charge ID before funding, and support admin recheck by the stored payment reference. Do not enable Flutterwave for users until the backup checklist passes with a low-value transfer and signed webhook proof. Do not use Flutterwave for card payments.
 

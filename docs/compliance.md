@@ -210,7 +210,7 @@ Recommended payout policy:
 ```text
 PENDING_RELEASE
   -> run release readiness checks
-  -> if checks pass, show admin payout approval action with escrow gross amount, fee, seller net payout, masked bank account, resolved name, and risk level
+  -> if checks pass, show admin payout approval action with escrow gross amount, buyer-paid fee, seller net payout, masked bank account, resolved name, and risk level
   -> admin pays the seller from Paystack dashboard, bank app, or later automated transfer
   -> admin records payout/reference ID only
   -> RELEASED
@@ -223,10 +223,10 @@ Current payout approval behavior:
 - ✅ The approval API accepts `manualPayoutReference` and optional notes only.
 - ✅ The approval API rejects any extra payout amount fields, so admins cannot override the escrow-derived amount from the approval request.
 - ✅ Gross amount is loaded from the escrow record, not from admin input.
-- ✅ Platform fee and seller net payout are calculated from platform fee settings.
+- ✅ Platform fee is calculated on top of the escrow amount and paid by the buyer; seller net payout remains the escrow amount.
 - ✅ Release transactions and ledger entries record seller net payout.
 - ✅ Fee-capture ledger entries record the platform fee when fee settings produce a positive fee.
-- ✅ Admin Payout Safety shows gross amount, platform fee, seller net payout, masked payout account, resolved account name, and risk level.
+- ✅ Admin Payout Safety shows escrow amount, buyer-paid platform fee, buyer total funded, seller net payout, masked payout account, resolved account name, and risk level.
 - ✅ Reconciliation rows and CSV export include compliance risk score/level/reasons plus reconciliation risk level.
 - ✅ Escrow event timelines record `manual_release_approved`; release transactions and ledger entries carry the manual payout reference.
 - ✅ Escrow detail readiness includes aggregate compliance risk, seller dispute ratio, new-seller signal, and release-risk readiness.
@@ -258,7 +258,7 @@ Current system tracks escrow state and transactions. The backend now also writes
 
 | Event | Debit | Credit |
 | --- | --- | --- |
-| Buyer funds escrow | ✅ Buyer receivable/payment rail | ✅ Escrow liability |
+| Buyer funds escrow | ✅ Buyer receivable/payment rail for escrow amount + fee | ✅ Escrow liability |
 | Seller net payout release | ✅ Escrow liability | ✅ Seller payable/payment rail |
 | Buyer refund | ✅ Escrow liability | ✅ Buyer refund/payment rail |
 | Fee capture | ✅ Escrow liability | ✅ Sivan revenue |
@@ -284,7 +284,7 @@ Do this before high transaction volume. It prevents reconciliation and accountin
 Current accounting and audit surfaces:
 
 - ✅ Admin Revenue reports processed volume, platform fees, and provider-reported processor fees by day, week, month, and all-time.
-- ✅ Admin Reconciliation reports expected amount, received amount, escrow-derived gross amount, platform fee, seller net payout, masked payout account, resolved account name, payout reference, approver, release timestamp, risk level, and flags.
+- ✅ Admin Reconciliation reports expected buyer funding total, received amount, escrow-derived gross amount, buyer-paid platform fee, seller net payout, masked payout account, resolved account name, payout reference, approver, release timestamp, risk level, and flags.
 - ✅ Reconciliation CSV export includes payout/accounting/risk fields for manual finance review.
 - ✅ Escrow detail includes events, transactions, and ledger entries so operators can prove funding, release, refund, and fee capture.
 - 🔮 External accounting export to a finance system remains future work.

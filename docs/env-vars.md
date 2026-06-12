@@ -58,6 +58,13 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `PAYMENT_PROVIDER_FALLBACK_ENABLED` - Default explicit toggle for fallback behavior. Keep `false` until both active and backup providers pass live transfer tests.
 - `PLATFORM_MODE` - Initial DB setting for the admin-controlled runtime mode. Use `test`, `live`, or `maintenance`. The admin Platform Controls tab becomes the source of truth after the database row exists.
 - `MAINTENANCE_MESSAGE` - Initial user-facing maintenance message. Admins can edit it without redeploying.
+- `NAIRA_FUNDING_WINDOW_HOURS` - Default time before an unfunded Naira escrow expires. Recommended pilot default: `24`.
+- `NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS` - Funding window for high-value Naira escrows. Recommended pilot default: `48`.
+- `NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT` - Amount threshold that switches an escrow to the high-value funding window. Recommended pilot default: `100000`.
+- `NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS` - Reminder lead time before the escrow funding deadline. Recommended pilot default: `6`.
+- `PAYMENT_LIFECYCLE_WORKER_ENABLED` - Enables the background sweep that expires stale payment instructions, sends one reminder before the funding deadline, and expires unfunded escrows after the funding window. Set `true` on the backend worker/runtime after deploy.
+- `PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS` - Sweep interval for the payment lifecycle worker. Suggested default: `300000`.
+- `PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE` - Maximum recent escrows scanned per sweep. Suggested default: `250`.
 
 ### Monnify
 
@@ -205,6 +212,13 @@ EMERGENCY_PAYMENT_PROVIDER=flutterwave
 PAYMENT_PROVIDER_FALLBACK_ENABLED=false
 PLATFORM_MODE=test
 MAINTENANCE_MESSAGE=Sivan is temporarily under maintenance. Please try again soon.
+NAIRA_FUNDING_WINDOW_HOURS=24
+NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS=48
+NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT=100000
+NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS=6
+PAYMENT_LIFECYCLE_WORKER_ENABLED=false
+PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS=300000
+PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE=250
 MONNIFY_API_KEY=
 MONNIFY_SECRET_KEY=
 MONNIFY_BASE_URL=https://sandbox.monnify.com

@@ -102,6 +102,10 @@ export const config = {
       .split(",")
       .map((method) => method.trim())
       .filter(Boolean),
+    fundingWindowHours: envNumber("NAIRA_FUNDING_WINDOW_HOURS", 24),
+    highValueFundingWindowHours: envNumber("NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS", 48),
+    highValueFundingWindowAmount: envNumber("NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT", 100000),
+    fundingReminderBeforeExpiryHours: envNumber("NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS", 6),
   },
   app: {
     env: envValue("NODE_ENV", "development"),

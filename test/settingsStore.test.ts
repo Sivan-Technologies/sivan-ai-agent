@@ -129,7 +129,7 @@ describe("SettingsStore", () => {
 
     expect(fee.totalPlatformFee).toBe(300);
     expect(fee.totalWithFee).toBe(10300);
-    expect(fee.recipientNet).toBe(9700);
+    expect(fee.recipientNet).toBe(10000);
   });
 
   it("calculates USDC fees", async () => {
@@ -138,6 +138,6 @@ describe("SettingsStore", () => {
 
     expect(fee.totalPlatformFee).toBe(15.5);
     expect(fee.totalWithFee).toBe(1015.5);
-    expect(fee.recipientNet).toBe(984.5);
+    expect(fee.recipientNet).toBe(1000);
   });
 });

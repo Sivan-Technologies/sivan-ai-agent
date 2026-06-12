@@ -36,6 +36,11 @@ type EscrowRecord = {
   paymentReference?: string;
   paymentAuthorizationUrl?: string;
   paymentProvider?: string;
+  fundingExpiresAt?: string;
+  activePaymentExpiresAt?: string;
+  paymentRegenerationCount?: number;
+  lastPaymentReminderAt?: string;
+  expiredPaymentReferences?: string[];
   receivedAmount?: number;
   providerPaymentStatus?: string;
   paymentCheckedAt?: string;
@@ -480,15 +485,16 @@ const adminAuthBase = (import.meta as any).env.VITE_ADMIN_AUTH_BASE_URL || "http
 const money = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
 
 function calculateSellerNet(amount: number, currency: "NAIRA" | "USDC", settings?: FeeSettings | null) {
-  if (!settings) return { platformFeeAmount: 0, sellerNetAmount: amount };
+  if (!settings) return { platformFeeAmount: 0, sellerNetAmount: amount, totalWithFee: amount };
   const percentFee = currency === "NAIRA"
     ? Math.round((amount * settings.nairaFeePercent) / 100)
     : Number((amount * (settings.usdcFeePercent / 100)).toFixed(6));
   const fixedFee = currency === "NAIRA" ? settings.nairaFeeFixed : settings.usdcFeeFixed;
-  const platformFeeAmount = Math.min(amount, Math.max(0, Number((percentFee + fixedFee).toFixed(6))));
+  const platformFeeAmount = Math.max(0, Number((percentFee + fixedFee).toFixed(6)));
   return {
     platformFeeAmount,
-    sellerNetAmount: Math.max(0, Number((amount - platformFeeAmount).toFixed(6))),
+    sellerNetAmount: amount,
+    totalWithFee: Number((amount + platformFeeAmount).toFixed(6)),
   };
 }
 
@@ -1698,7 +1704,12 @@ function App() {
                 <div className="detail-row"><span>Status</span><strong>{selectedEscrow.status}</strong></div>
                 <div className="detail-row"><span>Currency</span><strong>{selectedEscrow.currency}</strong></div>
                 <div className="detail-row"><span>Policy</span><strong>{selectedEscrow.settlementPolicy}</strong></div>
-                <div className="detail-row"><span>Funding reference</span><strong>{selectedEscrow.paymentReference || "pending"}</strong></div>
+                <div className="detail-row"><span>Escrow deadline</span><strong>{formatTime(selectedEscrow.fundingExpiresAt)}</strong></div>
+                <div className="detail-row"><span>Active payment ref</span><strong>{selectedEscrow.paymentReference || "pending"}</strong></div>
+                <div className="detail-row"><span>Instruction expires</span><strong>{formatTime(selectedEscrow.activePaymentExpiresAt)}</strong></div>
+                <div className="detail-row"><span>Regenerated</span><strong>{selectedEscrow.paymentRegenerationCount ?? 0} times</strong></div>
+                <div className="detail-row"><span>Last reminder</span><strong>{formatTime(selectedEscrow.lastPaymentReminderAt)}</strong></div>
+                <div className="detail-row"><span>Expired refs</span><strong>{selectedEscrow.expiredPaymentReferences?.length ? selectedEscrow.expiredPaymentReferences.map((reference) => compactId(reference, 12)).join(", ") : "none"}</strong></div>
                 <div className="detail-row"><span>Payment status</span><strong>{selectedEscrow.providerPaymentStatus || selectedEscrow.status}</strong></div>
                 <div className="detail-row"><span>Expected amount</span><strong>{money.format(selectedEscrow.amount)} {selectedEscrow.currency}</strong></div>
                 <div className="detail-row"><span>Received amount</span><strong>{selectedEscrow.receivedAmount === undefined ? "not verified" : `${money.format(selectedEscrow.receivedAmount)} ${selectedEscrow.currency}`}</strong></div>
@@ -3289,8 +3300,9 @@ function App() {
 
             <div className="modal-summary payout-summary">
               <div><span>Escrow</span><strong>{payoutApproval.escrow.escrowId}</strong></div>
-              <div><span>Gross amount</span><strong>{money.format(payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount)} {payoutApproval.quote.currency}</strong></div>
-              <div><span>Platform fee</span><strong>{money.format(payoutApproval.quote.platformFeeAmount ?? 0)} {payoutApproval.quote.currency}</strong></div>
+              <div><span>Escrow amount</span><strong>{money.format(payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount)} {payoutApproval.quote.currency}</strong></div>
+              <div><span>Sivan fee paid by buyer</span><strong>{money.format(payoutApproval.quote.platformFeeAmount ?? 0)} {payoutApproval.quote.currency}</strong></div>
+              <div><span>Buyer total funded</span><strong>{money.format(((payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount) + (payoutApproval.quote.platformFeeAmount ?? 0)))} {payoutApproval.quote.currency}</strong></div>
               <div><span>Seller</span><strong>{payoutApproval.escrow.sellerWhatsapp || payoutApproval.escrow.sellerUserId || "pending"}</strong></div>
             </div>
 

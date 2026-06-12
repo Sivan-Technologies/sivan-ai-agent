@@ -70,7 +70,7 @@ describe("EscrowStore", () => {
       payoutNotes: "Paid from Paystack dashboard",
       grossAmount: 10000,
       platformFeeAmount: 300,
-      sellerNetAmount: 9700,
+      sellerNetAmount: 10000,
     });
     const events = await escrowStore.listEvents(escrow.escrowId);
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
@@ -97,9 +97,9 @@ describe("EscrowStore", () => {
     expect(released.manualPayoutReference).toBe("manual-payout-1");
     expect(transactions.length).toBeGreaterThanOrEqual(2);
     expect(transactions.find((transaction) => transaction.transactionType === "funding")?.processorFee).toBe(150);
-    expect(transactions.find((transaction) => transaction.transactionType === "release")?.amount).toBe(9700);
+    expect(transactions.find((transaction) => transaction.transactionType === "release")?.amount).toBe(10000);
     expect(ledgerEntries.map((entry) => entry.entryType)).toEqual(expect.arrayContaining(["funding", "release", "fee"]));
-    expect(ledgerEntries.find((entry) => entry.entryType === "release")?.amount).toBe(9700);
+    expect(ledgerEntries.find((entry) => entry.entryType === "release")?.amount).toBe(10000);
     expect(ledgerEntries.find((entry) => entry.entryType === "fee")?.amount).toBe(300);
     expect(events.map((event) => event.eventType)).toContain("manual_release_approved");
   });
@@ -130,6 +130,125 @@ describe("EscrowStore", () => {
     const released = await escrowStore.requestRelease(escrow.escrowId, buyer.whatsappNumber, "whatsapp_dm");
     expect(released.status).toBe("RELEASED");
     expect(released.settlementPolicy).toBe("autonomous_usdc_release");
+  });
+
+  it("expires stale provider payment instructions without closing the escrow", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000091", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000092", "seller");
+    await escrowStore.updateUserProfile(buyer.userId, "Buyer", "One");
+    await escrowStore.updateUserProfile(seller.userId, "Seller", "One");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 10000,
+      currency: "NAIRA",
+      purpose: "expired payment instruction",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "monnify-expired-ref-1",
+      paymentProvider: "monnify",
+      paymentMetadata: {
+        paymentReference: "monnify-expired-ref-1",
+        totalPayable: 10300,
+        expiresAt: "2026-01-01T00:00:00.000Z",
+      },
+      status: "PENDING_PAYMENT",
+    });
+
+    const expired = await escrowStore.expirePendingPaymentIfDue(escrow.escrowId, new Date("2026-01-01T00:01:00.000Z"));
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const events = await escrowStore.listEvents(escrow.escrowId);
+
+    expect(expired?.status).toBe("PENDING_PAYMENT");
+    expect(expired?.paymentReference).toBeUndefined();
+    expect(transactions.find((transaction) => transaction.reference === "monnify-expired-ref-1")?.status).toBe("expired");
+    expect(events.some((event) => event.eventType === "payment_expired")).toBe(true);
+  });
+
+  it("expires the escrow after the funding window closes", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000191", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000192", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 10000,
+      currency: "NAIRA",
+      purpose: "funding window expiry",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "monnify-funding-window-ref-1",
+      paymentProvider: "monnify",
+      paymentMetadata: {
+        paymentReference: "monnify-funding-window-ref-1",
+        totalPayable: 10300,
+        expiresAt: "2026-01-02T00:00:00.000Z",
+      },
+      fundingExpiresAt: "2026-01-01T00:00:00.000Z",
+      status: "PENDING_PAYMENT",
+    });
+
+    const expired = await escrowStore.expirePendingPaymentIfDue(escrow.escrowId, new Date("2026-01-01T00:01:00.000Z"));
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const events = await escrowStore.listEvents(escrow.escrowId);
+
+    expect(expired?.status).toBe("EXPIRED");
+    expect(transactions.find((transaction) => transaction.reference === "monnify-funding-window-ref-1")?.status).toBe("expired");
+    expect(events.some((event) => event.eventType === "escrow_funding_expired")).toBe(true);
+  });
+
+  it("regenerates payment instructions with a new active reference and expired audit history", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000291", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000292", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 10000,
+      currency: "NAIRA",
+      purpose: "payment regeneration",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "monnify-old-ref-1",
+      paymentProvider: "monnify",
+      paymentMetadata: { paymentReference: "monnify-old-ref-1" },
+      fundingExpiresAt: "2026-01-02T00:00:00.000Z",
+      activePaymentExpiresAt: "2026-01-01T00:00:00.000Z",
+      status: "PENDING_PAYMENT",
+    });
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "monnify-new-ref-2",
+      paymentProvider: "monnify",
+      paymentMetadata: { paymentReference: "monnify-new-ref-2" },
+      fundingExpiresAt: "2026-01-02T00:00:00.000Z",
+      activePaymentExpiresAt: "2026-01-01T01:00:00.000Z",
+      status: "PENDING_PAYMENT",
+      regenerate: true,
+    });
+
+    const updated = await escrowStore.getEscrowById(escrow.escrowId);
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const events = await escrowStore.listEvents(escrow.escrowId);
+
+    expect(updated?.paymentReference).toBe("monnify-new-ref-2");
+    expect(updated?.paymentRegenerationCount).toBe(1);
+    expect(transactions.find((transaction) => transaction.reference === "monnify-old-ref-1")?.status).toBe("expired");
+    expect(transactions.find((transaction) => transaction.reference === "monnify-new-ref-2")?.status).toBe("pending");
+    expect(events.some((event) => event.eventType === "payment_instruction_regenerated")).toBe(true);
   });
 
   it("blocks non-buyers from completing or requesting release", async () => {

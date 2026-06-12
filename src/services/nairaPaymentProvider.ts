@@ -12,6 +12,7 @@ export interface BankTransferPaymentRequest {
   customerEmail: string;
   callbackUrl?: string;
   escrowId?: string;
+  paymentReference?: string;
 }
 
 export interface BankTransferPayment {
@@ -192,7 +193,7 @@ export class MonnifyPaymentProvider implements PaymentProvider {
   constructor(private client = new MonnifyClient()) {}
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
-    const paymentReference = `monnify-${input.escrowId || crypto.randomUUID()}`;
+    const paymentReference = input.paymentReference || `monnify-${input.escrowId || crypto.randomUUID()}-${crypto.randomUUID().slice(0, 8)}`;
     const instruction = await this.client.initializeBankTransferPayment({
       amount: input.amount,
       customerEmail: input.customerEmail,
@@ -256,7 +257,7 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   constructor(private client = new FlutterwaveClient()) {}
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
-    const paymentReference = `flutterwave-${input.escrowId || crypto.randomUUID()}`;
+    const paymentReference = input.paymentReference || `flutterwave-${input.escrowId || crypto.randomUUID()}-${crypto.randomUUID().slice(0, 8)}`;
     const instruction = await this.client.initializeBankTransferPayment({
       amount: input.amount,
       customerEmail: input.customerEmail,

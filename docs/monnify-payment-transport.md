@@ -18,10 +18,11 @@ Implemented Monnify capabilities:
 - duplicate-safe webhook persistence
 - server-side re-query before funding an escrow
 - basic `SETTLEMENT` event capture linked to escrow events
+- payment-instruction expiry that expires only the stale provider reference while the escrow remains fundable until its funding deadline
 
 Still pending:
 
-- real Monnify sandbox/live transfer proof
+- signed Monnify webhook delivery proof into deployed Sivan
 - live-proven settlement proof from Monnify sandbox/live testing
 - automated disbursement/payout, which should remain out of MVP until manual payout operations are proven
 
@@ -87,14 +88,17 @@ Use `https://sandbox.monnify.com` with sandbox keys until live access is approve
    - expected amount
    - currency
    - expiry timestamp
-5. On webhook, verify the Monnify signature/hash before processing.
-6. Re-query Monnify server-side before marking the escrow funded.
-7. Mark funded only when:
+5. If the provider instruction expiry timestamp passes before verified funding, mark that funding transaction `expired`, clear it as the active payment reference, and keep the escrow `PENDING_PAYMENT` so the buyer can request fresh payment details.
+6. On webhook, verify the Monnify signature/hash before processing.
+7. Re-query Monnify server-side before marking the escrow funded.
+8. Mark funded only when:
    - `paymentStatus` is `PAID`
    - `paymentMethod` is `ACCOUNT_TRANSFER`
    - `currency`/`currencyCode` is `NGN`
    - amount paid matches the escrow amount exactly
    - payment reference maps to one open escrow
+
+If Monnify reports a payment after Sivan already marked the payment instruction expired or inactive, keep the escrow out of automatic funding and route it to manual payment review. The full escrow moves to `EXPIRED` only when the configured funding window closes.
 
 ## Webhook Rules
 
@@ -162,6 +166,7 @@ If Monnify disbursement is added later:
 9. ✅ Verify Monnify sandbox authentication, transaction initialization, bank-transfer account generation, and pending server-side verification.
 10. ✅ Verify a paid Monnify sandbox bank-transfer transaction server-side.
 11. 🟡 Prove signed Monnify webhook delivery into deployed `/webhooks/monnify` before using Monnify for real users.
+12. ✅ Expire stale provider payment instructions without closing the escrow, regenerate fresh references on the same escrow before the funding deadline, send a one-time funding reminder before escrow expiry, and route late payments to expired/inactive references to manual review.
 
 ## Current Progress
 

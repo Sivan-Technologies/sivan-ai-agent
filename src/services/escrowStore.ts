@@ -18,6 +18,7 @@ export type EscrowStatus =
   | "DISPUTED"
   | "REVIEW_REQUIRED"
   | "FAILED"
+  | "EXPIRED"
   | "CANCELLED";
 
 export type SettlementPolicy = "manual_naira_release" | "autonomous_usdc_release";
@@ -69,6 +70,10 @@ export interface EscrowRecord {
   paymentReference?: string;
   paymentAuthorizationUrl?: string;
   paymentProvider?: string;
+  fundingExpiresAt?: string;
+  activePaymentExpiresAt?: string;
+  paymentRegenerationCount?: number;
+  lastPaymentReminderAt?: string;
   receivedAmount?: number;
   providerPaymentStatus?: string;
   paymentCheckedAt?: string;
@@ -303,6 +308,10 @@ export class EscrowStore {
       paymentReference: row.payment_reference || undefined,
       paymentAuthorizationUrl: row.payment_authorization_url || undefined,
       paymentProvider: row.payment_provider || undefined,
+      fundingExpiresAt: row.funding_expires_at || undefined,
+      activePaymentExpiresAt: row.active_payment_expires_at || undefined,
+      paymentRegenerationCount: row.payment_regeneration_count === null || row.payment_regeneration_count === undefined ? undefined : Number(row.payment_regeneration_count),
+      lastPaymentReminderAt: row.last_payment_reminder_at || undefined,
       receivedAmount: row.received_amount === null || row.received_amount === undefined ? undefined : Number(row.received_amount),
       providerPaymentStatus: row.provider_payment_status || undefined,
       paymentCheckedAt: row.payment_checked_at || undefined,
@@ -438,6 +447,10 @@ export class EscrowStore {
         payment_reference TEXT UNIQUE,
         payment_authorization_url TEXT,
         payment_provider TEXT,
+        funding_expires_at TEXT,
+        active_payment_expires_at TEXT,
+        payment_regeneration_count INTEGER NOT NULL DEFAULT 0,
+        last_payment_reminder_at TEXT,
         received_amount ${numberType},
         provider_payment_status TEXT,
         payment_checked_at TEXT,
@@ -546,6 +559,10 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "client_request_id", "TEXT");
     this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
     this.ensureSqliteColumn("escrows", "received_amount", "REAL");
+    this.ensureSqliteColumn("escrows", "funding_expires_at", "TEXT");
+    this.ensureSqliteColumn("escrows", "active_payment_expires_at", "TEXT");
+    this.ensureSqliteColumn("escrows", "payment_regeneration_count", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureSqliteColumn("escrows", "last_payment_reminder_at", "TEXT");
     this.ensureSqliteColumn("escrows", "provider_payment_status", "TEXT");
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
@@ -583,6 +600,10 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "client_request_id", "TEXT");
       await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
       await this.ensurePostgresColumn("escrows", "received_amount", "DOUBLE PRECISION");
+      await this.ensurePostgresColumn("escrows", "funding_expires_at", "TEXT");
+      await this.ensurePostgresColumn("escrows", "active_payment_expires_at", "TEXT");
+      await this.ensurePostgresColumn("escrows", "payment_regeneration_count", "INTEGER NOT NULL DEFAULT 0");
+      await this.ensurePostgresColumn("escrows", "last_payment_reminder_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "provider_payment_status", "TEXT");
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
@@ -1114,31 +1135,70 @@ export class EscrowStore {
     paymentProvider: string;
     paymentMetadata?: any;
     status?: EscrowStatus;
+    fundingExpiresAt?: string;
+    activePaymentExpiresAt?: string;
+    regenerate?: boolean;
   }): Promise<void> {
     await this.initializeSchema();
     const current = await this.getEscrowById(input.escrowId);
     if (!current) throw new Error("Escrow not found");
     const nextStatus = input.status || current.status;
     const now = new Date().toISOString();
+    if (current.paymentReference && current.paymentReference !== input.paymentReference) {
+      await this.updateTransactionStatus(current.paymentReference, "expired", {
+        reason: input.regenerate ? "payment_instruction_regenerated" : "payment_instruction_replaced",
+        replacedBy: input.paymentReference,
+      });
+    }
+    const activePaymentExpiresAt =
+      input.activePaymentExpiresAt ||
+      input.paymentMetadata?.expiresAt ||
+      input.paymentMetadata?.expires_at ||
+      input.paymentMetadata?.raw?.expiresAt ||
+      input.paymentMetadata?.raw?.account_expiration_datetime ||
+      input.paymentMetadata?.raw?.virtualAccount?.data?.account_expiration_datetime ||
+      null;
+    const fundingExpiresAt = input.fundingExpiresAt || current.fundingExpiresAt || null;
+    const paymentRegenerationCount = Number(current.paymentRegenerationCount || 0) + (input.regenerate ? 1 : 0);
 
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
         UPDATE escrows
         SET payment_reference = @paymentReference, payment_authorization_url = @paymentAuthorizationUrl,
-            payment_provider = @paymentProvider, status = @nextStatus, updated_at = @now
+            payment_provider = @paymentProvider, funding_expires_at = COALESCE(@fundingExpiresAt, funding_expires_at),
+            active_payment_expires_at = @activePaymentExpiresAt, payment_regeneration_count = @paymentRegenerationCount,
+            status = @nextStatus, updated_at = @now
         WHERE escrow_id = @escrowId
       `).run({
         escrowId: input.escrowId,
         paymentReference: input.paymentReference,
         paymentAuthorizationUrl: input.paymentAuthorizationUrl || null,
         paymentProvider: input.paymentProvider,
+        fundingExpiresAt,
+        activePaymentExpiresAt,
+        paymentRegenerationCount,
         nextStatus,
         now,
       });
     } else {
       await this.pool!.query(
-        `UPDATE escrows SET payment_reference = $1, payment_authorization_url = $2, payment_provider = $3, status = $4, updated_at = $5 WHERE escrow_id = $6`,
-        [input.paymentReference, input.paymentAuthorizationUrl || null, input.paymentProvider, nextStatus, now, input.escrowId]
+        `UPDATE escrows
+         SET payment_reference = $1, payment_authorization_url = $2, payment_provider = $3,
+             funding_expires_at = COALESCE($4, funding_expires_at),
+             active_payment_expires_at = $5, payment_regeneration_count = $6,
+             status = $7, updated_at = $8
+         WHERE escrow_id = $9`,
+        [
+          input.paymentReference,
+          input.paymentAuthorizationUrl || null,
+          input.paymentProvider,
+          fundingExpiresAt,
+          activePaymentExpiresAt,
+          paymentRegenerationCount,
+          nextStatus,
+          now,
+          input.escrowId,
+        ]
       );
     }
 
@@ -1148,7 +1208,7 @@ export class EscrowStore {
       transactionType: "funding",
       status: "pending",
       reference: input.paymentReference,
-      amount: current.amount,
+      amount: input.paymentMetadata?.totalPayable ?? input.paymentMetadata?.amount ?? current.amount,
       currency: current.currency,
       rawPayload: input.paymentMetadata ? JSON.stringify(input.paymentMetadata) : undefined,
     });
@@ -1159,9 +1219,14 @@ export class EscrowStore {
       channel: "api",
       previousStatus: current.status,
       nextStatus,
-      eventType: "payment_initialized",
+      eventType: input.regenerate ? "payment_instruction_regenerated" : "payment_initialized",
       reason: input.paymentReference,
-      metadata: input.paymentMetadata,
+      metadata: {
+        ...(input.paymentMetadata || {}),
+        fundingExpiresAt,
+        activePaymentExpiresAt,
+        paymentRegenerationCount,
+      },
     });
   }
 
@@ -1217,6 +1282,137 @@ export class EscrowStore {
       providerReference: paymentReference,
     });
     return this.getEscrowById(escrow.escrowId);
+  }
+
+  public async expirePendingPaymentIfDue(escrowId: string, now = new Date()): Promise<EscrowRecord | null> {
+    const escrow = await this.getEscrowById(escrowId);
+    if (!escrow) return null;
+    if (escrow.status !== "PENDING_PAYMENT") return escrow;
+
+    const fundingExpiresAt = escrow.fundingExpiresAt ? new Date(escrow.fundingExpiresAt) : null;
+    if (fundingExpiresAt && !Number.isNaN(fundingExpiresAt.getTime()) && fundingExpiresAt.getTime() <= now.getTime()) {
+      if (escrow.paymentReference) {
+        await this.updateTransactionStatus(escrow.paymentReference, "expired", {
+          reason: "escrow_funding_window_expired",
+          fundingExpiresAt: fundingExpiresAt.toISOString(),
+        });
+      }
+      await this.transitionEscrow(escrowId, "EXPIRED", {
+        actor: "system",
+        actorRole: "system",
+        channel: "api",
+        eventType: "escrow_funding_expired",
+        reason: escrow.paymentReference || escrowId,
+        metadata: {
+          paymentReference: escrow.paymentReference || null,
+          paymentProvider: escrow.paymentProvider || null,
+          fundingExpiresAt: fundingExpiresAt.toISOString(),
+        },
+      });
+      return this.getEscrowById(escrowId);
+    }
+
+    if (!escrow.paymentReference) return escrow;
+
+    const transactions = await this.listTransactions(escrowId);
+    const funding = transactions.find((transaction) =>
+      transaction.transactionType === "funding" &&
+      transaction.reference === escrow.paymentReference &&
+      transaction.status === "pending"
+    );
+    if (!funding?.rawPayload) return escrow;
+
+    let metadata: any = {};
+    try {
+      metadata = JSON.parse(funding.rawPayload);
+    } catch {
+      metadata = {};
+    }
+
+    const expiresAtValue =
+      escrow.activePaymentExpiresAt ||
+      metadata.expiresAt ||
+      metadata.expires_at ||
+      metadata.raw?.expiresAt ||
+      metadata.raw?.account_expiration_datetime ||
+      metadata.raw?.virtualAccount?.data?.account_expiration_datetime;
+    const expiresInSeconds = Number(metadata.expiresInSeconds || metadata.expires_in_seconds || 0);
+    const expiresAt = expiresAtValue
+      ? new Date(expiresAtValue)
+      : expiresInSeconds > 0
+      ? new Date(new Date(funding.createdAt).getTime() + expiresInSeconds * 1000)
+      : null;
+
+    if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() > now.getTime()) {
+      return escrow;
+    }
+
+    await this.updateTransactionStatus(escrow.paymentReference, "expired", {
+      reason: "payment_instruction_expired",
+      expiresAt: expiresAt.toISOString(),
+    });
+
+    const updatedAt = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrows
+        SET payment_reference = NULL,
+            payment_authorization_url = NULL,
+            active_payment_expires_at = NULL,
+            updated_at = @updatedAt
+        WHERE escrow_id = @escrowId
+      `).run({ escrowId, updatedAt });
+    } else {
+      await this.pool!.query(
+        `UPDATE escrows SET payment_reference = NULL, payment_authorization_url = NULL, active_payment_expires_at = NULL, updated_at = $1 WHERE escrow_id = $2`,
+        [updatedAt, escrowId]
+      );
+    }
+
+    await this.addEvent({
+      escrowId,
+      actor: escrow.paymentProvider || "payment_provider",
+      actorRole: "payment_provider",
+      channel: "api",
+      eventType: "payment_expired",
+      previousStatus: "PENDING_PAYMENT",
+      nextStatus: "PENDING_PAYMENT",
+      reason: escrow.paymentReference,
+      metadata: {
+        paymentReference: escrow.paymentReference,
+        paymentProvider: escrow.paymentProvider || null,
+        expiresAt: expiresAt.toISOString(),
+      },
+    });
+    return this.getEscrowById(escrowId);
+  }
+
+  public async markPaymentReminderSent(escrowId: string, when = new Date().toISOString()) {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrows
+        SET last_payment_reminder_at = @when,
+            updated_at = @when
+        WHERE escrow_id = @escrowId
+      `).run({ escrowId, when });
+    } else {
+      await this.pool!.query(
+        `UPDATE escrows SET last_payment_reminder_at = $1, updated_at = $1 WHERE escrow_id = $2`,
+        [when, escrowId]
+      );
+    }
+    await this.addEvent({
+      escrowId,
+      actor: "system",
+      actorRole: "system",
+      channel: "api",
+      eventType: "payment_reminder_sent",
+      previousStatus: "PENDING_PAYMENT",
+      nextStatus: "PENDING_PAYMENT",
+      metadata: { reminderSentAt: when },
+    });
+    return this.getEscrowById(escrowId);
   }
 
   public async markPaymentReviewRequired(
@@ -1303,10 +1499,41 @@ export class EscrowStore {
   public async findEscrowByPaymentReference(paymentReference: string): Promise<EscrowRecord | null> {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
-      return this.mapEscrow(this.sqlite!.prepare(`SELECT * FROM escrows WHERE payment_reference = @paymentReference`).get({ paymentReference }));
+      return this.mapEscrow(this.sqlite!.prepare(`
+        SELECT e.*
+        FROM escrows e
+        WHERE e.payment_reference = @paymentReference
+        UNION
+        SELECT e.*
+        FROM escrows e
+        JOIN transactions t ON t.escrow_id = e.escrow_id
+        WHERE t.reference = @paymentReference
+        LIMIT 1
+      `).get({ paymentReference }));
     }
-    const result = await this.pool!.query(`SELECT * FROM escrows WHERE payment_reference = $1`, [paymentReference]);
+    const result = await this.pool!.query(
+      `SELECT e.*
+       FROM escrows e
+       WHERE e.payment_reference = $1
+       UNION
+       SELECT e.*
+       FROM escrows e
+       JOIN transactions t ON t.escrow_id = e.escrow_id
+       WHERE t.reference = $1
+       LIMIT 1`,
+      [paymentReference]
+    );
     return this.mapEscrow(result.rows[0]);
+  }
+
+  public async getTransactionByReference(reference: string): Promise<EscrowTransactionRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`SELECT * FROM transactions WHERE reference = @reference ORDER BY updated_at DESC LIMIT 1`).get({ reference });
+      return row ? this.mapTransaction(row) : null;
+    }
+    const result = await this.pool!.query(`SELECT * FROM transactions WHERE reference = $1 ORDER BY updated_at DESC LIMIT 1`, [reference]);
+    return result.rows[0] ? this.mapTransaction(result.rows[0]) : null;
   }
 
   public async requestRelease(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
@@ -1415,7 +1642,7 @@ export class EscrowStore {
     if (!options.manualPayoutReference?.trim()) throw new Error("Manual payout reference is required");
     const grossAmount = options.grossAmount ?? escrow.amount;
     const platformFeeAmount = Math.max(0, options.platformFeeAmount ?? 0);
-    const sellerNetAmount = Math.max(0, options.sellerNetAmount ?? grossAmount - platformFeeAmount);
+    const sellerNetAmount = Math.max(0, options.sellerNetAmount ?? grossAmount);
     if (grossAmount !== escrow.amount) {
       throw new Error("Release gross amount must match the escrow amount");
     }
@@ -1698,16 +1925,21 @@ export class EscrowStore {
     await this.initializeSchema();
     const eventId = id("event");
     const createdAt = new Date().toISOString();
+    const metadata = input.metadata
+      ? typeof input.metadata === "string"
+        ? input.metadata
+        : JSON.stringify(input.metadata)
+      : null;
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
         INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, created_at)
         VALUES (@eventId, @escrowId, @actor, @actorRole, @channel, @previousStatus, @nextStatus, @eventType, @reason, @metadata, @createdAt)
-      `).run({ ...input, eventId, previousStatus: input.previousStatus || null, nextStatus: input.nextStatus || null, reason: input.reason || null, metadata: input.metadata || null, createdAt });
+      `).run({ ...input, eventId, previousStatus: input.previousStatus || null, nextStatus: input.nextStatus || null, reason: input.reason || null, metadata, createdAt });
     } else {
       await this.pool!.query(
         `INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [eventId, input.escrowId, input.actor, input.actorRole, input.channel, input.previousStatus || null, input.nextStatus || null, input.eventType, input.reason || null, input.metadata || null, createdAt]
+        [eventId, input.escrowId, input.actor, input.actorRole, input.channel, input.previousStatus || null, input.nextStatus || null, input.eventType, input.reason || null, metadata, createdAt]
       );
     }
     return eventId;

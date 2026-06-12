@@ -471,7 +471,7 @@ export class SettingsStore {
       platformFeeFixed: settings.nairaFeeFixed,
       totalPlatformFee: totalFee,
       totalWithFee: amount + totalFee,
-      recipientNet: amount - totalFee,
+      recipientNet: amount,
     };
   }
 
@@ -484,7 +484,7 @@ export class SettingsStore {
       platformFeeFixed: settings.usdcFeeFixed,
       totalPlatformFee: totalFee,
       totalWithFee: parseFloat((amount + totalFee).toFixed(6)),
-      recipientNet: parseFloat((amount - totalFee).toFixed(6)),
+      recipientNet: amount,
     };
   }
 

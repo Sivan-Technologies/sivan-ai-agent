@@ -315,6 +315,17 @@ echo $CURRENT | jq .
 - View current fees and preview calculator
 - See what users will pay with new fees
 
+Fee policy:
+
+```text
+Escrow amount: amount agreed for the seller
+Platform fee: calculated on top of the escrow amount
+Buyer total: escrow amount + platform fee
+Seller payout: escrow amount
+```
+
+Example: if the user creates a ₦10,000 escrow and the platform fee is ₦300, the buyer pays ₦10,300 and the seller payout remains ₦10,000.
+
 **Step 3: Make Change in Admin UI**
 - Update Naira Fee %: 3.5%
 - Review changes in preview calculator

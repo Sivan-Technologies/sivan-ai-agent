@@ -191,6 +191,7 @@ These states should become the canonical state machine:
 | `REVIEW_REQUIRED` | Payment or reconciliation issue needs admin review |
 | `FAILED` | Payment or workflow failure |
 | `CANCELLED` | Escrow cancelled before completion |
+| `EXPIRED` | Escrow funding window expired before verified funding |
 
 ## State Transition Rules
 
@@ -201,17 +202,19 @@ Recommended MVP rules:
 | `CREATED` | `PENDING_PROFILE` | Buyer or seller profile is missing |
 | `CREATED` | `PENDING_PAYMENT` | Buyer and seller are attached |
 | `PENDING_PROFILE` | `PENDING_PAYMENT` | Required onboarding is complete |
-| `PENDING_PAYMENT` | `FUNDED` | Paystack webhook and transaction verification pass |
-| `PENDING_PAYMENT` | `REVIEW_REQUIRED` | Paystack verification fails or amount received does not match escrow amount |
+| `PENDING_PAYMENT` | `FUNDED` | Provider webhook and server-side transaction verification pass |
+| `PENDING_PAYMENT` | `PENDING_PAYMENT` | Active provider payment instruction expires before the escrow funding deadline; the old reference is expired for audit and the buyer can regenerate fresh payment details on the same escrow |
+| `PENDING_PAYMENT` | `REVIEW_REQUIRED` | Provider verification fails, late payment arrives for an expired/inactive payment instruction, late payment arrives after escrow expiry, or amount received does not match the expected buyer funding total |
+| `PENDING_PAYMENT` | `EXPIRED` | Escrow funding deadline is reached before verified funding |
 | `FUNDED` | `IN_PROGRESS` | Seller is notified to proceed |
 | `IN_PROGRESS` | `COMPLETED` | Buyer confirms work is complete |
 | `COMPLETED` | `PENDING_RELEASE` | Buyer confirms release intent |
 | `PENDING_RELEASE` | `RELEASED` | Admin approves payout in MVP |
 | Any active state | `DISPUTED` | Buyer or seller raises dispute |
 | Any pre-release state | `CANCELLED` | Admin or allowed cancellation rule applies |
+| Any state | `FAILED` | Payment, webhook, or workflow failure occurs |
 
 Current participant cancellation rule: the buyer may cancel through `cancel SIV-...` only while the escrow is unfunded and in `PENDING_PROFILE`, `PENDING_ACCEPTANCE`, or `PENDING_PAYMENT`. Funded escrows cannot be directly cancelled and must use the dispute/refund process. Every buyer cancellation writes an audit event and marks any pending funding transaction as cancelled.
-| Any state | `FAILED` | Payment, webhook, or workflow failure occurs |
 
 ## Phase Completion Matrix
 
@@ -242,8 +245,8 @@ Legend:
 | Phase 5 | Transaction state machine | ✅ Completed for MVP | Release now requires explicit buyer completion before `PENDING_RELEASE`; buyer/seller authorization checks guard completion, release, and disputes |
 | Phase 6 | Private DM onboarding | ✅ Completed for MVP | WhatsApp bot now uses Postgres-backed private conversation sessions, seller setup, account-number-first payout setup, bank search/selection, and escrow commands |
 | Phase 7 | Seller payout setup | ✅ Completed for MVP | Seller acceptance pauses until profile and verified payout account are complete; seller setup collects first name, last name, account number, then bank search/selection because provider resolution requires account number plus bank code. A fail-closed exact-account sandbox override supports controlled E2E testing only with Paystack test credentials |
-| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval accepts payout/reference ID and notes only, rejects manual amount fields, derives gross amount from the escrow record, calculates platform fee/seller net payout, and stores reconciliation details |
-| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected vs received amount, escrow-derived gross, platform fee, seller net payout, masked payout account, resolved name, combined risk, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
+| Phase 8 | Manual release approval | ✅ Completed for MVP | Naira release moves to `PENDING_RELEASE`; admin approval accepts payout/reference ID and notes only, rejects manual amount fields, derives escrow amount from the escrow record, calculates buyer-paid fee on top, keeps seller net payout equal to the escrow amount, and stores reconciliation details |
+| Phase 9 | Reconciliation operations | ✅ Completed for MVP | Admin dashboard shows funding reference, payment status, expected buyer funding total vs received amount, escrow-derived gross, buyer-paid platform fee, seller net payout, masked payout account, resolved name, combined risk, payout reference, approver, release timestamp, filters, attention cards, and CSV export |
 | Phase 10 | Support and dispute workflow | ✅ Completed for manual-resolution MVP | Admin Support and Disputes tabs now provide inbox, status tracking, internal notes, operator assignment, search, dispute linking, evidence capture, manual resolution outcomes, and support-note closure |
 | Phase 11 | Production hardening | ✅ Completed for MVP | Monitoring, alert routing, expanded smoke checks, retry worker, backoff, dead-letter replay, stuck escrow visibility, abuse signals, support queue, payout safety review, event explorer, and admin Ops endpoints now exist |
 | Phase 11A | Monitoring and alerts | ✅ Completed for MVP | Production Sentry Node instrumentation, optional tracing/profiling/log capture, Telegram/direct alert routing, generic alert webhook routing, failed webhook recovery alerts, payout review alerts, queue failure alerts, database status checks, stuck escrow visibility, and operator event visibility exist |
@@ -286,7 +289,7 @@ The current system already has:
 - ✅ idempotency guard against repeated webhook execution
 - ✅ operational warning logs for invalid signatures, payment mismatch, verification failure, blocked release, and payout approval
 - ✅ admin escrow ledger with release/dispute actions
-- ✅ reconciliation dashboard fields: funding reference, payment status, expected amount, received amount, escrow-derived gross amount, platform fee, seller net payout, masked payout account, resolved account name, combined risk level, payout reference, approver, release timestamp
+- ✅ reconciliation dashboard fields: funding reference, payment status, expected buyer funding total, received amount, escrow-derived gross amount, buyer-paid platform fee, seller net payout, masked payout account, resolved account name, combined risk level, payout reference, approver, release timestamp
 - ✅ reconciliation filters for `REVIEW_REQUIRED`, `PENDING_RELEASE`, `RELEASED`, missing payout references, and Paystack amount mismatches
 - ✅ reconciliation CSV export for accounting, compliance risk, reconciliation risk, and manual operations
 - ✅ admin needs-attention view for payment reviews, payout queue, missing payout references, and amount mismatches
@@ -294,7 +297,7 @@ The current system already has:
 - ✅ explicit `COMPLETED` state before any release request
 - ✅ buyer-only completion and release authorization checks
 - ✅ participant-only non-admin dispute checks
-- ✅ manual Naira payout reconciliation fields: payout reference, notes, approver, released timestamp, escrow-derived gross amount, platform fee, and seller net payout
+- ✅ manual Naira payout reconciliation fields: payout reference, notes, approver, released timestamp, escrow-derived gross amount, buyer-paid platform fee, buyer total funded, and seller net payout
 - ✅ seller invite/accept flow before payment initialization
 - ✅ escrow creation idempotency for repeated WhatsApp `YES` confirmations
 - ✅ seller invite notification is asynchronous so Twilio/bot latency does not block escrow creation responses
@@ -309,7 +312,7 @@ The current system already has:
 - ✅ backend user profile lookup for repeat WhatsApp buyers
 - ✅ guided seller profile setup in WhatsApp: first name, last name, bank search, account number, account verification
 - ✅ Naira escrow acceptance requires payout readiness before payment initialization
-- ✅ improved transaction status replies with readiness, funding, payout, and next action
+- ✅ improved transaction status replies with readiness, funding, payout, payment-instruction regeneration, funding-window expiry, one-time funding reminders, and next action
 - ✅ USDC/x402 policy lane: autonomous release after deterministic checks
 - ✅ WhatsApp notification callback
 - ✅ WhatsApp notification callback fails closed when `NOTIFY_SECRET` is missing
