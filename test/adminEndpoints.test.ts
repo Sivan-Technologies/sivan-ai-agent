@@ -637,6 +637,84 @@ describe("Admin Settings API Integration", () => {
     expect(outsider.status).toBe(403);
   });
 
+  it("should let the funded seller submit delivery proof without external links", async () => {
+    const headers = { "x-core-api-key": "test-core-key" };
+    const suffix = Date.now().toString().slice(-6);
+    const buyerWhatsapp = `whatsapp:+23480${suffix}31`;
+    const sellerWhatsapp = "whatsapp:+2348000000902";
+
+    await request(app)
+      .post("/api/users/profile")
+      .set(headers)
+      .send({ whatsappNumber: sellerWhatsapp, firstName: "John", lastName: "Herry" });
+
+    await request(app)
+      .post("/api/users/payout-account")
+      .set(headers)
+      .send({
+        whatsappNumber: sellerWhatsapp,
+        bankName: "Opay",
+        bankCode: "999992",
+        accountNumber: "8102524846",
+      });
+
+    const created = await request(app)
+      .post("/api/escrows")
+      .set(headers)
+      .send({
+        clientRequestId: `delivery-proof-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 12000,
+        currency: "NAIRA",
+        purpose: "delivery proof test",
+        channel: "whatsapp_dm",
+      });
+    expect(created.status).toBe(201);
+    const escrowId = created.body.escrow.escrowId;
+
+    const accepted = await request(app)
+      .post(`/api/escrows/${escrowId}/accept`)
+      .set(headers)
+      .send({ actorWhatsapp: sellerWhatsapp });
+    expect(accepted.status).toBe(200);
+
+    const funded = await request(app)
+      .post(`/api/escrows/${escrowId}/test-fund`)
+      .set(headers)
+      .send({ actorWhatsapp: buyerWhatsapp });
+    expect(funded.status).toBe(200);
+    expect(funded.body.escrow.status).toBe("IN_PROGRESS");
+
+    const blockedLink = await request(app)
+      .post(`/api/escrows/${escrowId}/delivery/proof`)
+      .set(headers)
+      .send({
+        actorWhatsapp: sellerWhatsapp,
+        summary: "Delivered here https://example.com/file",
+      });
+    expect(blockedLink.status).toBe(400);
+    expect(blockedLink.body.error).toMatch(/External delivery links/i);
+
+    const started = await request(app)
+      .post(`/api/escrows/${escrowId}/delivery/start`)
+      .set(headers)
+      .send({ actorWhatsapp: sellerWhatsapp });
+    expect(started.status).toBe(200);
+
+    const proof = await request(app)
+      .post(`/api/escrows/${escrowId}/delivery/proof`)
+      .set(headers)
+      .send({
+        actorWhatsapp: sellerWhatsapp,
+        summary: "Package sent and receipt attached",
+        media: [{ url: "https://api.twilio.com/media/ME123", contentType: "image/jpeg", filename: "receipt.jpg" }],
+        notifyBuyer: false,
+      });
+    expect(proof.status).toBe(201);
+    expect(proof.body.events.some((event: any) => event.eventType === "seller_delivery_proof_recorded")).toBe(true);
+  });
+
   it("should expose protected escrow ledger", async () => {
     const unauthorized = await request(app).get("/admin/escrows");
     expect(unauthorized.status).toBe(401);

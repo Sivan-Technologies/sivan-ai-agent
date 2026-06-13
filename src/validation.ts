@@ -76,6 +76,17 @@ export const participantDisputeEvidenceSchema = disputeEvidenceSchema.extend({
   notifyParticipants: z.coerce.boolean().default(true),
 });
 
+export const deliveryProofSchema = z.object({
+  actorWhatsapp: whatsappAddress,
+  summary: z.string().trim().max(2000).default(""),
+  media: z.array(z.object({
+    url: z.string().trim().url().max(1000),
+    contentType: z.string().trim().min(3).max(120).optional(),
+    filename: z.string().trim().min(1).max(240).optional(),
+  })).max(5).default([]),
+  notifyBuyer: z.coerce.boolean().default(true),
+});
+
 export const disputeResolutionSchema = z.object({
   outcome: z.enum(["release_to_seller", "refund_buyer", "cancel_no_funds", "no_action_close"]),
   reason: z.string().trim().min(5).max(2000),

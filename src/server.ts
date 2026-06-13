@@ -27,6 +27,7 @@ import {
   escrowActionSchema,
   escrowCreateSchema,
   escrowLimitReviewDecisionSchema,
+  deliveryProofSchema,
   formatZodError,
   limitQuerySchema,
   participantEscrowQuerySchema,
@@ -888,7 +889,7 @@ async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: str
   return null;
 }
 
-type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference";
+type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference" | "deliver";
 
 function participantDealStatus(status: EscrowRecord["status"]) {
   const labels: Record<EscrowRecord["status"], string> = {
@@ -917,6 +918,7 @@ function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buyer" | "
   if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
   if (role === "buyer" && escrow.status === "PENDING_PAYMENT") actions.add("pay");
   if (role === "buyer" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("complete");
+  if (role === "seller" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("deliver");
   if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
   if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
   if (escrow.status === "DISPUTED") actions.add("evidence");
@@ -1084,6 +1086,66 @@ async function recordDisputeEvidence(input: {
   if (evidence.notifyParticipants) {
     await notifyEscrowParticipants(escrow, `Dispute update for ${escrow.escrowId}: ${evidence.summary}`);
   }
+  return buildEscrowDetail(escrow.escrowId);
+}
+
+function externalDeliveryLinksAllowed() {
+  return process.env.DELIVERY_PROOF_ALLOW_EXTERNAL_LINKS === "true";
+}
+
+function containsExternalLink(value: string) {
+  return /\bhttps?:\/\/|\bwww\./i.test(value);
+}
+
+async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary: string) {
+  const detail = await buildEscrowDetail(escrow.escrowId);
+  const buyerWhatsapp = detail?.buyer?.whatsappNumber;
+  if (!detail || !buyerWhatsapp) return;
+  const dealCard = await buildParticipantDeal(detail, buyerWhatsapp);
+  queueWhatsAppNotification({
+    to: buyerWhatsapp,
+    message: participantLifecycleMessage(
+      detail.escrow,
+      "The seller has submitted delivery proof.",
+      `Review the delivery, then reply COMPLETE ${detail.escrow.escrowId} if you are satisfied or DISPUTE ${detail.escrow.escrowId} if there is a problem.`
+    ),
+    reason: "seller_delivery_submitted",
+    escrowId: detail.escrow.escrowId,
+    dealCard: dealCard ? {
+      escrow: dealCard.escrow,
+      participant: dealCard.participant,
+    } : undefined,
+    context: { summary: summary || "Seller submitted delivery proof" },
+  });
+}
+
+async function recordDeliveryProof(input: {
+  escrow: EscrowRecord;
+  actorWhatsapp: string;
+  summary: string;
+  media: Array<{ url: string; contentType?: string; filename?: string }>;
+  notifyBuyer: boolean;
+}) {
+  const { escrow, actorWhatsapp, summary, media, notifyBuyer } = input;
+  const safeSummary = summary.trim() || "Seller submitted delivery proof";
+  await escrowStore.addEvent({
+    escrowId: escrow.escrowId,
+    actor: actorWhatsapp,
+    actorRole: "seller",
+    channel: "whatsapp_dm",
+    previousStatus: escrow.status,
+    nextStatus: escrow.status,
+    eventType: "seller_delivery_proof_recorded",
+    reason: safeSummary,
+    metadata: JSON.stringify({
+      summary: safeSummary,
+      media,
+      mediaCount: media.length,
+      externalLinksAllowed: externalDeliveryLinksAllowed(),
+    }),
+  });
+
+  if (notifyBuyer) await notifyBuyerDeliverySubmitted(escrow, safeSummary);
   return buildEscrowDetail(escrow.escrowId);
 }
 
@@ -2085,6 +2147,64 @@ app.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, res)
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Completion confirmation failed" });
   }
+});
+
+app.post("/api/escrows/:escrowId/delivery/start", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+    const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+    if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+    if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+      return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
+    }
+    await escrowStore.addEvent({
+      escrowId: escrow.escrowId,
+      actor: parsed.data.actorWhatsapp,
+      actorRole: "seller",
+      channel: "whatsapp_dm",
+      previousStatus: escrow.status,
+      nextStatus: escrow.status,
+      eventType: "seller_delivery_requested",
+      reason: "Seller started delivery proof submission",
+      metadata: JSON.stringify({ source: "whatsapp" }),
+    });
+    res.status(200).json(await buildEscrowDetail(escrow.escrowId));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Delivery proof could not be started" });
+  }
+});
+
+app.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (req, res) => {
+  const parsed = deliveryProofSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid delivery proof payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+  if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+    return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
+  }
+  if (!externalDeliveryLinksAllowed() && containsExternalLink(parsed.data.summary)) {
+    return res.status(400).json({ error: "External delivery links are not accepted during the MVP. Upload the file or describe the delivery instead." });
+  }
+  if (!parsed.data.summary.trim() && !parsed.data.media.length) {
+    return res.status(400).json({ error: "Delivery proof must include a message or media" });
+  }
+  const detail = await recordDeliveryProof({
+    escrow,
+    actorWhatsapp: parsed.data.actorWhatsapp,
+    summary: parsed.data.summary,
+    media: parsed.data.media,
+    notifyBuyer: parsed.data.notifyBuyer,
+  });
+  res.status(201).json(detail);
 });
 
 app.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res) => {
