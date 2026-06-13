@@ -62,6 +62,29 @@ describe("Admin Settings API Integration", () => {
       });
     expect(accepted.status).toBe(200);
     expect(accepted.body).toMatchObject({ received: true });
+
+    const formEncoded = await request(app)
+      .post("/webhooks/twilio-debugger?secret=test-twilio-debugger-secret")
+      .type("form")
+      .send({
+        AccountSid: "ACFORM",
+        Sid: "NOFORM0000000000000000000000000001",
+        Timestamp: "2026-06-13T06:42:08Z",
+        Level: "Warning",
+        Payload: JSON.stringify({
+          error_code: 11200,
+          message: "HTTP retrieval failure",
+          more_info: "https://www.twilio.com/docs/api/errors/11200",
+        }),
+      });
+    expect(formEncoded.status).toBe(200);
+    expect(formEncoded.body).toMatchObject({ received: true });
+
+    const generic = await request(app)
+      .post("/webhooks/twilio-debugger?secret=test-twilio-debugger-secret")
+      .send({});
+    expect(generic.status).toBe(200);
+    expect(generic.body).toMatchObject({ received: true, ignored: "missing_structured_details" });
   });
 
   it("should fetch fee settings with admin credentials", async () => {
