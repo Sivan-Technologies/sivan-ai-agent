@@ -114,6 +114,7 @@ Flutterwave is implemented as an emergency backup bank-transfer collection trans
 - `OPERATIONS_ALERT_PROVIDER` - Optional alert transport selector. Use `telegram` to send operations alerts directly through Telegram Bot API, or leave blank to use the generic webhook when `OPERATIONS_ALERT_WEBHOOK_URL` is set.
 - `TELEGRAM_ALERT_BOT_TOKEN` - Telegram bot token used for direct operations alerts when `OPERATIONS_ALERT_PROVIDER=telegram`.
 - `TELEGRAM_ALERT_CHAT_ID` - Telegram user/group/channel chat id that receives direct operations alerts.
+- `TWILIO_DEBUGGER_WEBHOOK_SECRET` - Shared secret for Twilio Debugger webhook alerts. Configure Twilio Debugger webhook URL as `https://<backend-domain>/webhooks/twilio-debugger?secret=<same-secret>`. Events route through Sivan operations alerts, including Telegram when `OPERATIONS_ALERT_PROVIDER=telegram`.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
 - `ADMIN_IP_ALLOWLIST` - Optional comma-separated admin network allowlist. Supports exact IPs and IPv4 CIDR ranges, for example `203.0.113.10,198.51.100.0/24`. Leave blank until you know the operator/VPN/static IPs.
 - `CORE_API_SECRET` - Shared secret required in production for `/api/tasks` calls from the WhatsApp bot.
@@ -258,6 +259,7 @@ OPERATIONS_ALERT_WEBHOOK_SECRET=
 OPERATIONS_ALERT_PROVIDER=
 TELEGRAM_ALERT_BOT_TOKEN=
 TELEGRAM_ALERT_CHAT_ID=
+TWILIO_DEBUGGER_WEBHOOK_SECRET=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 ADMIN_IP_ALLOWLIST=
 CORE_API_SECRET=change-me-to-the-same-value-used-by-whatsapp-bot

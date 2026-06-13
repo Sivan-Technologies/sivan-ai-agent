@@ -303,6 +303,13 @@ function safeSecretEquals(a: string, b: string) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function twilioDebuggerSecretValid(req: express.Request) {
+  const configured = process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET || "";
+  if (!configured) return process.env.NODE_ENV !== "production";
+  const provided = String(req.query.secret || req.headers["x-sivan-twilio-debugger-secret"] || "");
+  return Boolean(provided) && safeSecretEquals(provided, configured);
+}
+
 function hasValidStaticServiceAuth(req: express.Request) {
   const coreSecret = process.env.CORE_API_SECRET || "";
   const adminKey = process.env.ADMIN_API_KEY || "";
@@ -2122,6 +2129,41 @@ app.post("/api/escrows/:escrowId/dispute/evidence", requireCoreApiAuth, async (r
     evidence: { ...parsed.data, source: parsed.data.source || role },
   });
   res.status(201).json(detail);
+});
+
+app.post("/webhooks/twilio-debugger", async (req, res) => {
+  if (!twilioDebuggerSecretValid(req)) {
+    return res.status(process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET ? 401 : 503).json({
+      error: process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET ? "Unauthorized" : "TWILIO_DEBUGGER_WEBHOOK_SECRET is required",
+    });
+  }
+
+  const payload = req.body?.Payload
+    ? (() => {
+        try {
+          return JSON.parse(req.body.Payload);
+        } catch {
+          return req.body.Payload;
+        }
+      })()
+    : req.body;
+  const level = String(req.body?.Level || payload?.level || payload?.Level || "warning").toUpperCase();
+  const eventSid = String(req.body?.Sid || payload?.sid || payload?.Sid || "unknown");
+  const errorCode = payload?.error_code || payload?.ErrorCode || payload?.code || payload?.Code || "unknown";
+  const message = payload?.message || payload?.Message || payload?.description || payload?.Description || "Twilio Debugger event received";
+
+  capturePaymentWarning(`Twilio Debugger ${level}: ${message}`, {
+    provider: "twilio",
+    eventSid,
+    accountSid: req.body?.AccountSid || payload?.account_sid || payload?.AccountSid || "unknown",
+    parentAccountSid: req.body?.ParentAccountSid || payload?.parent_account_sid || payload?.ParentAccountSid || undefined,
+    timestamp: req.body?.Timestamp || payload?.timestamp || payload?.Timestamp || new Date().toISOString(),
+    level,
+    errorCode,
+    moreInfo: payload?.more_info || payload?.MoreInfo || payload?.moreInfo || undefined,
+  });
+
+  res.status(200).json({ received: true });
 });
 
 app.post("/webhooks/paystack", async (req, res) => {
