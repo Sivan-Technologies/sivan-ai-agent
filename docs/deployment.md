@@ -116,3 +116,31 @@ npm run build
 - Use HTTPS-backed `FRONTEND_URL` for CORS restrictions in the backend.
 - Configure Sentry alerts for Paystack verification failures, unmatched webhooks, webhook processing failures, and task execution failures.
 - Add a CI pipeline that builds both `frontend/` and the root backend.
+
+## Temporary Render Hobby uptime ping
+
+While the WhatsApp bot and backend are on Render Hobby/free-style infrastructure, cold starts can make Twilio inbound webhooks time out before the bot returns TwiML. Sivan therefore includes a removable GitHub Actions keepalive workflow:
+
+```text
+.github/workflows/uptime-ping.yml
+scripts/uptime-ping.sh
+```
+
+It pings these health endpoints every 5 minutes during the pilot:
+
+```text
+https://whatsapp-bot-ix7t.onrender.com/api/health
+https://sivan-escrow-agent.onrender.com/api/health
+```
+
+Operational controls:
+
+- Set repository variable `SIVAN_UPTIME_PING_ENABLED=false` to disable pings without deleting code.
+- Set `SIVAN_UPTIME_PING_URLS` to override the comma-separated target list.
+- Set `SIVAN_UPTIME_PING_TIMEOUT_SECONDS` to adjust the curl timeout.
+
+Removal path after upgrading to always-on paid Render services:
+
+1. Disable the workflow with `SIVAN_UPTIME_PING_ENABLED=false`.
+2. Confirm Twilio inbound messages no longer produce cold-start Debugger warnings.
+3. Delete `.github/workflows/uptime-ping.yml` and `scripts/uptime-ping.sh`.
