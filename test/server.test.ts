@@ -214,4 +214,31 @@ describe("server basic endpoints", () => {
     expect(sellerDetail.status).toBe(200);
     expect(sellerDetail.body.participant).toMatchObject({ role: "seller" });
   });
+
+  it("normalizes Nigerian local WhatsApp numbers before storing escrows", async () => {
+    const suffix = Date.now().toString().slice(-5);
+    const buyerWhatsapp = `whatsapp:+23480${suffix}01`;
+    const created = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `local-phone-test-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        buyerWhatsapp,
+        sellerWhatsapp: "whatsapp:+08148254608",
+        amount: 10000,
+        currency: "NAIRA",
+        purpose: "Local phone normalization",
+        channel: "whatsapp_dm",
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.escrow.sellerWhatsapp).toBe("whatsapp:+2348148254608");
+
+    const sellerDeals = await request(app)
+      .get("/api/users/escrows")
+      .query({ actorWhatsapp: "whatsapp:+2348148254608" })
+      .set("x-core-api-key", "test-core-secret");
+    expect(sellerDeals.status).toBe(200);
+    expect(sellerDeals.body.deals.some((deal: any) => deal.escrow.escrowId === created.body.escrow.escrowId)).toBe(true);
+  });
 });

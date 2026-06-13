@@ -98,28 +98,54 @@ function sellerInviteMessage(escrowId: string, currency: string, amount: number,
   return `You have been invited to Sivan escrow ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
 }
 
+function parseMaybeJson(value: any) {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function firstPresent(...values: any[]) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+  }
+  return undefined;
+}
+
 function queueWhatsAppNotification(params: {
   to: string;
   message: string;
   reason: string;
   escrowId?: string;
+  dealCard?: any;
   context?: Record<string, any>;
 }) {
-  void notifyWhatsAppBotStrict(params.to, params.message).catch(async (err) => {
+  void notifyWhatsAppBotStrict(params.to, params.message, params.dealCard).catch(async (err) => {
     const context = {
       escrowId: params.escrowId,
       to: params.to,
       reason: params.reason,
       ...params.context,
     };
-    captureOperationalError("Failed to send WhatsApp notification", err, context);
+    const isRateLimited = err instanceof Error && /\b429\b|Too Many Requests/i.test(err.message);
+    if (isRateLimited) {
+      capturePaymentWarning("WhatsApp notification rate-limited; queued for retry", context);
+    } else {
+      captureOperationalError("Failed to send WhatsApp notification", err, context);
+    }
     try {
       await opsStore.enqueueJob("whatsapp_notification", {
         to: params.to,
         message: params.message,
         escrowId: params.escrowId,
         reason: params.reason,
-      }, { maxAttempts: 5 });
+        ...(params.dealCard ? { dealCard: params.dealCard } : {}),
+      }, {
+        maxAttempts: 5,
+        runAfter: new Date(Date.now() + (isRateLimited ? 60_000 : 15_000)).toISOString(),
+      });
     } catch (enqueueErr) {
       captureOperationalError("Failed to enqueue WhatsApp notification retry", enqueueErr, context);
     }
@@ -293,6 +319,13 @@ function safeSecretEquals(a: string, b: string) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function twilioDebuggerSecretValid(req: express.Request) {
+  const configured = process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET || "";
+  if (!configured) return process.env.NODE_ENV !== "production";
+  const provided = String(req.query.secret || req.headers["x-sivan-twilio-debugger-secret"] || "");
+  return Boolean(provided) && safeSecretEquals(provided, configured);
+}
+
 function hasValidStaticServiceAuth(req: express.Request) {
   const coreSecret = process.env.CORE_API_SECRET || "";
   const adminKey = process.env.ADMIN_API_KEY || "";
@@ -323,7 +356,13 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-app.use(bodyParser.json({ verify: (req: any, res, buf) => { req.rawBody = buf.toString(); } }));
+app.use(bodyParser.urlencoded({
+  extended: false,
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf.toString();
+  },
+}));
+app.use(bodyParser.json({ verify: (req: any, _res, buf) => { req.rawBody = buf.toString(); } }));
 
 // Simple request logger
 app.use((req, _res, next) => {
@@ -976,16 +1015,28 @@ async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
 
   await Promise.all([
     buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
-      notifyWhatsAppBot(buyerWhatsapp, message, dealCard ? {
-        escrow: dealCard.escrow,
-        participant: dealCard.participant,
-      } : undefined)
+      queueWhatsAppNotification({
+        to: buyerWhatsapp,
+        message,
+        reason: "escrow_funded",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
     ) : Promise.resolve(),
     sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
-      notifyWhatsAppBot(sellerWhatsapp, message, dealCard ? {
-        escrow: dealCard.escrow,
-        participant: dealCard.participant,
-      } : undefined)
+      queueWhatsAppNotification({
+        to: sellerWhatsapp,
+        message,
+        reason: "escrow_funded",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
     ) : Promise.resolve(),
   ]);
 }
@@ -1448,7 +1499,7 @@ const retryWorker = new RetryWorker(opsStore, {
     if (!payload.to || !payload.message) {
       throw new Error("whatsapp_notification requires payload.to and payload.message");
     }
-    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message));
+    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message), payload.dealCard);
   },
   paystack_recheck: async (payload) => {
     const paymentReference = String(payload.paymentReference || "").trim();
@@ -2100,6 +2151,56 @@ app.post("/api/escrows/:escrowId/dispute/evidence", requireCoreApiAuth, async (r
     evidence: { ...parsed.data, source: parsed.data.source || role },
   });
   res.status(201).json(detail);
+});
+
+app.post("/webhooks/twilio-debugger", async (req, res) => {
+  if (!twilioDebuggerSecretValid(req)) {
+    return res.status(process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET ? 401 : 503).json({
+      error: process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET ? "Unauthorized" : "TWILIO_DEBUGGER_WEBHOOK_SECRET is required",
+    });
+  }
+
+  const body = req.body || {};
+  const payload = parseMaybeJson(body.Payload || body.payload || body.EventPayload || body.eventPayload || body);
+  const payloadObject = payload && typeof payload === "object" ? payload : {};
+  const level = String(firstPresent(body.Level, body.level, payloadObject.level, payloadObject.Level, "warning")).toUpperCase();
+  const eventSid = String(firstPresent(body.Sid, body.sid, payloadObject.sid, payloadObject.Sid, payloadObject.event_sid, payloadObject.eventSid, "unknown"));
+  const accountSid = firstPresent(body.AccountSid, body.account_sid, body.accountSid, payloadObject.account_sid, payloadObject.AccountSid, payloadObject.accountSid, "unknown");
+  const errorCode = firstPresent(payloadObject.error_code, payloadObject.errorCode, payloadObject.ErrorCode, payloadObject.code, payloadObject.Code, body.ErrorCode, body.error_code, "unknown");
+  const message = firstPresent(
+    payloadObject.message,
+    payloadObject.Message,
+    payloadObject.description,
+    payloadObject.Description,
+    payloadObject.error_description,
+    payloadObject.errorDescription,
+    body.Message,
+    body.message,
+    body.Description,
+    body.description,
+    "Twilio Debugger event received"
+  );
+  const hasSpecificPayload = eventSid !== "unknown" || accountSid !== "unknown" || errorCode !== "unknown" || message !== "Twilio Debugger event received";
+  if (!hasSpecificPayload) {
+    warn("Twilio Debugger event received without structured details", {
+      bodyKeys: Object.keys(body).slice(0, 20),
+      rawBodyLength: ((req as any).rawBody || "").length,
+    });
+    return res.status(200).json({ received: true, ignored: "missing_structured_details" });
+  }
+
+  capturePaymentWarning(`Twilio Debugger ${level}: ${message}`, {
+    provider: "twilio",
+    eventSid,
+    accountSid,
+    parentAccountSid: firstPresent(body.ParentAccountSid, body.parent_account_sid, payloadObject.parent_account_sid, payloadObject.ParentAccountSid),
+    timestamp: firstPresent(body.Timestamp, body.timestamp, payloadObject.timestamp, payloadObject.Timestamp, new Date().toISOString()),
+    level,
+    errorCode,
+    moreInfo: firstPresent(payloadObject.more_info, payloadObject.MoreInfo, payloadObject.moreInfo, body.MoreInfo, body.more_info),
+  });
+
+  res.status(200).json({ received: true });
 });
 
 app.post("/webhooks/paystack", async (req, res) => {

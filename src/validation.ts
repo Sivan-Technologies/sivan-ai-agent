@@ -11,7 +11,21 @@ export const taskRequestSchema = z.object({
   usdcChannel: z.enum(["x402", "sap"]).optional(),
 });
 
-const whatsappAddress = z.string().trim().min(8).max(80).regex(/^whatsapp:\+?[0-9]{8,20}$/, "Must be a WhatsApp address");
+function normalizeWhatsappAddress(value: string) {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("0")) return `whatsapp:+234${digits.slice(1)}`;
+  if (digits.length === 13 && digits.startsWith("234")) return `whatsapp:+${digits}`;
+  if (/^whatsapp:\+/.test(trimmed)) return trimmed;
+  return `whatsapp:+${digits}`;
+}
+
+const whatsappAddress = z.string()
+  .trim()
+  .min(8)
+  .max(80)
+  .regex(/^whatsapp:\+?[0-9]{8,20}$/, "Must be a WhatsApp address")
+  .transform(normalizeWhatsappAddress);
 
 export const escrowCreateSchema = z.object({
   buyerWhatsapp: whatsappAddress,

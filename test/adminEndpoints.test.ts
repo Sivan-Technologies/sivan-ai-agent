@@ -15,6 +15,7 @@ process.env.PAYSTACK_TIMEOUT_MS = "50";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "8102524846";
 process.env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS = "whatsapp:+2348000000902";
+process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET = "test-twilio-debugger-secret";
 
 if (fs.existsSync(TEST_DB_PATH)) {
   fs.unlinkSync(TEST_DB_PATH);
@@ -37,6 +38,53 @@ describe("Admin Settings API Integration", () => {
     const res = await request(app).get("/admin/settings");
     expect(res.status).toBe(401);
     expect(res.body.error).toMatch(/Unauthorized/i);
+  });
+
+  it("should receive Twilio Debugger events only with the shared secret", async () => {
+    const unauthorized = await request(app)
+      .post("/webhooks/twilio-debugger")
+      .send({ Sid: "NOAUTH", Level: "Error", Payload: "{}" });
+    expect(unauthorized.status).toBe(401);
+
+    const accepted = await request(app)
+      .post("/webhooks/twilio-debugger?secret=test-twilio-debugger-secret")
+      .send({
+        AccountSid: "AC123",
+        Sid: "NO00000000000000000000000000000001",
+        Timestamp: "2026-06-13T04:12:29Z",
+        Level: "Error",
+        PayloadType: "application/json",
+        Payload: JSON.stringify({
+          error_code: 63024,
+          message: "Twilio could not deliver a WhatsApp message",
+          more_info: "https://www.twilio.com/docs/api/errors/63024",
+        }),
+      });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toMatchObject({ received: true });
+
+    const formEncoded = await request(app)
+      .post("/webhooks/twilio-debugger?secret=test-twilio-debugger-secret")
+      .type("form")
+      .send({
+        AccountSid: "ACFORM",
+        Sid: "NOFORM0000000000000000000000000001",
+        Timestamp: "2026-06-13T06:42:08Z",
+        Level: "Warning",
+        Payload: JSON.stringify({
+          error_code: 11200,
+          message: "HTTP retrieval failure",
+          more_info: "https://www.twilio.com/docs/api/errors/11200",
+        }),
+      });
+    expect(formEncoded.status).toBe(200);
+    expect(formEncoded.body).toMatchObject({ received: true });
+
+    const generic = await request(app)
+      .post("/webhooks/twilio-debugger?secret=test-twilio-debugger-secret")
+      .send({});
+    expect(generic.status).toBe(200);
+    expect(generic.body).toMatchObject({ received: true, ignored: "missing_structured_details" });
   });
 
   it("should fetch fee settings with admin credentials", async () => {
