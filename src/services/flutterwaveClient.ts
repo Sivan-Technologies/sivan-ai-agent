@@ -6,6 +6,7 @@ import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 export interface FlutterwaveVirtualAccountInstruction {
   paymentReference: string;
   transactionReference: string;
+  authorizationUrl?: string;
   accountNumber?: string;
   accountName?: string;
   bankName?: string;
@@ -42,6 +43,10 @@ function totalFees(fees: any) {
   return Number.isFinite(total) ? total : undefined;
 }
 
+function isNotFoundResponse(error: unknown) {
+  return axios.isAxiosError(error) && error.response?.status === 404;
+}
+
 export class FlutterwaveClient {
   private baseUrl = config.flutterwave.baseUrl.replace(/\/$/, "");
   private secretKey = config.flutterwave.secretKey;
@@ -74,6 +79,7 @@ export class FlutterwaveClient {
     customerEmail: string;
     paymentReference: string;
     paymentDescription: string;
+    redirectUrl?: string;
     metadata?: Record<string, unknown>;
   }): Promise<FlutterwaveVirtualAccountInstruction> {
     if (!this.isCollectionConfigured()) throw new Error("Flutterwave collection credentials are not configured");
@@ -82,15 +88,23 @@ export class FlutterwaveClient {
 
     const customerName = splitCustomerName(input.customerEmail);
     const customerIdempotencyKey = `${input.paymentReference}:customer`;
-    const customerResponse = await axios.post(
-      `${this.baseUrl}/customers`,
-      {
-        name: customerName,
-        email: input.customerEmail,
-        meta: input.metadata || {},
-      },
-      { headers: this.headers(customerIdempotencyKey), timeout: this.timeoutMs }
-    );
+    let customerResponse;
+    try {
+      customerResponse = await axios.post(
+        `${this.baseUrl}/customers`,
+        {
+          name: customerName,
+          email: input.customerEmail,
+          meta: input.metadata || {},
+        },
+        { headers: this.headers(customerIdempotencyKey), timeout: this.timeoutMs }
+      );
+    } catch (err) {
+      if (isNotFoundResponse(err)) {
+        return this.initializeHostedBankTransferPayment(input, customerName);
+      }
+      throw err;
+    }
     const customer = customerResponse.data?.data;
     if (customerResponse.data?.status !== "success" || !customer?.id) {
       throw new Error(customerResponse.data?.message || customerResponse.data?.error?.message || "Unable to create Flutterwave customer");
@@ -120,13 +134,62 @@ export class FlutterwaveClient {
       paymentReference: account.reference || input.paymentReference,
       transactionReference: account.id,
       accountNumber: account.account_number,
-      accountName: account.note || account.account_display_name || "Sivan escrow",
+      accountName: account.note || account.account_display_name || "Sivan payment collection",
       bankName: account.account_bank_name,
       expiresAt: account.account_expiration_datetime,
       expiresInSeconds,
       raw: {
         customer: customerResponse.data,
         virtualAccount: virtualAccountResponse.data,
+      },
+    };
+  }
+
+  private async initializeHostedBankTransferPayment(
+    input: {
+      amount: number;
+      customerEmail: string;
+      paymentReference: string;
+      paymentDescription: string;
+      redirectUrl?: string;
+      metadata?: Record<string, unknown>;
+    },
+    customerName: { first: string; last: string }
+  ): Promise<FlutterwaveVirtualAccountInstruction> {
+    const redirectUrl = input.redirectUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl || "https://sivan-escrow-agent.onrender.com/api/health";
+    const response = await axios.post(
+      `${this.baseUrl}/v3/payments`,
+      {
+        tx_ref: input.paymentReference,
+        amount: input.amount,
+        currency: "NGN",
+        redirect_url: redirectUrl,
+        payment_options: "banktransfer",
+        customer: {
+          email: input.customerEmail,
+          name: `${customerName.first} ${customerName.last}`.trim(),
+        },
+        customizations: {
+          title: "Sivan service agreement",
+          description: input.paymentDescription,
+        },
+        meta: input.metadata || {},
+      },
+      { headers: this.headers(input.paymentReference), timeout: this.timeoutMs }
+    );
+
+    const checkout = response.data?.data;
+    if (response.data?.status !== "success" || !checkout?.link) {
+      throw new Error(response.data?.message || response.data?.error?.message || "Unable to create Flutterwave hosted payment link");
+    }
+
+    return {
+      paymentReference: checkout.tx_ref || input.paymentReference,
+      transactionReference: String(checkout.id || input.paymentReference),
+      authorizationUrl: checkout.link,
+      expiresInSeconds: config.flutterwave.dynamicAccountExpirySeconds,
+      raw: {
+        hostedPayment: response.data,
       },
     };
   }

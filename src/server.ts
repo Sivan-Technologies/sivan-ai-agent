@@ -96,7 +96,7 @@ function providerConfigured(provider: string) {
 }
 
 function sellerInviteMessage(escrowId: string, currency: string, amount: number, purpose: string) {
-  return `You have been invited to Sivan escrow ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
+  return `You have been invited to Sivan service agreement ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
 }
 
 function parseMaybeJson(value: any) {
@@ -180,7 +180,7 @@ async function getActiveNairaPaymentProvider() {
 }
 
 function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
-  return createProviderForId(escrow.paymentProvider || "paystack");
+  return createProviderForId(escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack");
 }
 
 function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
@@ -205,34 +205,34 @@ function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
   const feeAmount = new Intl.NumberFormat("en-NG").format(payment.platformFeeAmount || 0);
   if (payment.authorizationUrl) {
     return [
-      `Payment details for ${escrow.escrowId}`,
+      `Payment instructions for ${escrow.escrowId}`,
       `Total to pay: ${currency} ${total}`,
-      `Escrow amount: ${currency} ${escrowAmount}`,
+      `Service amount: ${currency} ${escrowAmount}`,
       `Sivan fee: ${currency} ${feeAmount}`,
       "",
-      `Pay securely: ${payment.authorizationUrl}`,
+      `Complete payment through provider: ${payment.authorizationUrl}`,
       payment.expiresAt ? `Payment link expires: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
   if (payment.accountNumber) {
     return [
-      `Payment details for ${escrow.escrowId}`,
+      `Payment instructions for ${escrow.escrowId}`,
       `Transfer ${currency} ${total}`,
       `Bank: ${payment.bankName || "assigned bank"}`,
       `Account number: ${payment.accountNumber}`,
-      `Account name: ${payment.accountName || "Sivan escrow"}`,
+      `Account name: ${payment.accountName || "Sivan payment collection"}`,
       `Reference: ${payment.reference}`,
       "",
-      `Escrow amount: ${currency} ${escrowAmount}`,
+      `Service amount: ${currency} ${escrowAmount}`,
       `Sivan fee: ${currency} ${feeAmount}`,
       payment.expiresAt ? `Payment details expire: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
   return [
-    `Payment details for ${escrow.escrowId}`,
+    `Payment instructions for ${escrow.escrowId}`,
     `Payment reference: ${payment.reference}`,
     `Total to pay: ${currency} ${total}`,
-    `Escrow amount: ${currency} ${escrowAmount}`,
+    `Service amount: ${currency} ${escrowAmount}`,
     `Sivan fee: ${currency} ${feeAmount}`,
   ].join("\n");
 }
@@ -868,7 +868,7 @@ function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, n
     statusLine,
     nextLine,
     "",
-    `Reply STATUS ${escrow.escrowId} to view the deal.`,
+    `Reply STATUS ${escrow.escrowId} to view the agreement.`,
   ].join("\n");
 }
 
@@ -897,15 +897,15 @@ function participantDealStatus(status: EscrowRecord["status"]) {
     PENDING_PROFILE: "Seller setup required",
     PENDING_ACCEPTANCE: "Waiting for seller",
     PENDING_PAYMENT: "Waiting for buyer payment",
-    FUNDED: "Payment secured",
+    FUNDED: "Payment confirmed",
     IN_PROGRESS: "Work in progress",
-    COMPLETED: "Ready for release",
-    PENDING_RELEASE: "Payout awaiting approval",
-    RELEASED: "Payment released",
-    DISPUTED: "Dispute under review",
+    COMPLETED: "Completion awaiting confirmation",
+    PENDING_RELEASE: "Completion confirmation under review",
+    RELEASED: "Service completed",
+    DISPUTED: "Issue under review",
     REVIEW_REQUIRED: "Under manual review",
     FAILED: "Action required",
-    EXPIRED: "Payment expired",
+    EXPIRED: "Payment window expired",
     CANCELLED: "Cancelled",
   };
   return labels[status];
@@ -1011,7 +1011,7 @@ async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
   const message = participantLifecycleMessage(
     detail.escrow,
-    "Payment has been received and secured in escrow.",
+    "Payment has been confirmed through the licensed provider.",
     "Reply STATUS or tap View status to see what to do next."
   );
 
@@ -1084,7 +1084,7 @@ async function recordDisputeEvidence(input: {
     );
   }
   if (evidence.notifyParticipants) {
-    await notifyEscrowParticipants(escrow, `Dispute update for ${escrow.escrowId}: ${evidence.summary}`);
+    await notifyEscrowParticipants(escrow, `Issue review update for ${escrow.escrowId}: ${evidence.summary}`);
   }
   return buildEscrowDetail(escrow.escrowId);
 }
@@ -1106,7 +1106,7 @@ async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary: strin
     to: buyerWhatsapp,
     message: participantLifecycleMessage(
       detail.escrow,
-      "The seller has submitted delivery proof.",
+      "The service provider has submitted delivery proof.",
       `Review the delivery, then reply COMPLETE ${detail.escrow.escrowId} if you are satisfied or DISPUTE ${detail.escrow.escrowId} if there is a problem.`
     ),
     reason: "seller_delivery_submitted",
@@ -2060,7 +2060,7 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     if (updated?.escrow && payment) {
       const buyer = updated.buyer;
       if (buyer) {
-        const instruction = `Seller accepted escrow ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
+        const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
         await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
       }
     }
@@ -2114,10 +2114,10 @@ app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (re
       updated,
       participantLifecycleMessage(
         updated,
-        updated.status === "PENDING_RELEASE" ? "Payout is awaiting admin approval." : "Release request needs manual review.",
+        updated.status === "PENDING_RELEASE" ? "Completion confirmation is under provider review." : "Completion confirmation needs manual review.",
         updated.status === "PENDING_RELEASE"
-          ? "Sivan will notify both parties when the payout is released."
-          : "Sivan support will review this before payout."
+          ? "Sivan will notify both parties when the service agreement is closed."
+          : "Sivan support will review this before the agreement is closed."
       )
     );
     res.status(200).json(updated);
@@ -2776,8 +2776,8 @@ app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminA
       updated,
       participantLifecycleMessage(
         updated,
-        `Payment released. Seller net payout: ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
-        `Payout reference: ${updated.manualPayoutReference || parsed.data.manualPayoutReference}`
+        `Service completed. Provider payout reference was recorded for ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
+        `Provider reference: ${updated.manualPayoutReference || parsed.data.manualPayoutReference}`
       )
     );
     res.status(200).json({ escrow: updated, payoutQuote });

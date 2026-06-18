@@ -183,9 +183,27 @@ export class SettingsStore {
     if (!existing) {
       const now = new Date().toISOString();
       this.sqlite!.prepare(`
-        INSERT INTO platform_settings (id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed, version, updated_at, updated_by)
-        VALUES ('default', 2.5, 50, 1.5, 0.5, 1, @now, 'system')
-      `).run({ now });
+        INSERT INTO platform_settings (
+          id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed,
+          active_payment_provider, backup_payment_provider, emergency_payment_provider,
+          payment_provider_fallback_enabled, platform_mode, maintenance_message,
+          naira_payment_method, version, updated_at, updated_by
+        )
+        VALUES (
+          'default', 2.5, 50, 1.5, 0.5,
+          @activePaymentProvider, @backupPaymentProvider, @emergencyPaymentProvider,
+          @paymentProviderFallbackEnabled, @platformMode, @maintenanceMessage,
+          'bank_transfer', 1, @now, 'system'
+        )
+      `).run({
+        now,
+        activePaymentProvider: process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
+        backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "monnify",
+        emergencyPaymentProvider: process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
+        paymentProviderFallbackEnabled: process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
+        platformMode: process.env.PLATFORM_MODE || "test",
+        maintenanceMessage: process.env.MAINTENANCE_MESSAGE || "Sivan is temporarily under maintenance. Please try again soon.",
+      });
     }
   }
 
@@ -241,9 +259,22 @@ export class SettingsStore {
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
     if (existing.rowCount === 0) {
       await this.pool!.query(
-        `INSERT INTO platform_settings (id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed, version, updated_at, updated_by)
-         VALUES ('default', 2.5, 50, 1.5, 0.5, 1, $1, 'system')`,
-        [new Date().toISOString()]
+        `INSERT INTO platform_settings (
+          id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed,
+          active_payment_provider, backup_payment_provider, emergency_payment_provider,
+          payment_provider_fallback_enabled, platform_mode, maintenance_message,
+          naira_payment_method, version, updated_at, updated_by
+        )
+         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 1, $7, 'system')`,
+        [
+          process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
+          process.env.BACKUP_PAYMENT_PROVIDER || "monnify",
+          process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
+          process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
+          process.env.PLATFORM_MODE || "test",
+          process.env.MAINTENANCE_MESSAGE || "Sivan is temporarily under maintenance. Please try again soon.",
+          new Date().toISOString(),
+        ]
       );
     }
     this.initialized = true;
