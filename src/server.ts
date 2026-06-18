@@ -210,7 +210,7 @@ function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
       `Service amount: ${currency} ${escrowAmount}`,
       `Sivan fee: ${currency} ${feeAmount}`,
       "",
-      `Complete payment through provider: ${payment.authorizationUrl}`,
+      `Complete payment through licensed provider: ${payment.authorizationUrl}`,
       payment.expiresAt ? `Payment link expires: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
