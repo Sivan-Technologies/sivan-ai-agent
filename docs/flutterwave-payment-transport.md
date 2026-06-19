@@ -15,6 +15,7 @@ Current status:
 - ✅ Existing escrows keep the provider that created their payment reference.
 - ✅ Global `NAIRA_PAYMENT_METHODS=bank_transfer` policy exists.
 - ✅ Flutterwave collection adapter creates dynamic virtual bank accounts.
+- ✅ Flutterwave collection fails closed instead of falling back to hosted checkout, so card payment UI is not exposed.
 - ✅ Flutterwave webhook endpoint verifies the configured provider signature value.
 - ✅ Flutterwave server-side verification rechecks charges before funding an escrow.
 - 🔴 Flutterwave settlement reconciliation is not implemented.
@@ -114,8 +115,9 @@ Flutterwave collection behavior:
    - expiry time if provided
 4. Send only bank-transfer instructions to the buyer.
 5. Never show card instructions in WhatsApp, admin, or API responses.
-6. Never mark an escrow funded from a redirect/callback alone.
-7. Always verify server-side before funding.
+6. Never fall back to Flutterwave hosted checkout (`/v3/payments`) for the Sivan agreement flow, even with `payment_options=banktransfer`, because hosted checkout can still expose card payment UI.
+7. Never mark an escrow funded from a redirect/callback alone.
+8. Always verify server-side before funding.
 
 Funding is valid only when:
 
@@ -232,7 +234,7 @@ Automated Flutterwave payout can be evaluated later only after:
 ## Current Progress
 
 ```text
-Flutterwave backup transport progress: 65%
+Flutterwave backup transport progress: 70%
 ```
 
 | Area | Status | Notes |
@@ -240,7 +242,7 @@ Flutterwave backup transport progress: 65%
 | Strategy role | ✅ Defined | Emergency backup provider only |
 | Bank-transfer-only policy | ✅ Defined | Uses global `NAIRA_PAYMENT_METHODS=bank_transfer` |
 | Env placeholders | ✅ Documented | Do not add live secrets to source control |
-| Adapter implementation | ✅ Implemented | `FlutterwavePaymentProvider` creates dynamic virtual accounts |
+| Adapter implementation | ✅ Implemented | `FlutterwavePaymentProvider` creates dynamic virtual accounts and fails closed if virtual-account creation is unavailable |
 | Webhook endpoint | ✅ Implemented | `POST /webhooks/flutterwave` verifies signature and persists events |
 | Server-side verification | ✅ Implemented | Rechecks charge status, amount, currency, method, and reference before funding |
 | Settlement reconciliation | 🔴 Not started | Must feed Revenue/Reconciliation analytics |

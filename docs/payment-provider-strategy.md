@@ -81,7 +81,7 @@ Monnify is now implemented as a provider-neutral Naira collection adapter. The b
 
 Payment instruction expiry is now split from escrow expiry. When a provider returns expiry metadata for a pending payment instruction, Sivan marks only that provider reference as expired, keeps the escrow in `PENDING_PAYMENT`, and lets the buyer regenerate a fresh bank-transfer instruction on the same escrow before the funding deadline. Old provider references are never reused and remain in transaction history. If a provider later reports money for an expired or inactive reference, Sivan sends the escrow to `REVIEW_REQUIRED` instead of auto-funding it. The full escrow moves to `EXPIRED` only when the configured funding window closes before verified payment. Lifecycle refresh also sends a one-time reminder before the funding deadline and stores `last_payment_reminder_at` for audit; production should enable `PAYMENT_LIFECYCLE_WORKER_ENABLED=true` so this runs without waiting for a user/admin page view.
 
-Flutterwave is implemented as an emergency backup collection adapter using dynamic virtual accounts for bank transfer only. The backend can create a Flutterwave virtual account, persist `provider=flutterwave`, verify signed `charge.completed` webhooks, re-query Flutterwave by charge ID before funding, and support admin recheck by the stored payment reference. Do not enable Flutterwave for users until the backup checklist passes with a low-value transfer and signed webhook proof. Do not use Flutterwave for card payments.
+Flutterwave is implemented as an emergency backup collection adapter using dynamic virtual accounts for bank transfer only. The backend can create a Flutterwave virtual account, persist `provider=flutterwave`, verify signed `charge.completed` webhooks, re-query Flutterwave by charge ID before funding, and support admin recheck by the stored payment reference. The adapter now fails closed if Flutterwave's dynamic virtual-account API is unavailable; it must not fall back to hosted checkout because hosted checkout can expose card payment options. Do not enable Flutterwave for users until the backup checklist passes with a low-value transfer and signed webhook proof. Do not use Flutterwave for card payments.
 
 ## Progress
 
@@ -90,7 +90,7 @@ Provider-neutral Naira interface: 82%
 Paystack behind provider interface: 100%
 Monnify collection transport: 92%
 Payment-provider admin switching: 90%
-Flutterwave backup transport: 65%
+Flutterwave backup transport: 70%
 Provider live-test readiness: 75%
 Monnify sandbox initialization proof: 100%
 Monnify paid-transfer verification proof: 100%
@@ -111,5 +111,5 @@ Flutterwave live backup proof: 0%
 | Provider-aware recovery/recheck | ✅ Done | Admin recheck and retry jobs verify through each escrow's stored `paymentProvider` |
 | Admin provider/settings controls | ✅ Implemented / smoke verified | DB-backed provider routing, platform mode, maintenance message, and bank-transfer-only policy controls exist in admin Platform Controls with audit history; deployed admin-page smoke passed on 2026-06-11 |
 | Monnify settlement events | ✅ Implemented / live proof pending | `SETTLEMENT` webhooks are persisted, linked to matching escrows, and surfaced in Revenue/Reconciliation analytics; live settlement proof remains next |
-| Flutterwave backup transport | 🟡 Implemented / live proof pending | Dynamic virtual account adapter, signed webhook endpoint, server-side charge verification, and admin provider visibility exist; low-value backup transfer proof and settlement reconciliation remain next |
+| Flutterwave backup transport | 🟡 Implemented / live proof pending | Dynamic virtual account adapter, signed webhook endpoint, server-side charge verification, admin provider visibility, and hosted-checkout/card fail-closed guard exist; low-value backup transfer proof and settlement reconciliation remain next |
 | PalmPay transport | 🔴 Not started | Keep as future backup/provider adapter |
