@@ -9,7 +9,7 @@ jobs:
   ping:
     name: Ping Render health endpoints
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     if: ${{ vars.SIVAN_UPTIME_PING_ENABLED != 'false' }}
     steps:
       - uses: actions/checkout@v5
@@ -17,7 +17,7 @@ jobs:
         run: bash scripts/uptime-ping.sh
         env:
           UPTIME_PING_URLS: ${{ vars.SIVAN_UPTIME_PING_URLS || 'https://whatsapp-bot-ix7t.onrender.com/api/health,https://sivan-escrow-agent.onrender.com/api/health' }}
-          UPTIME_PING_TIMEOUT_SECONDS: ${{ vars.SIVAN_UPTIME_PING_TIMEOUT_SECONDS || '25' }}
+          UPTIME_PING_TIMEOUT_SECONDS: ${{ vars.SIVAN_UPTIME_PING_TIMEOUT_SECONDS || '45' }}
           UPTIME_PING_ATTEMPTS: ${{ vars.SIVAN_UPTIME_PING_ATTEMPTS || '3' }}
-          UPTIME_PING_RETRY_DELAY_SECONDS: ${{ vars.SIVAN_UPTIME_PING_RETRY_DELAY_SECONDS || '15' }}
-          UPTIME_PING_STRICT: ${{ vars.SIVAN_UPTIME_PING_STRICT || 'false' }}
+          UPTIME_PING_RETRY_DELAY_SECONDS: ${{ vars.SIVAN_UPTIME_PING_RETRY_DELAY_SECONDS || '20' }}
+          UPTIME_PING_FAIL_WORKFLOW: ${{ vars.SIVAN_UPTIME_PING_FAIL_WORKFLOW || 'false' }}

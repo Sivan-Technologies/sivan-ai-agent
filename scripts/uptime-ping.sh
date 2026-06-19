@@ -7,15 +7,15 @@ set -u
 
 DEFAULT_URLS="https://whatsapp-bot-ix7t.onrender.com/api/health,https://sivan-escrow-agent.onrender.com/api/health"
 URLS="${UPTIME_PING_URLS:-$DEFAULT_URLS}"
-TIMEOUT_SECONDS="${UPTIME_PING_TIMEOUT_SECONDS:-25}"
+TIMEOUT_SECONDS="${UPTIME_PING_TIMEOUT_SECONDS:-45}"
 ATTEMPTS="${UPTIME_PING_ATTEMPTS:-3}"
-RETRY_DELAY_SECONDS="${UPTIME_PING_RETRY_DELAY_SECONDS:-15}"
-STRICT="${UPTIME_PING_STRICT:-false}"
+RETRY_DELAY_SECONDS="${UPTIME_PING_RETRY_DELAY_SECONDS:-20}"
+FAIL_WORKFLOW="${UPTIME_PING_FAIL_WORKFLOW:-false}"
 
 failures=0
 
-is_strict_enabled() {
-  case "$(printf '%s' "$STRICT" | tr '[:upper:]' '[:lower:]')" in
+should_fail_workflow() {
+  case "$(printf '%s' "$FAIL_WORKFLOW" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes) return 0 ;;
     *) return 1 ;;
   esac
@@ -57,7 +57,8 @@ for raw_url in "${targets[@]}"; do
 
   if [ "$passed" -ne 1 ]; then
     echo "WARN uptime ping did not receive a healthy response from $url after ${ATTEMPTS} attempts; last_result=$last_result" >&2
-    if is_strict_enabled; then
+    echo "WARN keepalive is non-blocking by default because Render Hobby services can cold-start slowly" >&2
+    if should_fail_workflow; then
       failures=$((failures + 1))
     fi
   fi
