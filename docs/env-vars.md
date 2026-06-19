@@ -90,6 +90,10 @@ Flutterwave is implemented as an emergency backup bank-transfer collection trans
 - `FLUTTERWAVE_PAYMENT_METHODS` - Must be `bank_transfer` if set. Sivan must not enable card collection.
 - `FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS` - Dynamic virtual account expiry. Suggested default: `3600`.
 
+### Delivery proof
+
+- `DELIVERY_PROOF_ALLOW_EXTERNAL_LINKS` - Controls whether seller delivery-proof summaries may contain external links. Keep `false` for the MVP so sellers upload WhatsApp media/documents or short descriptions instead of sending links that create phishing, spam, and malware-review risk.
+
 ### Application and workflow
 
 - `NODE_ENV` - `development` or `production`.
@@ -236,6 +240,7 @@ FLUTTERWAVE_WEBHOOK_URL=https://yourapp.example.com/webhooks/flutterwave
 FLUTTERWAVE_TIMEOUT_MS=8000
 FLUTTERWAVE_PAYMENT_METHODS=bank_transfer
 FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS=3600
+DELIVERY_PROOF_ALLOW_EXTERNAL_LINKS=false
 
 NODE_ENV=development
 LOG_LEVEL=debug

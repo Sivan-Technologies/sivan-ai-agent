@@ -1,6 +1,26 @@
 import { z } from "zod";
 
 const moneyAmount = z.coerce.number().positive().max(100_000_000);
+const restrictedPurposeTerms = [
+  "drugs", "cocaine", "heroin", "meth", "methamphetamine", "mdma", "ecstasy", "lsd", "opioids", "fentanyl",
+  "weed", "marijuana", "cannabis", "skunk", "tramadol", "codeine",
+  "hookup", "runs", "escort", "prostitute", "prostitution", "sex work", "adult service", "nudes", "onlyfans",
+  "gun", "guns", "pistol", "rifle", "ammo", "ammunition", "weapon", "weapons", "knife attack", "bomb", "explosive",
+  "killing", "kill", "murder", "assassinate", "kidnap", "kidnapping", "hitman",
+  "crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "eth", "usdt", "usdc", "bnb", "tron", "trx",
+  "solana", "sol", "xrp", "ripple", "doge", "dogecoin", "litecoin", "ltc", "ton", "toncoin", "airdrop",
+  "wallet", "seed phrase", "private key", "stablecoin", "token", "tokens", "coin", "coins", "nft", "defi",
+  "dex", "binance", "bybit", "okx", "kucoin", "trust wallet", "metamask",
+  "carding", "stolen card", "bank log", "bank logs", "cashout", "cash out", "money laundering", "launder",
+  "fake alert", "scam", "fraud", "forged", "fake id",
+];
+
+function hasRestrictedPurposeTerm(value: string) {
+  const clean = value.toLowerCase().replace(/[_-]+/g, " ");
+  return restrictedPurposeTerms.some((term) =>
+    new RegExp(`(^|[^a-z0-9])${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`, "i").test(clean)
+  );
+}
 
 export const taskRequestSchema = z.object({
   taskType: z.string().trim().min(2).max(80).default("content-creation"),
@@ -32,7 +52,10 @@ export const escrowCreateSchema = z.object({
   sellerWhatsapp: whatsappAddress.optional(),
   amount: moneyAmount,
   currency: z.enum(["NAIRA", "USDC"]),
-  purpose: z.string().trim().min(3).max(1000),
+  purpose: z.string().trim().min(3).max(1000).refine(
+    (value) => !hasRestrictedPurposeTerm(value),
+    "Service agreement purpose contains a restricted term"
+  ),
   channel: z.enum(["whatsapp_dm", "whatsapp_group", "admin", "api"]).default("api"),
   clientRequestId: z.string().trim().min(8).max(120).optional(),
 });
@@ -74,6 +97,17 @@ export const participantDisputeEvidenceSchema = disputeEvidenceSchema.extend({
   actorWhatsapp: whatsappAddress,
   source: z.enum(["buyer", "seller"]).optional(),
   notifyParticipants: z.coerce.boolean().default(true),
+});
+
+export const deliveryProofSchema = z.object({
+  actorWhatsapp: whatsappAddress,
+  summary: z.string().trim().max(2000).default(""),
+  media: z.array(z.object({
+    url: z.string().trim().url().max(1000),
+    contentType: z.string().trim().min(3).max(120).optional(),
+    filename: z.string().trim().min(1).max(240).optional(),
+  })).max(5).default([]),
+  notifyBuyer: z.coerce.boolean().default(true),
 });
 
 export const disputeResolutionSchema = z.object({

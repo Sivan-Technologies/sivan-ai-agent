@@ -137,7 +137,12 @@ Operational controls:
 
 - Set repository variable `SIVAN_UPTIME_PING_ENABLED=false` to disable pings without deleting code.
 - Set `SIVAN_UPTIME_PING_URLS` to override the comma-separated target list.
-- Set `SIVAN_UPTIME_PING_TIMEOUT_SECONDS` to adjust the curl timeout.
+- Set `SIVAN_UPTIME_PING_TIMEOUT_SECONDS` to adjust the per-attempt curl timeout. Default is `45` seconds because Render cold starts can exceed 10 seconds.
+- Set `SIVAN_UPTIME_PING_ATTEMPTS` to adjust retry attempts. Default is `3`.
+- Set `SIVAN_UPTIME_PING_RETRY_DELAY_SECONDS` to adjust the delay between attempts. Default is `20`.
+- Keep `SIVAN_UPTIME_PING_FAIL_WORKFLOW=false` during Hobby/free-plan pilot usage. In non-blocking mode, the workflow prints `WARN` when a service is slow or asleep but exits successfully so GitHub/Telegram do not page you for normal cold starts. Set it to `true` only if you want this keepalive workflow to fail on repeated unhealthy responses.
+
+This workflow is a wake-up helper, not the production outage detector. Use `production-smoke.yml`, `npm run smoke`, and `npm run dr:check` for real service-health proof.
 
 Removal path after upgrading to always-on paid Render services:
 

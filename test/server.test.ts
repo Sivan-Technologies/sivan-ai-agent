@@ -1,5 +1,6 @@
 import request from "supertest";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { EscrowStore } from "../src/services/escrowStore";
 
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.DATABASE_URL = process.env.DATABASE_URL || "./data/test-server.db";
@@ -240,5 +241,64 @@ describe("server basic endpoints", () => {
       .set("x-core-api-key", "test-core-secret");
     expect(sellerDeals.status).toBe(200);
     expect(sellerDeals.body.deals.some((deal: any) => deal.escrow.escrowId === created.body.escrow.escrowId)).toBe(true);
+  });
+
+  it("keeps participant agreement reads available when lifecycle refresh fails", async () => {
+    const suffix = Date.now().toString().slice(-7);
+    const buyerWhatsapp = `whatsapp:+23482${suffix}01`;
+    const sellerWhatsapp = `whatsapp:+23482${suffix}02`;
+    const first = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `read-refresh-fallback-1-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 7500,
+        currency: "NAIRA",
+        purpose: "Read refresh fallback one",
+        channel: "whatsapp_dm",
+      });
+    const second = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `read-refresh-fallback-2-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 8500,
+        currency: "NAIRA",
+        purpose: "Read refresh fallback two",
+        channel: "whatsapp_dm",
+      });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+
+    const refreshFailure = vi
+      .spyOn(EscrowStore.prototype, "expirePendingPaymentIfDue")
+      .mockRejectedValueOnce(new Error("provider lifecycle timeout"));
+    const deals = await request(app)
+      .get("/api/users/escrows")
+      .query({ actorWhatsapp: buyerWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    refreshFailure.mockRestore();
+
+    expect(deals.status).toBe(200);
+    const dealIds = deals.body.deals.map((deal: any) => deal.escrow.escrowId);
+    expect(dealIds).toEqual(expect.arrayContaining([first.body.escrow.escrowId, second.body.escrow.escrowId]));
+
+    const detailFailure = vi
+      .spyOn(EscrowStore.prototype, "expirePendingPaymentIfDue")
+      .mockRejectedValueOnce(new Error("provider lifecycle timeout"));
+    const detail = await request(app)
+      .get(`/api/escrows/${first.body.escrow.escrowId}`)
+      .query({ actorWhatsapp: buyerWhatsapp })
+      .set("x-core-api-key", "test-core-secret");
+    detailFailure.mockRestore();
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.escrow.escrowId).toBe(first.body.escrow.escrowId);
+    expect(detail.body.participant).toMatchObject({ role: "buyer" });
   });
 });

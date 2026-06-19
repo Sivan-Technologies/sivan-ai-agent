@@ -27,6 +27,7 @@ import {
   escrowActionSchema,
   escrowCreateSchema,
   escrowLimitReviewDecisionSchema,
+  deliveryProofSchema,
   formatZodError,
   limitQuerySchema,
   participantEscrowQuerySchema,
@@ -95,7 +96,7 @@ function providerConfigured(provider: string) {
 }
 
 function sellerInviteMessage(escrowId: string, currency: string, amount: number, purpose: string) {
-  return `You have been invited to Sivan escrow ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
+  return `You have been invited to Sivan service agreement ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
 }
 
 function parseMaybeJson(value: any) {
@@ -179,7 +180,7 @@ async function getActiveNairaPaymentProvider() {
 }
 
 function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
-  return createProviderForId(escrow.paymentProvider || "paystack");
+  return createProviderForId(escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack");
 }
 
 function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
@@ -204,34 +205,34 @@ function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
   const feeAmount = new Intl.NumberFormat("en-NG").format(payment.platformFeeAmount || 0);
   if (payment.authorizationUrl) {
     return [
-      `Payment details for ${escrow.escrowId}`,
+      `Payment instructions for ${escrow.escrowId}`,
       `Total to pay: ${currency} ${total}`,
-      `Escrow amount: ${currency} ${escrowAmount}`,
+      `Service amount: ${currency} ${escrowAmount}`,
       `Sivan fee: ${currency} ${feeAmount}`,
       "",
-      `Pay securely: ${payment.authorizationUrl}`,
+      `Complete payment through licensed provider: ${payment.authorizationUrl}`,
       payment.expiresAt ? `Payment link expires: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
   if (payment.accountNumber) {
     return [
-      `Payment details for ${escrow.escrowId}`,
+      `Payment instructions for ${escrow.escrowId}`,
       `Transfer ${currency} ${total}`,
       `Bank: ${payment.bankName || "assigned bank"}`,
       `Account number: ${payment.accountNumber}`,
-      `Account name: ${payment.accountName || "Sivan escrow"}`,
+      `Account name: ${payment.accountName || "Sivan payment collection"}`,
       `Reference: ${payment.reference}`,
       "",
-      `Escrow amount: ${currency} ${escrowAmount}`,
+      `Service amount: ${currency} ${escrowAmount}`,
       `Sivan fee: ${currency} ${feeAmount}`,
       payment.expiresAt ? `Payment details expire: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
   return [
-    `Payment details for ${escrow.escrowId}`,
+    `Payment instructions for ${escrow.escrowId}`,
     `Payment reference: ${payment.reference}`,
     `Total to pay: ${currency} ${total}`,
-    `Escrow amount: ${currency} ${escrowAmount}`,
+    `Service amount: ${currency} ${escrowAmount}`,
     `Sivan fee: ${currency} ${feeAmount}`,
   ].join("\n");
 }
@@ -737,8 +738,21 @@ async function refreshEscrowPaymentLifecycle(escrowId: string) {
   return escrow;
 }
 
+async function refreshEscrowPaymentLifecycleForRead(escrowId: string, context: string) {
+  try {
+    return await refreshEscrowPaymentLifecycle(escrowId);
+  } catch (err: any) {
+    console.warn("Payment lifecycle refresh failed on read path", {
+      escrowId,
+      context,
+      error: err?.message || err,
+    });
+    return escrowStore.getEscrowById(escrowId);
+  }
+}
+
 async function buildEscrowDetail(escrowId: string) {
-  const escrow = await refreshEscrowPaymentLifecycle(escrowId);
+  const escrow = await refreshEscrowPaymentLifecycleForRead(escrowId, "escrow_detail");
   if (!escrow) return null;
 
   const [buyer, seller, transactions, events, ledgerEntries] = await Promise.all([
@@ -867,7 +881,7 @@ function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, n
     statusLine,
     nextLine,
     "",
-    `Reply STATUS ${escrow.escrowId} to view the deal.`,
+    `Reply STATUS ${escrow.escrowId} to view the agreement.`,
   ].join("\n");
 }
 
@@ -888,7 +902,7 @@ async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: str
   return null;
 }
 
-type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference";
+type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference" | "deliver";
 
 function participantDealStatus(status: EscrowRecord["status"]) {
   const labels: Record<EscrowRecord["status"], string> = {
@@ -896,15 +910,15 @@ function participantDealStatus(status: EscrowRecord["status"]) {
     PENDING_PROFILE: "Seller setup required",
     PENDING_ACCEPTANCE: "Waiting for seller",
     PENDING_PAYMENT: "Waiting for buyer payment",
-    FUNDED: "Payment secured",
+    FUNDED: "Payment confirmed",
     IN_PROGRESS: "Work in progress",
-    COMPLETED: "Ready for release",
-    PENDING_RELEASE: "Payout awaiting approval",
-    RELEASED: "Payment released",
-    DISPUTED: "Dispute under review",
+    COMPLETED: "Completion awaiting confirmation",
+    PENDING_RELEASE: "Completion confirmation under review",
+    RELEASED: "Service completed",
+    DISPUTED: "Issue under review",
     REVIEW_REQUIRED: "Under manual review",
     FAILED: "Action required",
-    EXPIRED: "Payment expired",
+    EXPIRED: "Payment window expired",
     CANCELLED: "Cancelled",
   };
   return labels[status];
@@ -917,6 +931,7 @@ function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buyer" | "
   if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
   if (role === "buyer" && escrow.status === "PENDING_PAYMENT") actions.add("pay");
   if (role === "buyer" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("complete");
+  if (role === "seller" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("deliver");
   if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
   if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
   if (escrow.status === "DISPUTED") actions.add("evidence");
@@ -1009,7 +1024,7 @@ async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
   const message = participantLifecycleMessage(
     detail.escrow,
-    "Payment has been received and secured in escrow.",
+    "Payment has been confirmed through the licensed provider.",
     "Reply STATUS or tap View status to see what to do next."
   );
 
@@ -1082,14 +1097,74 @@ async function recordDisputeEvidence(input: {
     );
   }
   if (evidence.notifyParticipants) {
-    await notifyEscrowParticipants(escrow, `Dispute update for ${escrow.escrowId}: ${evidence.summary}`);
+    await notifyEscrowParticipants(escrow, `Issue review update for ${escrow.escrowId}: ${evidence.summary}`);
   }
+  return buildEscrowDetail(escrow.escrowId);
+}
+
+function externalDeliveryLinksAllowed() {
+  return process.env.DELIVERY_PROOF_ALLOW_EXTERNAL_LINKS === "true";
+}
+
+function containsExternalLink(value: string) {
+  return /\bhttps?:\/\/|\bwww\./i.test(value);
+}
+
+async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary: string) {
+  const detail = await buildEscrowDetail(escrow.escrowId);
+  const buyerWhatsapp = detail?.buyer?.whatsappNumber;
+  if (!detail || !buyerWhatsapp) return;
+  const dealCard = await buildParticipantDeal(detail, buyerWhatsapp);
+  queueWhatsAppNotification({
+    to: buyerWhatsapp,
+    message: participantLifecycleMessage(
+      detail.escrow,
+      "The service provider has submitted delivery proof.",
+      `Review the delivery, then reply COMPLETE ${detail.escrow.escrowId} if you are satisfied or DISPUTE ${detail.escrow.escrowId} if there is a problem.`
+    ),
+    reason: "seller_delivery_submitted",
+    escrowId: detail.escrow.escrowId,
+    dealCard: dealCard ? {
+      escrow: dealCard.escrow,
+      participant: dealCard.participant,
+    } : undefined,
+    context: { summary: summary || "Seller submitted delivery proof" },
+  });
+}
+
+async function recordDeliveryProof(input: {
+  escrow: EscrowRecord;
+  actorWhatsapp: string;
+  summary: string;
+  media: Array<{ url: string; contentType?: string; filename?: string }>;
+  notifyBuyer: boolean;
+}) {
+  const { escrow, actorWhatsapp, summary, media, notifyBuyer } = input;
+  const safeSummary = summary.trim() || "Seller submitted delivery proof";
+  await escrowStore.addEvent({
+    escrowId: escrow.escrowId,
+    actor: actorWhatsapp,
+    actorRole: "seller",
+    channel: "whatsapp_dm",
+    previousStatus: escrow.status,
+    nextStatus: escrow.status,
+    eventType: "seller_delivery_proof_recorded",
+    reason: safeSummary,
+    metadata: JSON.stringify({
+      summary: safeSummary,
+      media,
+      mediaCount: media.length,
+      externalLinksAllowed: externalDeliveryLinksAllowed(),
+    }),
+  });
+
+  if (notifyBuyer) await notifyBuyerDeliverySubmitted(escrow, safeSummary);
   return buildEscrowDetail(escrow.escrowId);
 }
 
 async function buildReconciliationRows(limit = 250) {
   const rawEscrows = await escrowStore.listEscrows(limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "reconciliation"))))
     .filter(Boolean) as EscrowRecord[];
   return Promise.all(
     escrows.map(async (escrow) => {
@@ -1845,7 +1920,7 @@ app.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
       return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
     }
     const rawEscrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
-    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "participant_deals"))))
       .filter(Boolean) as EscrowRecord[];
     const deals = await Promise.all(escrows.map(async (escrow) => {
       try {
@@ -1998,7 +2073,7 @@ app.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) =
     if (updated?.escrow && payment) {
       const buyer = updated.buyer;
       if (buyer) {
-        const instruction = `Seller accepted escrow ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
+        const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
         await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
       }
     }
@@ -2052,10 +2127,10 @@ app.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (re
       updated,
       participantLifecycleMessage(
         updated,
-        updated.status === "PENDING_RELEASE" ? "Payout is awaiting admin approval." : "Release request needs manual review.",
+        updated.status === "PENDING_RELEASE" ? "Completion confirmation is under provider review." : "Completion confirmation needs manual review.",
         updated.status === "PENDING_RELEASE"
-          ? "Sivan will notify both parties when the payout is released."
-          : "Sivan support will review this before payout."
+          ? "Sivan will notify both parties when the service agreement is closed."
+          : "Sivan support will review this before the agreement is closed."
       )
     );
     res.status(200).json(updated);
@@ -2085,6 +2160,64 @@ app.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, res)
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Completion confirmation failed" });
   }
+});
+
+app.post("/api/escrows/:escrowId/delivery/start", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+    const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+    if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+    if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+      return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
+    }
+    await escrowStore.addEvent({
+      escrowId: escrow.escrowId,
+      actor: parsed.data.actorWhatsapp,
+      actorRole: "seller",
+      channel: "whatsapp_dm",
+      previousStatus: escrow.status,
+      nextStatus: escrow.status,
+      eventType: "seller_delivery_requested",
+      reason: "Seller started delivery proof submission",
+      metadata: JSON.stringify({ source: "whatsapp" }),
+    });
+    res.status(200).json(await buildEscrowDetail(escrow.escrowId));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Delivery proof could not be started" });
+  }
+});
+
+app.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (req, res) => {
+  const parsed = deliveryProofSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid delivery proof payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+  if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+    return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
+  }
+  if (!externalDeliveryLinksAllowed() && containsExternalLink(parsed.data.summary)) {
+    return res.status(400).json({ error: "External delivery links are not accepted during the MVP. Upload the file or describe the delivery instead." });
+  }
+  if (!parsed.data.summary.trim() && !parsed.data.media.length) {
+    return res.status(400).json({ error: "Delivery proof must include a message or media" });
+  }
+  const detail = await recordDeliveryProof({
+    escrow,
+    actorWhatsapp: parsed.data.actorWhatsapp,
+    summary: parsed.data.summary,
+    media: parsed.data.media,
+    notifyBuyer: parsed.data.notifyBuyer,
+  });
+  res.status(201).json(detail);
 });
 
 app.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res) => {
@@ -2539,7 +2672,7 @@ app.get("/admin/escrows", requireAdminAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
   const rawEscrows = await escrowStore.listEscrows(parsed.data.limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "admin_escrows"))))
     .filter(Boolean) as EscrowRecord[];
   const rows = await Promise.all(escrows.map(async (escrow) => {
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
@@ -2656,8 +2789,8 @@ app.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdminA
       updated,
       participantLifecycleMessage(
         updated,
-        `Payment released. Seller net payout: ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
-        `Payout reference: ${updated.manualPayoutReference || parsed.data.manualPayoutReference}`
+        `Service completed. Provider payout reference was recorded for ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
+        `Provider reference: ${updated.manualPayoutReference || parsed.data.manualPayoutReference}`
       )
     );
     res.status(200).json({ escrow: updated, payoutQuote });

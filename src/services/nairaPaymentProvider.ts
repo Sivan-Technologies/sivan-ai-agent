@@ -262,7 +262,8 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
       amount: input.amount,
       customerEmail: input.customerEmail,
       paymentReference,
-      paymentDescription: `Sivan escrow ${input.escrowId || paymentReference}`,
+      paymentDescription: `Sivan service agreement ${input.escrowId || paymentReference}`,
+      redirectUrl: input.callbackUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl,
       metadata: {
         escrowId: input.escrowId,
         provider: this.id,
@@ -274,6 +275,7 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
       status: "pending",
       paymentReference: instruction.paymentReference,
       transactionReference: instruction.transactionReference,
+      authorizationUrl: instruction.authorizationUrl,
       accountNumber: instruction.accountNumber,
       accountName: instruction.accountName,
       bankName: instruction.bankName,
