@@ -224,7 +224,6 @@ describe("FlutterwavePaymentProvider", () => {
       initializeBankTransferPayment: vi.fn().mockResolvedValue({
         paymentReference: "flutterwave-SIV-300",
         transactionReference: "van_300",
-        authorizationUrl: "https://checkout.flutterwave.com/v3/hosted/pay/test",
         accountNumber: "4032866864",
         accountName: "Please make a bank transfer to Sivan Buyer",
         bankName: "WEMA BANK",
@@ -247,7 +246,6 @@ describe("FlutterwavePaymentProvider", () => {
       status: "pending",
       paymentReference: "flutterwave-SIV-300",
       transactionReference: "van_300",
-      authorizationUrl: "https://checkout.flutterwave.com/v3/hosted/pay/test",
       accountNumber: "4032866864",
       bankName: "WEMA BANK",
       expiresInSeconds: 3600,
