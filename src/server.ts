@@ -738,8 +738,21 @@ async function refreshEscrowPaymentLifecycle(escrowId: string) {
   return escrow;
 }
 
+async function refreshEscrowPaymentLifecycleForRead(escrowId: string, context: string) {
+  try {
+    return await refreshEscrowPaymentLifecycle(escrowId);
+  } catch (err: any) {
+    console.warn("Payment lifecycle refresh failed on read path", {
+      escrowId,
+      context,
+      error: err?.message || err,
+    });
+    return escrowStore.getEscrowById(escrowId);
+  }
+}
+
 async function buildEscrowDetail(escrowId: string) {
-  const escrow = await refreshEscrowPaymentLifecycle(escrowId);
+  const escrow = await refreshEscrowPaymentLifecycleForRead(escrowId, "escrow_detail");
   if (!escrow) return null;
 
   const [buyer, seller, transactions, events, ledgerEntries] = await Promise.all([
@@ -1151,7 +1164,7 @@ async function recordDeliveryProof(input: {
 
 async function buildReconciliationRows(limit = 250) {
   const rawEscrows = await escrowStore.listEscrows(limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "reconciliation"))))
     .filter(Boolean) as EscrowRecord[];
   return Promise.all(
     escrows.map(async (escrow) => {
@@ -1907,7 +1920,7 @@ app.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
       return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
     }
     const rawEscrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
-    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "participant_deals"))))
       .filter(Boolean) as EscrowRecord[];
     const deals = await Promise.all(escrows.map(async (escrow) => {
       try {
@@ -2659,7 +2672,7 @@ app.get("/admin/escrows", requireAdminAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
   const rawEscrows = await escrowStore.listEscrows(parsed.data.limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))))
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "admin_escrows"))))
     .filter(Boolean) as EscrowRecord[];
   const rows = await Promise.all(escrows.map(async (escrow) => {
     const transactions = await escrowStore.listTransactions(escrow.escrowId);
