@@ -252,13 +252,14 @@ describe("FlutterwavePaymentProvider", () => {
     });
   });
 
-  it("normalizes succeeded Flutterwave bank transfer as success", async () => {
+  it("normalizes successful Flutterwave v3 bank transfer as success", async () => {
+    // Flutterwave v3 returns "successful" (not "succeeded").
     const provider = new FlutterwavePaymentProvider({
       initializeBankTransferPayment: vi.fn(),
       verifyPayment: vi.fn().mockResolvedValue({
         paymentReference: "flutterwave-ref-1",
         transactionReference: "chg_1",
-        status: "succeeded",
+        status: "successful",
         amount: 15000,
         currency: "NGN",
         paymentMethod: "bank_transfer",
@@ -281,12 +282,12 @@ describe("FlutterwavePaymentProvider", () => {
     });
   });
 
-  it("does not normalize non-transfer Flutterwave payments as success", async () => {
+  it("does not normalize non-transfer Flutterwave v3 payments as success", async () => {
     const provider = new FlutterwavePaymentProvider({
       initializeBankTransferPayment: vi.fn(),
       verifyPayment: vi.fn().mockResolvedValue({
         paymentReference: "flutterwave-card-ref",
-        status: "succeeded",
+        status: "successful",
         amount: 15000,
         currency: "NGN",
         paymentMethod: "card",
