@@ -1,0 +1,526 @@
+import { Router } from "express";
+import { requireCoreApiAuth } from "../middleware/apiAuth";
+import {
+  escrowCreateSchema,
+  participantEscrowQuerySchema,
+  escrowActionSchema,
+  deliveryProofSchema,
+  participantDisputeEvidenceSchema,
+  formatZodError,
+} from "../validation";
+import {
+  escrowStore,
+  abusePrevention,
+  settingsStore,
+  opsStore,
+} from "../context";
+import {
+  capturePaymentWarning,
+  captureOperationalError,
+} from "../services/monitoring";
+import {
+  createNairaPaymentInstruction,
+  activeNairaPaymentInstructionForEscrow,
+  formatFundingInstruction,
+  fundingDeadlineForEscrow,
+  calculateEscrowPayoutQuote,
+} from "../services/paymentService";
+import {
+  buildEscrowDetail,
+  buildParticipantDeal,
+  disputeHistoryForEscrow,
+  notifyEscrowParticipants,
+  participantLifecycleMessage,
+  roleForEscrowParticipant,
+  queueSellerInviteNotification,
+  expectedFundingAmount,
+  notifyEscrowFundedParticipants,
+  recordDisputeEvidence,
+  recordDeliveryProof,
+  containsExternalLink,
+  externalDeliveryLinksAllowed,
+} from "../services/escrowService";
+import { notifyWhatsAppBot } from "../services/notificationService";
+import {
+  createSandboxPaymentInstruction,
+  isSandboxPaymentReference,
+} from "../services/payoutVerificationTestMode";
+import { info, warn } from "../lib/logger";
+
+const router = Router();
+
+router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid escrow request", details: formatZodError(parsed.error) });
+    }
+
+    const input = parsed.data;
+    if (input.clientRequestId) {
+      const existing = await escrowStore.findEscrowByClientRequestId(input.clientRequestId);
+      if (existing) {
+        return res.status(200).json({
+          escrow: existing,
+          payment: null,
+          sellerInviteSent: false,
+          idempotent: true,
+        });
+      }
+    }
+
+    const abuseDecision = await abusePrevention.evaluateEscrowCreate({
+      ...input,
+      requestIp: req.ip,
+      userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+      deviceFingerprint: typeof req.headers["x-device-fingerprint"] === "string" ? req.headers["x-device-fingerprint"] : undefined,
+    });
+    if (!abuseDecision.allowed) {
+      capturePaymentWarning("Escrow creation blocked by abuse prevention", {
+        buyerWhatsapp: input.buyerWhatsapp,
+        sellerWhatsapp: input.sellerWhatsapp,
+        amount: input.amount,
+        currency: input.currency,
+        riskScore: abuseDecision.riskScore,
+        reasons: abuseDecision.reasons,
+      });
+      return res.status(403).json({
+        error: "ESCROW_RISK_BLOCKED",
+        message: "This escrow requires support review before it can be created",
+        risk: abuseDecision,
+      });
+    }
+
+    const buyer = await escrowStore.upsertUserByWhatsapp(input.buyerWhatsapp, "buyer");
+    if (input.currency === "NAIRA") {
+      const settings = await settingsStore.getSettings();
+      const exposure = await escrowStore.getNairaExposureForBuyer(buyer.userId);
+      const tier = exposure.successfulEscrows >= settings.establishedUserSuccessfulEscrows
+        ? "ESTABLISHED"
+        : exposure.successfulEscrows >= settings.trustedUserSuccessfulEscrows
+          ? "TRUSTED"
+          : "NEW";
+      const tierLimit = tier === "ESTABLISHED"
+        ? settings.nairaEstablishedUserLimit
+        : tier === "TRUSTED"
+          ? settings.nairaTrustedUserLimit
+          : settings.nairaNewUserLimit;
+      const policy = {
+        tier,
+        successfulEscrows: exposure.successfulEscrows,
+        tierLimit,
+        specialApprovalLimit: settings.nairaSpecialApprovalLimit,
+        buyerActiveExposure: exposure.buyerActiveExposure,
+        platformActiveExposure: exposure.platformActiveExposure,
+        buyerActiveExposureLimit: settings.nairaBuyerActiveExposureLimit,
+        platformActiveExposureLimit: settings.nairaPlatformActiveExposureLimit,
+        requestedAmount: input.amount,
+      };
+      if (input.amount > settings.nairaSpecialApprovalLimit) {
+        return res.status(403).json({ error: "ESCROW_LIMIT_EXCEEDED", message: "Requested amount exceeds Sivan's maximum supported Naira escrow limit", policy });
+      }
+      const reviewReason = input.amount > tierLimit
+        ? { error: "ESCROW_LIMIT_REVIEW_REQUIRED", message: "This amount requires operator approval for the buyer's current trust tier" }
+        : exposure.buyerActiveExposure + input.amount > settings.nairaBuyerActiveExposureLimit
+          ? { error: "BUYER_EXPOSURE_LIMIT_REACHED", message: "This buyer's active Naira exposure limit requires operator review" }
+          : exposure.platformActiveExposure + input.amount > settings.nairaPlatformActiveExposureLimit
+            ? { error: "PLATFORM_EXPOSURE_LIMIT_REACHED", message: "Sivan's active Naira exposure limit requires operator review before another escrow can be created" }
+            : null;
+      if (reviewReason) {
+        const review = await escrowStore.createOrGetLimitReview({
+          clientRequestId: input.clientRequestId,
+          buyerUserId: buyer.userId,
+          buyerWhatsapp: input.buyerWhatsapp,
+          sellerWhatsapp: input.sellerWhatsapp,
+          amount: input.amount,
+          currency: input.currency,
+          purpose: input.purpose,
+          createdByChannel: input.channel,
+          reasonCode: reviewReason.error,
+          policy,
+        });
+        return res.status(409).json({ ...reviewReason, policy, review });
+      }
+    }
+    const seller = input.sellerWhatsapp
+      ? await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller")
+      : null;
+
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller?.userId,
+      sellerWhatsapp: input.sellerWhatsapp,
+      amount: input.amount,
+      currency: input.currency,
+      purpose: input.purpose,
+      clientRequestId: input.clientRequestId,
+      createdByChannel: input.channel,
+    });
+
+    let payment: any = null;
+    if (seller) {
+      queueSellerInviteNotification({
+        sellerWhatsapp: seller.whatsappNumber,
+        escrowId: escrow.escrowId,
+        currency: input.currency,
+        amount: input.amount,
+        purpose: input.purpose,
+        context: { channel: input.channel },
+      });
+    }
+
+    const updated = await escrowStore.getEscrowById(escrow.escrowId);
+    res.status(201).json({ escrow: updated, payment, sellerInviteSent: Boolean(seller), risk: abuseDecision });
+  } catch (err: any) {
+    captureOperationalError("Failed to create escrow", err);
+    res.status(500).json({ error: err.message || "Escrow creation failed" });
+  }
+});
+
+router.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
+  const detail = await buildEscrowDetail(req.params.escrowId);
+  if (!detail) return res.status(404).json({ error: "Escrow not found" });
+  const participantDeal = await buildParticipantDeal(detail, parsed.data.actorWhatsapp);
+  if (!participantDeal) return res.status(403).json({ error: "Only escrow participants can view this deal" });
+  res.status(200).json(participantDeal);
+});
+
+router.get("/api/escrows/:escrowId/dispute-history", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (!await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp)) {
+    return res.status(403).json({ error: "Only escrow participants can view dispute history" });
+  }
+  const history = await disputeHistoryForEscrow(req.params.escrowId);
+  if (!history) return res.status(404).json({ error: "Escrow not found" });
+  res.status(200).json(history);
+});
+
+router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const detail = await buildEscrowDetail(req.params.escrowId);
+    if (!detail) return res.status(404).json({ error: "Escrow not found" });
+    if (detail.buyer?.whatsappNumber !== parsed.data.actorWhatsapp) {
+      return res.status(403).json({ error: "Only the escrow buyer can request payment details" });
+    }
+    if (detail.escrow.currency !== "NAIRA") {
+      return res.status(409).json({ error: "Payment instruction regeneration is available only for Naira escrows" });
+    }
+    if (detail.escrow.status === "EXPIRED") {
+      return res.status(409).json({ error: "This escrow has expired. Create a new escrow to continue." });
+    }
+    if (detail.escrow.status !== "PENDING_PAYMENT") {
+      return res.status(409).json({ error: `Payment details are not available while escrow is ${detail.escrow.status}` });
+    }
+    const activeInstruction = await activeNairaPaymentInstructionForEscrow(detail);
+    if (activeInstruction) {
+      return res.status(200).json({
+        escrow: detail,
+        payment: activeInstruction,
+      });
+    }
+
+    const payment = await createNairaPaymentInstruction(detail.escrow, {
+      regenerate: true,
+      buyerWhatsapp: parsed.data.actorWhatsapp,
+    });
+    const updated = await buildEscrowDetail(req.params.escrowId);
+    res.status(200).json({ escrow: updated, payment });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Payment instruction refresh failed" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const detailBefore = await buildEscrowDetail(req.params.escrowId);
+    if (!detailBefore) return res.status(404).json({ error: "Escrow not found" });
+    if (detailBefore.escrow.currency === "NAIRA") {
+      if (!detailBefore.readiness.sellerProfileComplete || !detailBefore.readiness.payoutVerified) {
+        return res.status(409).json({
+          error: "SELLER_PAYOUT_SETUP_REQUIRED",
+          message: "Seller profile and verified payout account are required before accepting a Naira escrow",
+          escrow: detailBefore.escrow,
+          readiness: detailBefore.readiness,
+        });
+      }
+    }
+
+    const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
+    let payment: any = null;
+    if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
+      try {
+        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
+      } catch (err: any) {
+        const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
+        if (!sandboxPayment) throw err;
+        warn("Using sandbox payment instruction after Naira payment initialization failure", {
+          escrowId: accepted.escrowId,
+          provider: accepted.paymentProvider || "active_provider",
+          paymentError: err?.message || String(err),
+        });
+        const fundingExpiresAt = accepted.fundingExpiresAt || fundingDeadlineForEscrow(accepted);
+        await escrowStore.attachPayment({
+          escrowId: accepted.escrowId,
+          paymentReference: sandboxPayment.reference,
+          paymentProvider: sandboxPayment.provider,
+          paymentMetadata: {
+            provider: sandboxPayment.provider,
+            reference: sandboxPayment.reference,
+            fundingExpiresAt,
+            testOnly: true,
+          },
+          fundingExpiresAt,
+          status: "PENDING_PAYMENT",
+        });
+        payment = {
+          provider: sandboxPayment.provider,
+          reference: sandboxPayment.reference,
+          fundingExpiresAt,
+          testOnly: true,
+        };
+      }
+    } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
+      const reference = `x402-${accepted.escrowId}`;
+      await escrowStore.attachPayment({
+        escrowId: accepted.escrowId,
+        paymentReference: reference,
+        paymentProvider: "x402",
+        status: "PENDING_PAYMENT",
+      });
+      payment = { provider: "x402", reference, settlementPolicy: "autonomous_usdc_release" };
+    }
+    const updated = await buildEscrowDetail(req.params.escrowId);
+    if (updated?.escrow && payment) {
+      const buyer = updated.buyer;
+      if (buyer) {
+        const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
+        await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
+      }
+    }
+    res.status(200).json({ escrow: updated, payment });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Escrow acceptance failed" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, res) => {
+  const parsed = escrowActionSchema.safeParse(req.body);
+  if (!parsed.success || !parsed.data.actorWhatsapp) {
+    return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+  }
+  const detail = await buildEscrowDetail(req.params.escrowId);
+  if (!detail) return res.status(404).json({ error: "Escrow not found" });
+  if (detail.buyer?.whatsappNumber !== parsed.data.actorWhatsapp) {
+    return res.status(403).json({ error: "Only the escrow buyer can simulate sandbox funding" });
+  }
+  if (
+    detail.escrow.status !== "PENDING_PAYMENT" ||
+    detail.escrow.paymentProvider !== "paystack_sandbox_override" ||
+    !isSandboxPaymentReference(detail.escrow.paymentReference)
+  ) {
+    return res.status(409).json({ error: "Sandbox funding is available only for pending sandbox payment references" });
+  }
+  const sandboxFundingAmount = await expectedFundingAmount(detail.escrow);
+  const funded = await escrowStore.markFundedByPaymentReference(detail.escrow.paymentReference!, {
+    amount: sandboxFundingAmount,
+    escrowAmount: detail.escrow.amount,
+    currency: detail.escrow.currency,
+    status: "sandbox_success",
+    channel: "sandbox_test_override",
+  });
+  if (!funded) return res.status(409).json({ error: "Sandbox payment reference could not be funded" });
+  res.status(200).json(await buildEscrowDetail(req.params.escrowId));
+});
+
+router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid release payload", details: formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.requestRelease(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp || "unknown",
+      "whatsapp_dm"
+    );
+    await notifyEscrowParticipants(
+      updated,
+      participantLifecycleMessage(
+        updated,
+        updated.status === "PENDING_RELEASE" ? "Completion confirmation is under provider review." : "Completion confirmation needs manual review.",
+        updated.status === "PENDING_RELEASE"
+          ? "Sivan will notify both parties when the service agreement is closed."
+          : "Sivan support will review this before the agreement is closed."
+      )
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    if (/payout account/i.test(err.message || "")) {
+      capturePaymentWarning("Release requested but seller payout account is missing or unverified", {
+        escrowId: req.params.escrowId,
+        actorWhatsapp: req.body?.actorWhatsapp,
+      });
+    }
+    res.status(400).json({ error: err.message || "Release request failed" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.completeEscrow(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp,
+      "whatsapp_dm"
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Completion confirmation failed" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/delivery/start", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+    const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+    if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+    if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+      return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
+    }
+    await escrowStore.addEvent({
+      escrowId: escrow.escrowId,
+      actor: parsed.data.actorWhatsapp,
+      actorRole: "seller",
+      channel: "whatsapp_dm",
+      previousStatus: escrow.status,
+      nextStatus: escrow.status,
+      eventType: "seller_delivery_requested",
+      reason: "Seller started delivery proof submission",
+      metadata: JSON.stringify({ source: "whatsapp" }),
+    });
+    res.status(200).json(await buildEscrowDetail(escrow.escrowId));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Delivery proof could not be started" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (req, res) => {
+  const parsed = deliveryProofSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid delivery proof payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+  if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+    return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
+  }
+  if (!externalDeliveryLinksAllowed() && containsExternalLink(parsed.data.summary)) {
+    return res.status(400).json({ error: "External delivery links are not accepted during the MVP. Upload the file or describe the delivery instead." });
+  }
+  if (!parsed.data.summary.trim() && !parsed.data.media.length) {
+    return res.status(400).json({ error: "Delivery proof must include a message or media" });
+  }
+  const detail = await recordDeliveryProof({
+    escrow,
+    actorWhatsapp: parsed.data.actorWhatsapp,
+    summary: parsed.data.summary,
+    media: parsed.data.media,
+    notifyBuyer: parsed.data.notifyBuyer,
+  });
+  res.status(201).json(detail);
+});
+
+router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.cancelUnfundedEscrow(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp,
+      "whatsapp_dm"
+    );
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Escrow cancellation failed" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid dispute payload", details: formatZodError(parsed.error) });
+    }
+    const updated = await escrowStore.markDisputed(
+      req.params.escrowId,
+      parsed.data.actorWhatsapp || "unknown",
+      "whatsapp_dm",
+      parsed.data.reason
+    );
+    await opsStore.createSupportCase({
+      subject: `Dispute opened for ${req.params.escrowId}`,
+      priority: "high",
+      relatedEscrowId: req.params.escrowId,
+      relatedUser: parsed.data.actorWhatsapp,
+      source: "whatsapp_dispute",
+      createdBy: parsed.data.actorWhatsapp || "whatsapp",
+      note: parsed.data.reason || "Dispute opened from WhatsApp",
+    });
+    res.status(200).json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Dispute failed" });
+  }
+});
+
+router.post("/api/escrows/:escrowId/dispute/evidence", requireCoreApiAuth, async (req, res) => {
+  const parsed = participantDisputeEvidenceSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid dispute evidence payload", details: formatZodError(parsed.error) });
+  }
+  const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  if (escrow.status !== "DISPUTED") {
+    return res.status(400).json({ error: `Evidence can only be added while escrow is DISPUTED, current status is ${escrow.status}` });
+  }
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  if (!role) return res.status(403).json({ error: "Only escrow participants can submit dispute evidence" });
+  const detail = await recordDisputeEvidence({
+    escrow,
+    actor: parsed.data.actorWhatsapp,
+    actorRole: role,
+    channel: "whatsapp_dm",
+    evidence: { ...parsed.data, source: parsed.data.source || role },
+  });
+  res.status(201).json(detail);
+});
+
+export default router;

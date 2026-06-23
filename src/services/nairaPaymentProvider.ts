@@ -109,17 +109,15 @@ function mapMonnifyStatus(transaction: MonnifyVerifiedTransaction): VerifiedNair
 }
 
 function normalizeFlutterwaveStatus(transaction: FlutterwaveVerifiedCharge): string {
-  if (
-    transaction.status === "succeeded" &&
-    transaction.currency === "NGN" &&
-    transaction.paymentMethod === "bank_transfer"
-  ) {
+  // Flutterwave v3 returns "successful" (not "succeeded") as the success status.
+  const isSuccess = transaction.status === "successful";
+  if (isSuccess && transaction.currency === "NGN" && transaction.paymentMethod === "bank_transfer") {
     return "success";
   }
-  if (transaction.status === "succeeded" && transaction.paymentMethod !== "bank_transfer") {
+  if (isSuccess && transaction.paymentMethod !== "bank_transfer") {
     return "invalid_payment_method";
   }
-  if (transaction.status === "succeeded" && transaction.currency !== "NGN") {
+  if (isSuccess && transaction.currency !== "NGN") {
     return "invalid_currency";
   }
   return transaction.status || "unknown";

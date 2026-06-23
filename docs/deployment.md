@@ -144,6 +144,13 @@ Operational controls:
 
 This workflow is a wake-up helper, not the production outage detector. Use `production-smoke.yml`, `npm run smoke`, and `npm run dr:check` for real service-health proof.
 
+Twilio webhook timing notes:
+
+- Twilio inbound WhatsApp webhooks have a short total response window. Recent Debugger payloads showed a `15000ms` total timeout, so the bot must return TwiML quickly.
+- A successful inbound event on 2026-06-19 returned in about `3.26s`; a separate `11200/11203` event timed out at about `15.0s`.
+- Render Hobby cold starts can exceed Twilio's webhook window. The uptime ping reduces this risk but does not replace an always-on paid service for production.
+- Twilio Debugger error `63038` means the Twilio sandbox/trial account exceeded its 50 daily WhatsApp message limit. That is an account quota issue; switch provider/account, wait for reset, or move to an approved production sender.
+
 Removal path after upgrading to always-on paid Render services:
 
 1. Disable the workflow with `SIVAN_UPTIME_PING_ENABLED=false`.

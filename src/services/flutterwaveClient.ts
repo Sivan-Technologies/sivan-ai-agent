@@ -3,6 +3,16 @@ import crypto from "crypto";
 import { config } from "../config";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
+// ---------------------------------------------------------------------------
+// Flutterwave v3 API client
+//
+// Endpoint reference:
+//   Virtual accounts : POST   /v3/virtual-account-numbers
+//   Verify by ref   : GET    /v3/transactions/verify_by_reference?tx_ref=...
+//   Verify by ID    : GET    /v3/transactions/{id}/verify
+//   Webhook secret  : verif-hash header (plain string equality, timing-safe)
+// ---------------------------------------------------------------------------
+
 export interface FlutterwaveVirtualAccountInstruction {
   paymentReference: string;
   transactionReference: string;
@@ -28,23 +38,17 @@ export interface FlutterwaveVerifiedCharge {
   raw: unknown;
 }
 
-function splitCustomerName(email: string) {
-  const local = email.split("@")[0]?.replace(/[^a-zA-Z0-9]+/g, " ").trim() || "Sivan Buyer";
-  const parts = local.split(/\s+/).filter(Boolean);
-  return {
-    first: parts[0] || "Sivan",
-    last: parts.slice(1).join(" ") || "Buyer",
-  };
-}
-
-function totalFees(fees: any) {
-  if (!Array.isArray(fees)) return undefined;
-  const total = fees.reduce((sum, fee) => sum + Number(fee?.amount || 0), 0);
-  return Number.isFinite(total) ? total : undefined;
-}
-
-function isNotFoundResponse(error: unknown) {
-  return axios.isAxiosError(error) && error.response?.status === 404;
+function extractAxiosMessage(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const data = (err as any).response?.data;
+    return (
+      data?.message ||
+      data?.error?.message ||
+      (err as any).message ||
+      "Flutterwave request failed"
+    );
+  }
+  return err instanceof Error ? err.message : "Flutterwave request failed";
 }
 
 export class FlutterwaveClient {
@@ -57,23 +61,39 @@ export class FlutterwaveClient {
     return Boolean(this.secretKey && this.baseUrl);
   }
 
-  public verifyWebhookSignature(signature: string) {
+  /**
+   * Verifies the Flutterwave webhook `verif-hash` header.
+   * Flutterwave sends the hash as a plain string identical to your
+   * FLW_WEBHOOK_SECRET — not an HMAC. Timing-safe compare prevents timing attacks.
+   */
+  public verifyWebhookSignature(signature: string): boolean {
     if (!this.webhookSecret || !signature) return false;
-    const left = Buffer.from(this.webhookSecret);
-    const right = Buffer.from(signature);
-    return left.length === right.length && crypto.timingSafeEqual(left, right);
+    try {
+      const left = Buffer.from(this.webhookSecret);
+      const right = Buffer.from(signature);
+      return left.length === right.length && crypto.timingSafeEqual(left, right);
+    } catch {
+      return false;
+    }
   }
 
-  private headers(idempotencyKey?: string) {
+  private authHeaders() {
     if (!this.secretKey) throw new Error("Flutterwave secret key is not configured");
     return {
       Authorization: `Bearer ${this.secretKey}`,
       Accept: "application/json",
       "Content-Type": "application/json",
-      ...(idempotencyKey ? { "X-Idempotency-Key": idempotencyKey } : {}),
     };
   }
 
+  /**
+   * Creates a Flutterwave dynamic virtual account (NGN bank transfer).
+   *
+   * Uses the v3 single-call endpoint: POST /v3/virtual-account-numbers
+   * No separate customer creation step required.
+   *
+   * @see https://developer.flutterwave.com/docs/collecting-payments/virtual-account
+   */
   public async initializeBankTransferPayment(input: {
     amount: number;
     customerEmail: string;
@@ -82,160 +102,144 @@ export class FlutterwaveClient {
     redirectUrl?: string;
     metadata?: Record<string, unknown>;
   }): Promise<FlutterwaveVirtualAccountInstruction> {
-    if (!this.isCollectionConfigured()) throw new Error("Flutterwave collection credentials are not configured");
+    if (!this.isCollectionConfigured()) {
+      throw new Error("Flutterwave collection credentials are not configured");
+    }
     assertNairaBankTransferOnly(config.nairaPayments.methods);
     assertNairaBankTransferOnly(config.flutterwave.paymentMethods, "FLUTTERWAVE_PAYMENT_METHODS");
 
-    const customerName = splitCustomerName(input.customerEmail);
-    const customerIdempotencyKey = `${input.paymentReference}:customer`;
-    let customerResponse;
-    try {
-      customerResponse = await axios.post(
-        `${this.baseUrl}/customers`,
-        {
-          name: customerName,
-          email: input.customerEmail,
-          meta: input.metadata || {},
-        },
-        { headers: this.headers(customerIdempotencyKey), timeout: this.timeoutMs }
-      );
-    } catch (err) {
-      if (isNotFoundResponse(err)) {
-        return this.initializeHostedBankTransferPayment(input, customerName);
-      }
-      throw err;
-    }
-    const customer = customerResponse.data?.data;
-    if (customerResponse.data?.status !== "success" || !customer?.id) {
-      throw new Error(customerResponse.data?.message || customerResponse.data?.error?.message || "Unable to create Flutterwave customer");
-    }
-
     const expiresInSeconds = config.flutterwave.dynamicAccountExpirySeconds;
-    const virtualAccountResponse = await axios.post(
-      `${this.baseUrl}/virtual-accounts`,
-      {
-        reference: input.paymentReference,
-        customer_id: customer.id,
-        expiry: expiresInSeconds,
-        amount: input.amount,
-        currency: "NGN",
-        account_type: "dynamic",
-        narration: input.paymentDescription,
-        meta: input.metadata || {},
-      },
-      { headers: this.headers(`${input.paymentReference}:virtual-account`), timeout: this.timeoutMs }
-    );
-    const account = virtualAccountResponse.data?.data;
-    if (virtualAccountResponse.data?.status !== "success" || !account?.reference || !account?.id) {
-      throw new Error(virtualAccountResponse.data?.message || virtualAccountResponse.data?.error?.message || "Unable to create Flutterwave virtual account");
+
+    // Derive firstname/lastname from the synthetic email so the narration
+    // shown in the bank transfer is human-readable.
+    const local = input.customerEmail.split("@")[0]?.replace(/[^a-zA-Z0-9]+/g, " ").trim() || "Sivan Buyer";
+    const parts = local.split(/\s+/).filter(Boolean);
+    const firstname = parts[0] || "Sivan";
+    const lastname = parts.slice(1).join(" ") || "Buyer";
+
+    const body: Record<string, unknown> = {
+      email: input.customerEmail,
+      amount: input.amount,
+      currency: "NGN",
+      is_permanent: false,
+      tx_ref: input.paymentReference,
+      firstname,
+      lastname,
+      narration: input.paymentDescription,
+    };
+
+    let response: any;
+    try {
+      const res = await axios.post(
+        `${this.baseUrl}/v3/virtual-account-numbers`,
+        body,
+        { headers: this.authHeaders(), timeout: this.timeoutMs }
+      );
+      response = res.data;
+    } catch (err) {
+      throw new Error(`Flutterwave virtual account creation failed: ${extractAxiosMessage(err)}`);
+    }
+
+    const data = response?.data;
+    if (response?.status !== "success" || !data?.account_number) {
+      throw new Error(
+        response?.message ||
+        response?.error?.message ||
+        "Flutterwave virtual account creation returned no account number"
+      );
     }
 
     return {
-      paymentReference: account.reference || input.paymentReference,
-      transactionReference: account.id,
-      accountNumber: account.account_number,
-      accountName: account.note || account.account_display_name || "Sivan payment collection",
-      bankName: account.account_bank_name,
-      expiresAt: account.account_expiration_datetime,
+      paymentReference: data.tx_ref || input.paymentReference,
+      transactionReference: String(data.order_ref || data.flw_ref || input.paymentReference),
+      accountNumber: data.account_number,
+      accountName: data.account_name || "Sivan payment collection",
+      bankName: data.bank_name,
+      expiresAt: data.expiry_date || undefined,
       expiresInSeconds,
-      raw: {
-        customer: customerResponse.data,
-        virtualAccount: virtualAccountResponse.data,
-      },
+      raw: response,
     };
   }
 
-  private async initializeHostedBankTransferPayment(
-    input: {
-      amount: number;
-      customerEmail: string;
-      paymentReference: string;
-      paymentDescription: string;
-      redirectUrl?: string;
-      metadata?: Record<string, unknown>;
-    },
-    customerName: { first: string; last: string }
-  ): Promise<FlutterwaveVirtualAccountInstruction> {
-    const redirectUrl = input.redirectUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl || "https://sivan-escrow-agent.onrender.com/api/health";
-    const response = await axios.post(
-      `${this.baseUrl}/v3/payments`,
-      {
-        tx_ref: input.paymentReference,
-        amount: input.amount,
-        currency: "NGN",
-        redirect_url: redirectUrl,
-        payment_options: "banktransfer",
-        customer: {
-          email: input.customerEmail,
-          name: `${customerName.first} ${customerName.last}`.trim(),
-        },
-        customizations: {
-          title: "Sivan service agreement",
-          description: input.paymentDescription,
-        },
-        meta: input.metadata || {},
-      },
-      { headers: this.headers(input.paymentReference), timeout: this.timeoutMs }
-    );
-
-    const checkout = response.data?.data;
-    if (response.data?.status !== "success" || !checkout?.link) {
-      throw new Error(response.data?.message || response.data?.error?.message || "Unable to create Flutterwave hosted payment link");
-    }
-
-    return {
-      paymentReference: checkout.tx_ref || input.paymentReference,
-      transactionReference: String(checkout.id || input.paymentReference),
-      authorizationUrl: checkout.link,
-      expiresInSeconds: config.flutterwave.dynamicAccountExpirySeconds,
-      raw: {
-        hostedPayment: response.data,
-      },
-    };
-  }
-
+  /**
+   * Verifies a Flutterwave transaction by its numeric charge/transaction ID.
+   *
+   * GET /v3/transactions/{id}/verify
+   */
   public async verifyChargeById(chargeId: string): Promise<FlutterwaveVerifiedCharge> {
-    const response = await axios.get(`${this.baseUrl}/charges/${encodeURIComponent(chargeId)}`, {
-      headers: this.headers(),
-      timeout: this.timeoutMs,
-    });
-    return this.mapChargeResponse(response.data, chargeId);
+    let response: any;
+    try {
+      const res = await axios.get(
+        `${this.baseUrl}/v3/transactions/${encodeURIComponent(chargeId)}/verify`,
+        { headers: this.authHeaders(), timeout: this.timeoutMs }
+      );
+      response = res.data;
+    } catch (err) {
+      throw new Error(`Flutterwave transaction verify-by-id failed: ${extractAxiosMessage(err)}`);
+    }
+    return this.mapTransactionResponse(response, chargeId);
   }
 
+  /**
+   * Verifies a Flutterwave transaction by the tx_ref / paymentReference we set.
+   *
+   * GET /v3/transactions/verify_by_reference?tx_ref=...
+   */
   public async verifyPayment(paymentReference: string): Promise<FlutterwaveVerifiedCharge> {
-    const response = await axios.get(`${this.baseUrl}/charges`, {
-      headers: this.headers(),
-      params: { reference: paymentReference },
-      timeout: this.timeoutMs,
-    });
-    const charges = response.data?.data;
-    const charge = Array.isArray(charges)
-      ? charges.find((item) => String(item?.reference || "").trim() === paymentReference) || charges[0]
-      : charges;
-    if (response.data?.status !== "success" || !charge) {
-      throw new Error(response.data?.message || response.data?.error?.message || "Unable to verify Flutterwave charge by reference");
+    let response: any;
+    try {
+      const res = await axios.get(
+        `${this.baseUrl}/v3/transactions/verify_by_reference`,
+        {
+          headers: this.authHeaders(),
+          params: { tx_ref: paymentReference },
+          timeout: this.timeoutMs,
+        }
+      );
+      response = res.data;
+    } catch (err) {
+      throw new Error(`Flutterwave transaction verify-by-reference failed: ${extractAxiosMessage(err)}`);
     }
-    return this.mapCharge(charge, response.data);
+    return this.mapTransactionResponse(response, paymentReference);
   }
 
-  private mapChargeResponse(response: any, fallbackReference: string): FlutterwaveVerifiedCharge {
-    if (response?.status !== "success" || !response?.data) {
-      throw new Error(response?.message || response?.error?.message || "Unable to verify Flutterwave charge");
+  private mapTransactionResponse(response: any, fallbackReference: string): FlutterwaveVerifiedCharge {
+    const data = response?.data;
+    if (response?.status !== "success" || !data) {
+      throw new Error(
+        response?.message ||
+        response?.error?.message ||
+        "Flutterwave transaction verification returned no data"
+      );
     }
-    return this.mapCharge(response.data, response, fallbackReference);
+    return this.mapTransaction(data, response, fallbackReference);
   }
 
-  private mapCharge(charge: any, raw: any, fallbackReference = ""): FlutterwaveVerifiedCharge {
+  private mapTransaction(
+    tx: any,
+    raw: any,
+    fallbackReference = ""
+  ): FlutterwaveVerifiedCharge {
+    // v3 uses "successful" (not "succeeded") as the success status value.
+    const rawStatus = String(tx.status || "").toLowerCase();
+    const status = rawStatus === "successful" ? "successful" : rawStatus;
+
+    const processorFee = Array.isArray(tx.app_fee)
+      ? tx.app_fee.reduce((sum: number, fee: any) => sum + Number(fee?.amount || 0), 0)
+      : Number.isFinite(Number(tx.app_fee))
+        ? Number(tx.app_fee)
+        : undefined;
+
     return {
-      paymentReference: String(charge.reference || fallbackReference).trim(),
-      transactionReference: String(charge.id || "").trim() || undefined,
-      status: String(charge.status || "").toLowerCase(),
-      amount: Number(charge.amount || 0),
-      currency: String(charge.currency || "").toUpperCase(),
-      paymentMethod: String(charge.payment_method_details?.type || charge.payment_method?.type || "").toLowerCase(),
-      processorFee: totalFees(charge.fees),
-      paidAt: charge.created_datetime,
-      customerId: charge.customer_id || charge.customer?.id,
+      paymentReference: String(tx.tx_ref || fallbackReference).trim(),
+      transactionReference: tx.id ? String(tx.id) : undefined,
+      status,
+      amount: Number(tx.amount || 0),
+      currency: String(tx.currency || "").toUpperCase(),
+      paymentMethod: String(tx.payment_type || "").toLowerCase(),
+      processorFee: Number.isFinite(processorFee) ? (processorFee as number) : undefined,
+      paidAt: tx.created_at,
+      customerId: tx.customer?.id ? String(tx.customer.id) : undefined,
       raw,
     };
   }

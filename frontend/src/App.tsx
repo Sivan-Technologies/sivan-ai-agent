@@ -1,522 +1,66 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  TaskRecord,
+  WebhookEvent,
+  EscrowRecord,
+  ReconciliationRow,
+  ReconciliationSummary,
+  RevenueAnalytics,
+  FeeSettings,
+  AuditRecord,
+  OperationalEvent,
+  OperationsStatus,
+  WhatsAppProviderStatus,
+  PaymentProviderStatus,
+  DisasterRecoveryStatus,
+  SettlementProof,
+  ToastNotice,
+  PayoutApprovalQuote,
+  PayoutApprovalState,
+  QueueStatus,
+  QueueJob,
+  AbuseSignal,
+  AbuseAnalytics,
+  SupportCase,
+  SupportNote,
+  EscrowLimitReview,
+  EscrowTimeline,
+  DisputeRow,
+  AuthSessionRecord,
+  AuthStats,
+  AuthIdentity,
+  AuthAuditEvent,
+  Tab,
+  EscrowFilter,
+} from "./types";
 
-type TaskRecord = {
-  taskId: string;
-  taskType: string;
-  userPaymentPreference: string;
-  userEmail: string;
-  amount: number;
-  instructions?: string;
-  paymentMethod: string;
-  paymentStatus: string;
-  paymentReference?: string;
-  paymentId?: string;
-  note?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
+import {
+  money,
+  calculateSellerNet,
+  compactId,
+  statusTone,
+  formatTime,
+} from "./utils";
 
-type WebhookEvent = {
-  eventId: string;
-  paymentReference: string;
-  eventType: string;
-  receivedAt: string;
-};
-
-type EscrowRecord = {
-  escrowId: string;
-  buyerUserId: string;
-  sellerUserId?: string;
-  sellerWhatsapp?: string;
-  amount: number;
-  currency: "NAIRA" | "USDC";
-  purpose: string;
-  status: string;
-  settlementPolicy: string;
-  paymentReference?: string;
-  paymentAuthorizationUrl?: string;
-  paymentProvider?: string;
-  fundingExpiresAt?: string;
-  activePaymentExpiresAt?: string;
-  paymentRegenerationCount?: number;
-  lastPaymentReminderAt?: string;
-  expiredPaymentReferences?: string[];
-  receivedAmount?: number;
-  providerPaymentStatus?: string;
-  paymentCheckedAt?: string;
-  reconciliationFlags?: string[];
-  releaseRequestedAt?: string;
-  manualPayoutReference?: string;
-  payoutNotes?: string;
-  releasedBy?: string;
-  releasedAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-type ReconciliationRow = {
-  escrowId: string;
-  buyer: string;
-  seller: string;
-  sellerName?: string | null;
-  expectedAmount: number;
-  receivedAmount: number | null;
-  currency: "NAIRA" | "USDC";
-  grossAmount?: number;
-  platformFeeAmount?: number;
-  sellerNetAmount?: number;
-  amountSource?: "escrow_record";
-  paystackReference?: string | null;
-  paymentProvider?: string | null;
-  paymentStatus: string;
-  payoutReference?: string | null;
-  payoutApprover?: string | null;
-  releaseTimestamp?: string | null;
-  status: string;
-  flags: string[];
-  purpose: string;
-  payoutVerified: boolean;
-  payoutBankName?: string | null;
-  payoutBankCode?: string | null;
-  payoutAccountNumber?: string | null;
-  resolvedAccountName?: string | null;
-  nameMatchScore?: number | null;
-  nameMatchLevel?: string | null;
-  complianceRiskScore?: number | null;
-  complianceRiskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-  complianceRiskReasons?: string[];
-  reconciliationRiskLevel?: "LOW" | "MEDIUM" | "HIGH";
-  riskLevel?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-  paymentCheckedAt?: string | null;
-};
-
-type ReconciliationSummary = {
-  paymentsNeedingReview: number;
-  releasesAwaitingPayout: number;
-  releasedMissingPayoutReference: number;
-  paystackAmountMismatches: number;
-};
-
-type RevenueCurrencySnapshot = {
-  currency: "NAIRA" | "USDC";
-  processedVolume: number;
-  processedCount: number;
-  platformFees: number;
-  platformFeeCount: number;
-  processorFees: number;
-  processorFeeKnownCount: number;
-  processorTransactionCount: number;
-  processorFeeCoveragePercent: number;
-  netRevenueAfterProcessorFees: number;
-};
-
-type RevenueAnalytics = {
-  generatedAt: string;
-  accountingBasis: {
-    processedVolume: string;
-    platformFees: string;
-    processorFees: string;
-    testActivity: string;
-  };
-  excludedTestActivity: {
-    transactionCount: number;
-    processedVolumeByCurrency: Array<{ currency: "NAIRA" | "USDC"; amount: number }>;
-  };
-  periods: Array<{
-    key: "day" | "week" | "month" | "all";
-    label: string;
-    currencies: RevenueCurrencySnapshot[];
-  }>;
-  processorBreakdown: Array<{
-    provider: string;
-    currency: "NAIRA" | "USDC";
-    processedVolume: number;
-    transactionCount: number;
-    processorFees: number;
-    processorFeeKnownCount: number;
-  }>;
-  settlementSummary?: Array<{
-    provider: string;
-    settlementCount: number;
-    settlementAmount: number;
-    providerFees: number;
-    latestSettlementAt: string;
-  }>;
-};
-
-type FeeSettings = {
-  nairaFeePercent: number;
-  nairaFeeFixed: number;
-  usdcFeePercent: number;
-  usdcFeeFixed: number;
-  nairaNewUserLimit: number;
-  nairaTrustedUserLimit: number;
-  nairaEstablishedUserLimit: number;
-  nairaSpecialApprovalLimit: number;
-  nairaBuyerActiveExposureLimit: number;
-  nairaPlatformActiveExposureLimit: number;
-  trustedUserSuccessfulEscrows: number;
-  establishedUserSuccessfulEscrows: number;
-  platformMode: "test" | "live" | "maintenance";
-  maintenanceMessage: string;
-  nairaPaymentMethod: "bank_transfer";
-  version: number;
-  updatedAt: string;
-  updatedBy: string;
-};
-
-type AuditRecord = {
-  id: string;
-  settingName: string;
-  oldValue: string;
-  newValue: string;
-  changedBy: string;
-  changedAt: string;
-};
-
-type OperationalEvent = {
-  id: string;
-  level: "warning" | "error";
-  message: string;
-  context: Record<string, unknown>;
-  error?: string;
-  createdAt: string;
-};
-
-type OperationsStatus = {
-  status: string;
-  database: {
-    status: string;
-    provider: string;
-    configured: boolean;
-    settingsVersion?: number;
-    latencyMs?: number;
-  };
-  operations: {
-    status: string;
-    alertsConfigured: boolean;
-    sentryConfigured: boolean;
-    recentWarnings: number;
-    recentErrors: number;
-    recent: OperationalEvent[];
-  };
-  stuckEscrows?: {
-    status: string;
-    thresholdMinutes: number;
-    count: number;
-    samples: Array<{ escrowId: string; status: string; currency: string; updatedAt: string; ageMinutes: number; paymentReference?: string | null }>;
-  };
-};
-
-type WhatsAppProviderStatus = {
-  activeProvider: "twilio" | "meta" | "unknown";
-  configured?: boolean;
-  warning?: string;
-  providers: {
-    twilio?: { configured: boolean };
-    meta?: { configured: boolean; graphApiVersion?: string };
-  };
-};
-
-type PaymentProviderStatus = {
-  activePaymentProvider: string;
-  backupPaymentProvider: string;
-  emergencyPaymentProvider: string;
-  paymentProviderFallbackEnabled: boolean;
-  platformMode: "test" | "live" | "maintenance";
-  maintenanceMessage: string;
-  nairaPaymentMethod: "bank_transfer";
-  version: number;
-  fallbackPolicy?: string;
-  providers: Array<{
-    provider: string;
-    label: string;
-    implemented: boolean;
-    configured: boolean;
-    methods: string[];
-  }>;
-};
-
-type DisasterRecoveryStatus = {
-  status: string;
-  checkedAt: string;
-  backup: {
-    provider: string;
-    configured: boolean;
-    retentionDays: number;
-    policyUrlConfigured: boolean;
-    restoreRunbookConfigured: boolean;
-  };
-  restore: {
-    lastTestAt?: string | null;
-    lastStatus: string;
-    maxAgeDays: number;
-    fresh: boolean;
-  };
-  rollback: {
-    configured: boolean;
-    releaseUrlConfigured: boolean;
-    renderServiceConfigured: boolean;
-    vercelProjectConfigured: boolean;
-  };
-  outage: {
-    configured: boolean;
-    statusPageConfigured: boolean;
-    contactsConfigured: boolean;
-  };
-  runbook: string;
-};
-
-type SettlementProof = {
-  status: string;
-  checkedAt?: string;
-  sap?: { status?: string; toolsDiscovered?: number; latencyMs?: number; error?: string };
-  x402?: { status?: string; mode?: string; paymentStatus?: string; transactionHash?: string; error?: string };
-  warnings?: string[];
-  proofFile?: string;
-};
-
-type ToastNotice = {
-  tone: "success" | "error";
-  title: string;
-  message: string;
-};
-
-type PayoutApprovalQuote = {
-  grossAmount?: number;
-  platformFeeAmount?: number;
-  sellerNetAmount: number;
-  amountSource?: "escrow_record" | string;
-  currency: "NAIRA" | "USDC";
-};
-
-type PayoutApprovalState = {
-  escrow: EscrowRecord;
-  quote: PayoutApprovalQuote;
-  manualPayoutReference: string;
-  payoutNotes: string;
-  error?: string;
-  submitting: boolean;
-};
-
-function Toast({ notice, onDismiss }: { notice: ToastNotice; onDismiss: () => void }) {
-  return (
-    <div
-      className={`toast-notice ${notice.tone}`}
-      role={notice.tone === "error" ? "alert" : "status"}
-      aria-live={notice.tone === "error" ? "assertive" : "polite"}
-    >
-      <div className="toast-icon" aria-hidden="true">{notice.tone === "success" ? "✓" : "!"}</div>
-      <div className="toast-copy">
-        <strong>{notice.title}</strong>
-        <span>{notice.message}</span>
-      </div>
-      <button className="toast-dismiss" type="button" onClick={onDismiss} aria-label="Dismiss notification">
-        ×
-      </button>
-    </div>
-  );
-}
-
-type QueueStatus = {
-  status: string;
-  queued: number;
-  running: number;
-  failed: number;
-  dead: number;
-  succeeded: number;
-};
-
-type QueueJob = {
-  jobId: string;
-  jobType: string;
-  status: string;
-  payload: string;
-  attempts: number;
-  maxAttempts: number;
-  runAfter: string;
-  lastError?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type AbuseSignal = {
-  signalId: string;
-  subjectType: string;
-  subjectId: string;
-  category: string;
-  severity: string;
-  riskScore: number;
-  reason: string;
-  createdAt: string;
-};
-
-type AbuseAnalytics = {
-  totals: {
-    signals: number;
-    criticalSignals: number;
-    highSignals: number;
-    monitoredEscrows: number;
-    activeActions: number;
-    suggestedActions?: number;
-  };
-  severityCounts: Record<string, number>;
-  categoryCounts: Record<string, number>;
-  actions: Array<{ actionId: string; subjectType: string; subjectId: string; action: string; reason: string; createdBy: string; expiresAt?: string; createdAt: string }>;
-  reputationWatchlist: Array<{ subjectType: string; subjectId: string; signals: number; maxRiskScore: number; lastSeenAt: string; reasons: string[] }>;
-  fingerprintWatchlist: Array<{ fingerprint: string; signals: number; maxRiskScore: number; lastSeenAt: string; subjects: string[]; sources: string[] }>;
-  velocityWatchlist: Array<{ buyerUserId: string; escrows: number; active: number; disputed: number; reviewRequired: number; latestAt: string }>;
-  suggestedActions?: Array<{ subjectType: string; subjectId: string; suggestedAction: string; confidence: number; reason: string; evidence: string[] }>;
-};
-
-type SupportCase = {
-  caseId: string;
-  status: string;
-  priority: string;
-  subject: string;
-  relatedEscrowId?: string;
-  relatedUser?: string;
-  source: string;
-  createdBy: string;
-  assignedTo?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type SupportNote = {
-  noteId: string;
-  caseId: string;
-  author: string;
-  body: string;
-  actionType?: string;
-  createdAt: string;
-};
-
-type EscrowLimitReview = {
-  reviewId: string;
-  clientRequestId?: string;
-  buyerUserId: string;
-  buyerWhatsapp: string;
-  sellerWhatsapp?: string;
-  amount: number;
-  currency: "NAIRA" | "USDC";
-  purpose: string;
-  reasonCode: string;
-  policy: {
-    tier?: string;
-    successfulEscrows?: number;
-    tierLimit?: number;
-    buyerActiveExposure?: number;
-    platformActiveExposure?: number;
-    buyerActiveExposureLimit?: number;
-    platformActiveExposureLimit?: number;
-  };
-  status: "pending" | "processing" | "approved" | "rejected";
-  decisionNotes?: string;
-  decidedBy?: string;
-  decidedAt?: string;
-  approvedEscrowId?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type EscrowTimeline = {
-  escrowId: string;
-  events: Array<{ eventId: string; eventType: string; actor: string; actorRole: string; channel: string; previousStatus?: string; nextStatus?: string; reason?: string; metadata?: string; createdAt: string }>;
-  transactions: Array<{ transactionId: string; provider: string; transactionType: string; status: string; reference?: string; amount: number; currency: string; createdAt: string; updatedAt: string }>;
-  supportCases: SupportCase[];
-};
-
-type DisputeRow = {
-  escrow: EscrowRecord;
-  openedAt: string;
-  evidenceCount: number;
-  latestEventAt: string;
-  supportCases: SupportCase[];
-  transactions: Array<{ transactionId: string; provider: string; transactionType: string; status: string; reference?: string; amount: number; currency: string; createdAt: string; updatedAt: string }>;
-  events: EscrowTimeline["events"];
-};
-
-type AuthSessionRecord = {
-  sessionId: string;
-  adminIdentifier: string;
-  createdAt: string;
-  expiresAt?: string;
-  ip?: string;
-  status?: string;
-};
-
-type AuthStats = {
-  period?: string;
-  total_requests?: number;
-  successful_verifications?: number;
-  failed_verifications?: number;
-  telegram_errors?: number;
-  unique_admins?: number;
-  unique_ips?: number;
-  timestamp?: string;
-};
-
-type AuthIdentity = {
-  adminUsername?: string;
-  adminIdentifier?: string;
-  expiresAt?: string;
-  issuedAt?: string;
-};
-
-type AuthAuditEvent = {
-  eventId: string;
-  eventType: string;
-  adminUsername?: string;
-  status: string;
-  reason?: string;
-  ip?: string;
-  createdAt: string;
-};
-
-type Tab = "escrows" | "limitReviews" | "disputes" | "support" | "payout" | "revenue" | "risk" | "audit" | "ops" | "tasks" | "webhooks" | "fees" | "auth";
-type EscrowFilter = "all" | "review" | "pendingRelease" | "released" | "missingPayout" | "amountMismatch";
+import { Toast } from "./components/Toast";
+import { EscrowsTab } from "./components/EscrowsTab";
+import { LimitReviewsTab } from "./components/LimitReviewsTab";
+import { DisputesTab } from "./components/DisputesTab";
+import { SupportTab } from "./components/SupportTab";
+import { PayoutTab } from "./components/PayoutTab";
+import { RevenueTab } from "./components/RevenueTab";
+import { RiskTab } from "./components/RiskTab";
+import { AuditTab } from "./components/AuditTab";
+import { OpsTab } from "./components/OpsTab";
+import { TasksTab } from "./components/TasksTab";
+import { WebhooksTab } from "./components/WebhooksTab";
+import { FeesTab } from "./components/FeesTab";
+import { AuthTab } from "./components/AuthTab";
 
 const apiBase = (import.meta as any).env.VITE_API_BASE_URL || "http://localhost:4000";
 const storedAdminKey = "sivan.adminToken";
 const storedAdminUsername = "sivan.adminUsername";
 const adminAuthBase = (import.meta as any).env.VITE_ADMIN_AUTH_BASE_URL || "http://localhost:3600";
-
-const money = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
-
-function calculateSellerNet(amount: number, currency: "NAIRA" | "USDC", settings?: FeeSettings | null) {
-  if (!settings) return { platformFeeAmount: 0, sellerNetAmount: amount, totalWithFee: amount };
-  const percentFee = currency === "NAIRA"
-    ? Math.round((amount * settings.nairaFeePercent) / 100)
-    : Number((amount * (settings.usdcFeePercent / 100)).toFixed(6));
-  const fixedFee = currency === "NAIRA" ? settings.nairaFeeFixed : settings.usdcFeeFixed;
-  const platformFeeAmount = Math.max(0, Number((percentFee + fixedFee).toFixed(6)));
-  return {
-    platformFeeAmount,
-    sellerNetAmount: amount,
-    totalWithFee: Number((amount + platformFeeAmount).toFixed(6)),
-  };
-}
-
-function compactId(value?: string, length = 10) {
-  if (!value) return "unassigned";
-  return value.length > length ? `${value.slice(0, length)}...` : value;
-}
-
-function statusTone(status: string) {
-  if (/^(high|critical)$/i.test(status)) return "critical";
-  if (/^medium$/i.test(status)) return "watch";
-  if (/^low$/i.test(status)) return "good";
-  if (/failed|error|invalid|release_failed|review_required|mismatch/i.test(status)) return "critical";
-  if (/settled|completed|confirmed|success/i.test(status)) return "good";
-  if (/pending|created|received|executing|waiting/i.test(status)) return "watch";
-  return "neutral";
-}
-
-function formatTime(value?: string) {
-  if (!value) return "not recorded";
-  return new Date(value).toLocaleString();
-}
 
 function App() {
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem(storedAdminKey) || "");
@@ -609,7 +153,6 @@ function App() {
   const authHeaders = () => {
     const headers: any = { "Content-Type": "application/json" };
     if (adminKey) {
-      // if looks like a JWT, use Authorization Bearer, otherwise legacy x-admin-key
       if (adminKey.split(".").length === 3) {
         headers["Authorization"] = `Bearer ${adminKey}`;
       } else {
@@ -658,18 +201,6 @@ function App() {
     } catch (err: any) {
       throw new Error(`${label}: ${err.message || "load failed"}`);
     }
-  };
-
-  const saveAdminKey = () => {
-    const trimmed = adminKeyInput.trim();
-    if (!trimmed) {
-      setError("Admin key is required.");
-      return;
-    }
-    sessionStorage.setItem(storedAdminKey, trimmed);
-    setAdminKey(trimmed);
-    setAdminKeyInput("");
-    setError(null);
   };
 
   const clearAdminKey = () => {
@@ -1051,10 +582,6 @@ function App() {
     }
   };
 
-  const calculateFee = (amount: number, feePercent: number, feeFixed: number) => {
-    return Math.round(((amount * feePercent) / 100) * 100) / 100 + feeFixed;
-  };
-
   const handleSaveFees = async () => {
     setSavingFees(true);
     setFeeError(null);
@@ -1416,18 +943,27 @@ function App() {
     );
   }, [reconciliationRows]);
 
-  const selectedPayoutQuote = selectedEscrow
-    ? reconciliationByEscrow.get(selectedEscrow.escrowId) || {
+  const selectedPayoutQuote = useMemo(() => {
+    if (!selectedEscrow) return null;
+    const row = reconciliationByEscrow.get(selectedEscrow.escrowId);
+    if (row) {
+      return {
+        grossAmount: row.grossAmount ?? row.expectedAmount,
+        platformFeeAmount: row.platformFeeAmount ?? 0,
+        sellerNetAmount: row.sellerNetAmount ?? row.expectedAmount,
+        amountSource: row.amountSource ?? "reconciliation_row",
+        currency: row.currency,
+      };
+    }
+    const derived = calculateSellerNet(selectedEscrow.amount, selectedEscrow.currency, feeSettings);
+    return {
       grossAmount: selectedEscrow.amount,
-      platformFeeAmount: calculateSellerNet(selectedEscrow.amount, selectedEscrow.currency, feeSettings).platformFeeAmount,
-      sellerNetAmount: calculateSellerNet(selectedEscrow.amount, selectedEscrow.currency, feeSettings).sellerNetAmount,
+      platformFeeAmount: derived.platformFeeAmount,
+      sellerNetAmount: derived.sellerNetAmount,
       amountSource: "escrow_record" as const,
       currency: selectedEscrow.currency,
-    }
-    : null;
-
-  const deadOrFailedJobs = useMemo(() => queueJobs.filter((job) => job.status === "failed" || job.status === "dead"), [queueJobs]);
-  const selectedRevenuePeriod = revenueAnalytics?.periods.find((period) => period.key === revenuePeriod);
+    };
+  }, [selectedEscrow, reconciliationByEscrow, feeSettings]);
 
   useEffect(() => {
     if (!adminKey) return;
@@ -1509,1859 +1045,568 @@ function App() {
     );
   }
 
+  const navGroups = [
+    {
+      label: "Core Ledger",
+      items: [
+        { id: "escrows", label: "Escrows" },
+        { id: "limitReviews", label: "Limit Reviews" },
+        { id: "disputes", label: "Disputes" },
+        { id: "payout", label: "Payout Safety" },
+      ] as const,
+    },
+    {
+      label: "Analytics & Risk",
+      items: [
+        { id: "revenue", label: "Revenue" },
+        { id: "risk", label: "Risk" },
+        { id: "audit", label: "Audit" },
+      ] as const,
+    },
+    {
+      label: "Monitoring & Support",
+      items: [
+        { id: "ops", label: "Ops" },
+        { id: "support", label: "Support" },
+        { id: "tasks", label: "Tasks" },
+        { id: "webhooks", label: "Webhooks" },
+      ] as const,
+    },
+    {
+      label: "Settings",
+      items: [
+        { id: "fees", label: "Controls" },
+        { id: "auth", label: "Admin Auth" },
+      ] as const,
+    },
+  ];
+
   return (
-    <main className="admin-shell">
+    <div className="admin-layout">
       {toast && <Toast notice={toast} onDismiss={() => setToast(null)} />}
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">Sivan Escrow Agent</div>
-          <h1>Operations Console</h1>
+      
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <div className="brand-mark">SE</div>
+          <div>
+            <h2>Sivan Console</h2>
+            <small>Escrow operations</small>
+          </div>
         </div>
-        <div className="topbar-actions">
-          <span className="health-pill">Backend connected</span>
-          <button className="button secondary" onClick={clearAdminKey}>Lock</button>
-        </div>
-      </header>
 
-      <section className="command-strip">
-        <div className="strip-item">
-          <span>API</span>
-          <strong>{apiBase.replace(/^https?:\/\//, "")}</strong>
-        </div>
-        <div className="strip-item">
-          <span>Refresh</span>
-          <strong>{autoRefresh ? "5 seconds" : "manual"}</strong>
-        </div>
-        <div className="strip-item">
-          <span>Updated</span>
-          <strong>{lastUpdated || "pending"}</strong>
-        </div>
-        <div className="strip-actions">
-          <button className="button primary" onClick={refreshAll} disabled={loading}>
-            {loading ? "Refreshing" : "Refresh"}
-          </button>
-          <label className="toggle">
-            <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
-            <span>Auto</span>
-          </label>
-        </div>
-      </section>
-
-      {error && <div className="error-banner">{error}</div>}
-
-      <section className="metrics-grid">
-        <div className="metric-card">
-          <span>Active</span>
-          <strong>{metrics.active}</strong>
-        </div>
-        <div className="metric-card watch">
-          <span>Pending</span>
-          <strong>{metrics.pending}</strong>
-        </div>
-        <div className="metric-card good">
-          <span>Resolved</span>
-          <strong>{metrics.settled}</strong>
-        </div>
-        <div className="metric-card critical">
-          <span>Exceptions</span>
-          <strong>{metrics.failed}</strong>
-        </div>
-      </section>
-
-      {activeTab === "escrows" && (
-        <section className="attention-grid">
-          <button className="attention-card critical" onClick={() => setEscrowFilter("review")}>
-            <span>Payments needing review</span>
-            <strong>{reconciliationSummary.paymentsNeedingReview}</strong>
-          </button>
-          <button className="attention-card watch" onClick={() => setEscrowFilter("pendingRelease")}>
-            <span>Releases awaiting payout</span>
-            <strong>{reconciliationSummary.releasesAwaitingPayout}</strong>
-          </button>
-          <button className="attention-card critical" onClick={() => setEscrowFilter("missingPayout")}>
-            <span>Released missing payout ref</span>
-            <strong>{reconciliationSummary.releasedMissingPayoutReference}</strong>
-          </button>
-          <button className="attention-card critical" onClick={() => setEscrowFilter("amountMismatch")}>
-            <span>Paystack amount mismatch</span>
-            <strong>{reconciliationSummary.paystackAmountMismatches}</strong>
-          </button>
-        </section>
-      )}
-
-      <nav className="tabs" aria-label="Admin sections">
-        {(["escrows", "limitReviews", "disputes", "support", "payout", "revenue", "risk", "audit", "ops", "tasks", "webhooks", "fees", "auth"] as Tab[]).map((tab) => (
-          <button key={tab} className={activeTab === tab ? "active" : ""} onClick={() => setActiveTab(tab)}>
-            {tab === "escrows"
-              ? "Escrows"
-              : tab === "limitReviews"
-              ? "Limit Reviews"
-              : tab === "disputes"
-              ? "Disputes"
-              : tab === "support"
-              ? "Support"
-              : tab === "payout"
-              ? "Payout Safety"
-              : tab === "revenue"
-              ? "Revenue"
-              : tab === "risk"
-              ? "Risk"
-              : tab === "audit"
-              ? "Audit"
-              : tab === "tasks"
-              ? "Tasks"
-              : tab === "webhooks"
-              ? "Webhooks"
-              : tab === "fees"
-              ? "Controls"
-              : tab === "ops"
-              ? "Ops"
-              : "Admin Auth"}
-          </button>
-        ))}
-      </nav>
-
-      {activeTab === "escrows" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Escrow Ledger</h2>
-              <span>{filteredEscrows.length} of {escrows.length} records</span>
-            </div>
-            <div className="filter-bar">
-              {([
-                ["all", "All"],
-                ["review", "Review required"],
-                ["pendingRelease", "Pending release"],
-                ["released", "Released"],
-                ["missingPayout", "Missing payout ref"],
-                ["amountMismatch", "Amount mismatch"],
-              ] as [EscrowFilter, string][]).map(([value, label]) => (
-                <button key={value} className={escrowFilter === value ? "active" : ""} onClick={() => setEscrowFilter(value)}>
-                  {label}
+        <nav className="sidebar-nav">
+          {navGroups.map((group) => (
+            <div key={group.label} className="nav-group">
+              <div className="nav-group-label">{group.label}</div>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
+                  onClick={() => setActiveTab(item.id)}
+                >
+                  {getTabIcon(item.id)}
+                  <span>{item.label}</span>
                 </button>
               ))}
-              <button
-                className="export-button"
-                onClick={async () => {
-                  try {
-                    await downloadReconciliationCsv();
-                  } catch (err: any) {
-                    setError(err.message || "CSV export failed");
-                  }
-                }}
-              >
-                Export CSV
-              </button>
             </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Escrow</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Received</th>
-                    <th>Release</th>
-                    <th>Reference</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEscrows.map((escrow) => (
-                    <tr
-                      key={escrow.escrowId}
-                      className={selectedEscrow?.escrowId === escrow.escrowId ? "selected" : ""}
-                      onClick={() => setSelectedEscrow(selectedEscrow?.escrowId === escrow.escrowId ? null : escrow)}
-                    >
-                      <td>
-                        <strong>{escrow.escrowId}</strong>
-                        <small>{escrow.purpose}</small>
-                      </td>
-                      <td>{money.format(escrow.amount)} {escrow.currency}</td>
-                      <td><span className={`status ${statusTone(escrow.status)}`}>{escrow.status}</span></td>
-                      <td>{escrow.receivedAmount === undefined ? "pending" : `${money.format(escrow.receivedAmount)} ${escrow.currency}`}</td>
-                      <td>{escrow.settlementPolicy}</td>
-                      <td>{compactId(escrow.paymentReference, 16)}</td>
-                    </tr>
-                  ))}
-                  {filteredEscrows.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="empty-cell">No escrows match this filter</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+          ))}
+        </nav>
+
+        <div className="sidebar-footer">
+          <button className="button secondary full small" onClick={clearAdminKey}>
+            Lock Session
+          </button>
+        </div>
+      </aside>
+
+      <main className="main-content">
+        <header className="top-bar">
+          <div>
+            <span className="eyebrow">Sivan Escrow Agent</span>
+            <h1>{
+              activeTab === "escrows" ? "Escrows Ledger" :
+              activeTab === "limitReviews" ? "Limit Reviews" :
+              activeTab === "disputes" ? "Dispute Resolution" :
+              activeTab === "support" ? "Support Operations" :
+              activeTab === "payout" ? "Payout Safety Queue" :
+              activeTab === "revenue" ? "Revenue & Analytics" :
+              activeTab === "risk" ? "Risk Analysis" :
+              activeTab === "audit" ? "Audit History" :
+              activeTab === "ops" ? "System Operations" :
+              activeTab === "tasks" ? "Background Tasks" :
+              activeTab === "webhooks" ? "Webhook Monitoring" :
+              activeTab === "fees" ? "Platform Controls" :
+              "Admin Access"
+            }</h1>
           </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Escrow Actions</h2>
-              <span>{selectedEscrow ? compactId(selectedEscrow.escrowId, 12) : "none"}</span>
-            </div>
-            {selectedEscrow ? (
-              <div className="detail-stack">
-                <div className="detail-row"><span>Status</span><strong>{selectedEscrow.status}</strong></div>
-                <div className="detail-row"><span>Currency</span><strong>{selectedEscrow.currency}</strong></div>
-                <div className="detail-row"><span>Policy</span><strong>{selectedEscrow.settlementPolicy}</strong></div>
-                <div className="detail-row"><span>Escrow deadline</span><strong>{formatTime(selectedEscrow.fundingExpiresAt)}</strong></div>
-                <div className="detail-row"><span>Active payment ref</span><strong>{selectedEscrow.paymentReference || "pending"}</strong></div>
-                <div className="detail-row"><span>Instruction expires</span><strong>{formatTime(selectedEscrow.activePaymentExpiresAt)}</strong></div>
-                <div className="detail-row"><span>Regenerated</span><strong>{selectedEscrow.paymentRegenerationCount ?? 0} times</strong></div>
-                <div className="detail-row"><span>Last reminder</span><strong>{formatTime(selectedEscrow.lastPaymentReminderAt)}</strong></div>
-                <div className="detail-row"><span>Expired refs</span><strong>{selectedEscrow.expiredPaymentReferences?.length ? selectedEscrow.expiredPaymentReferences.map((reference) => compactId(reference, 12)).join(", ") : "none"}</strong></div>
-                <div className="detail-row"><span>Payment status</span><strong>{selectedEscrow.providerPaymentStatus || selectedEscrow.status}</strong></div>
-                <div className="detail-row"><span>Expected amount</span><strong>{money.format(selectedEscrow.amount)} {selectedEscrow.currency}</strong></div>
-                <div className="detail-row"><span>Received amount</span><strong>{selectedEscrow.receivedAmount === undefined ? "not verified" : `${money.format(selectedEscrow.receivedAmount)} ${selectedEscrow.currency}`}</strong></div>
-                <div className="detail-row"><span>Platform fee</span><strong>{money.format(selectedPayoutQuote?.platformFeeAmount ?? 0)} {selectedEscrow.currency}</strong></div>
-                <div className="detail-row"><span>Seller net payout</span><strong>{money.format(selectedPayoutQuote?.sellerNetAmount ?? selectedEscrow.amount)} {selectedEscrow.currency}</strong></div>
-                <div className="detail-row"><span>Amount source</span><strong>{selectedPayoutQuote?.amountSource || "escrow_record"}</strong></div>
-                <div className="detail-row"><span>Payment checked</span><strong>{formatTime(selectedEscrow.paymentCheckedAt)}</strong></div>
-                <div className="detail-row"><span>Seller</span><strong>{selectedEscrow.sellerWhatsapp || selectedEscrow.sellerUserId || "pending"}</strong></div>
-                <div className="detail-row"><span>Payout ref</span><strong>{selectedEscrow.manualPayoutReference || (selectedEscrow.status === "RELEASED" ? "MISSING REFERENCE" : "not released")}</strong></div>
-                <div className="detail-row"><span>Payout notes</span><strong>{selectedEscrow.payoutNotes || "none"}</strong></div>
-                <div className="detail-row"><span>Released by</span><strong>{selectedEscrow.releasedBy || "not released"}</strong></div>
-                <div className="detail-row"><span>Released at</span><strong>{formatTime(selectedEscrow.releasedAt)}</strong></div>
-                <div className="detail-row"><span>Dispute</span><strong>{selectedEscrow.status === "DISPUTED" ? "open" : "none"}</strong></div>
-                {selectedEscrow.reconciliationFlags?.length ? (
-                  <div className="detail-note critical-note">
-                    {selectedEscrow.reconciliationFlags.join(", ")}
-                  </div>
-                ) : null}
-                <div className="detail-note">{selectedEscrow.purpose}</div>
-                <button
-                  className="button secondary full"
-                  disabled={!selectedEscrow.paymentReference || selectedEscrow.paymentProvider !== "paystack"}
-                  onClick={async () => {
-                    try {
-                      await recheckEscrowPayment(selectedEscrow.escrowId);
-                    } catch (err: any) {
-                      setError(err.message || "Payment recheck failed");
-                    }
-                  }}
-                >
-                  Re-check Paystack payment
-                </button>
-                <button
-                  className="button secondary full"
-                  onClick={async () => {
-                    try {
-                      await loadEscrowTimeline(selectedEscrow.escrowId);
-                    } catch (err: any) {
-                      setError(err.message || "Timeline load failed");
-                    }
-                  }}
-                >
-                  Open event timeline
-                </button>
-                <button
-                  className="button secondary full"
-                  disabled={["RELEASED", "CANCELLED", "FAILED"].includes(selectedEscrow.status)}
-                  onClick={async () => {
-                    try {
-                      await enqueuePayoutReview(selectedEscrow.escrowId, "operator_requested_from_escrow_detail");
-                    } catch (err: any) {
-                      setError(err.message || "Payout review failed");
-                    }
-                  }}
-                >
-                  Queue payout safety review
-                </button>
-                <button
-                  className="button primary full"
-                  disabled={selectedEscrow.status !== "PENDING_RELEASE"}
-                  onClick={() => openPayoutApproval(selectedEscrow, {
-                    sellerNetAmount: selectedPayoutQuote?.sellerNetAmount ?? selectedEscrow.amount,
-                    platformFeeAmount: selectedPayoutQuote?.platformFeeAmount ?? 0,
-                    grossAmount: selectedPayoutQuote?.grossAmount ?? selectedEscrow.amount,
-                    amountSource: selectedPayoutQuote?.amountSource || "escrow_record",
-                    currency: selectedEscrow.currency,
-                  })}
-                >
-                  Approve Naira release
-                </button>
-                <button
-                  className="button secondary full"
-                  disabled={["RELEASED", "CANCELLED"].includes(selectedEscrow.status)}
-                  onClick={async () => {
-                    try {
-                      await disputeEscrow(selectedEscrow.escrowId);
-                    } catch (err: any) {
-                      setError(err.message || "Dispute failed");
-                    }
-                  }}
-                >
-                  Mark disputed
-                </button>
-              </div>
-            ) : (
-              <p className="muted">Select an escrow row.</p>
-            )}
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "tasks" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Workflow Queue</h2>
-              <span>{tasks.length} records</span>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Task</th>
-                    <th>User</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Reference</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tasks.map((task) => (
-                    <tr
-                      key={task.taskId}
-                      className={selectedTask?.taskId === task.taskId ? "selected" : ""}
-                      onClick={() => setSelectedTask(selectedTask?.taskId === task.taskId ? null : task)}
-                    >
-                      <td>
-                        <strong>{task.taskType}</strong>
-                        <small>{compactId(task.taskId, 14)}</small>
-                      </td>
-                      <td>{task.userEmail}</td>
-                      <td>{money.format(task.amount)} {task.userPaymentPreference}</td>
-                      <td><span className={`status ${statusTone(task.paymentStatus)}`}>{task.paymentStatus}</span></td>
-                      <td>{compactId(task.paymentReference, 16)}</td>
-                    </tr>
-                  ))}
-                  {tasks.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="empty-cell">No workflow records</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <div className="top-bar-actions">
+            <span className="health-pill">Backend connected</span>
+            <button className="button secondary small" onClick={clearAdminKey}>Lock</button>
           </div>
+        </header>
 
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Task Detail</h2>
-              <span>{selectedTask ? compactId(selectedTask.taskId, 12) : "none"}</span>
-            </div>
-            {selectedTask ? (
-              <div className="detail-stack">
-                <div className="detail-row"><span>Status</span><strong>{selectedTask.paymentStatus}</strong></div>
-                <div className="detail-row"><span>Payment</span><strong>{selectedTask.paymentMethod}</strong></div>
-                <div className="detail-row"><span>Reference</span><strong>{selectedTask.paymentReference || "unassigned"}</strong></div>
-                <div className="detail-row"><span>Updated</span><strong>{formatTime(selectedTask.updatedAt)}</strong></div>
-                <div className="detail-note">{selectedTask.note || selectedTask.instructions || "No note recorded."}</div>
-              </div>
-            ) : (
-              <p className="muted">Select a workflow row.</p>
-            )}
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "webhooks" && (
-        <section className="surface">
-          <div className="section-head">
-            <h2>Webhook Ledger</h2>
-            <span>{webhooks.length} events</span>
+        <section className="command-strip" style={{ marginBottom: 24 }}>
+          <div className="strip-item">
+            <span>API Endpoint</span>
+            <strong>{apiBase.replace(/^https?:\/\//, "")}</strong>
           </div>
-          <div className="event-grid">
-            {webhooks.map((event) => (
-              <div key={event.eventId} className="event-row">
-                <div>
-                  <strong>{event.eventType}</strong>
-                  <span>{compactId(event.paymentReference, 20)}</span>
-                </div>
-                <time>{formatTime(event.receivedAt)}</time>
-              </div>
-            ))}
-            {webhooks.length === 0 && <p className="muted">No webhook events</p>}
+          <div className="strip-item">
+            <span>Refresh Frequency</span>
+            <strong>{autoRefresh ? "5s Auto" : "Manual"}</strong>
           </div>
-        </section>
-      )}
-
-      {activeTab === "limitReviews" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Escrow Limit Reviews</h2>
-              <span>{limitReviews.filter((review) => review.status === "pending").length} pending</span>
-            </div>
-            <div className="event-grid">
-              {limitReviews.map((review) => (
-                <button
-                  key={review.reviewId}
-                  className={`event-row selectable-row ops-event ${review.status === "pending" ? "warning" : review.status === "rejected" ? "error" : "success"} ${selectedLimitReview?.reviewId === review.reviewId ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelectedLimitReview(review);
-                    setLimitReviewNotes("");
-                  }}
-                >
-                  <div>
-                    <strong>{review.currency} {money.format(review.amount)} · {review.policy.tier || "unknown"} buyer</strong>
-                    <span>{review.reasonCode} · {review.status}</span>
-                    <span>{review.buyerWhatsapp} · {review.purpose}</span>
-                  </div>
-                  <time>{formatTime(review.createdAt)}</time>
-                </button>
-              ))}
-              {limitReviews.length === 0 && <p className="muted">No escrow limit reviews</p>}
-            </div>
+          <div className="strip-item">
+            <span>Last Synced</span>
+            <strong>{lastUpdated || "Pending"}</strong>
           </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Review Decision</h2>
-              <span>{selectedLimitReview ? compactId(selectedLimitReview.reviewId, 16) : "none"}</span>
-            </div>
-            {selectedLimitReview ? (
-              <div className="detail-stack">
-                <div className="detail-row"><span>Status</span><strong>{selectedLimitReview.status}</strong></div>
-                <div className="detail-row"><span>Reason</span><strong>{selectedLimitReview.reasonCode}</strong></div>
-                <div className="detail-row"><span>Buyer</span><strong>{selectedLimitReview.buyerWhatsapp}</strong></div>
-                <div className="detail-row"><span>Seller</span><strong>{selectedLimitReview.sellerWhatsapp || "not set"}</strong></div>
-                <div className="detail-row"><span>Requested amount</span><strong>{selectedLimitReview.currency} {money.format(selectedLimitReview.amount)}</strong></div>
-                <div className="detail-row"><span>Buyer tier</span><strong>{selectedLimitReview.policy.tier || "unknown"} · {selectedLimitReview.policy.successfulEscrows || 0} successful</strong></div>
-                <div className="detail-row"><span>Tier limit</span><strong>NGN {money.format(selectedLimitReview.policy.tierLimit || 0)}</strong></div>
-                <div className="detail-row"><span>Buyer active exposure</span><strong>NGN {money.format(selectedLimitReview.policy.buyerActiveExposure || 0)} / {money.format(selectedLimitReview.policy.buyerActiveExposureLimit || 0)}</strong></div>
-                <div className="detail-row"><span>Platform active exposure</span><strong>NGN {money.format(selectedLimitReview.policy.platformActiveExposure || 0)} / {money.format(selectedLimitReview.policy.platformActiveExposureLimit || 0)}</strong></div>
-                <div className="detail-row"><span>Purpose</span><strong>{selectedLimitReview.purpose}</strong></div>
-                {selectedLimitReview.approvedEscrowId && <div className="detail-row"><span>Created escrow</span><strong>{selectedLimitReview.approvedEscrowId}</strong></div>}
-                {selectedLimitReview.decisionNotes && <div className="detail-row"><span>Decision</span><strong>{selectedLimitReview.decisionNotes}</strong></div>}
-                {selectedLimitReview.status === "pending" && (
-                  <>
-                    <label className="field">
-                      <span>Required operator decision notes</span>
-                      <textarea rows={4} value={limitReviewNotes} onChange={(event) => setLimitReviewNotes(event.target.value)} placeholder="Record why this one-time override is approved or rejected." />
-                    </label>
-                    <div className="control-grid">
-                      <button className="button primary" disabled={actionBusy || !limitReviewNotes.trim()} onClick={() => decideLimitReview("approve")}>
-                        Approve and create
-                      </button>
-                      <button className="button danger" disabled={actionBusy || !limitReviewNotes.trim()} onClick={() => decideLimitReview("reject")}>
-                        Reject request
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <p className="muted">Select a review to inspect its recorded policy snapshot.</p>
-            )}
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "disputes" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Dispute Desk</h2>
-              <span>{disputes.length} open</span>
-            </div>
-            <div className="event-grid">
-              {disputes.map((row) => (
-                <button
-                  key={row.escrow.escrowId}
-                  className={`event-row selectable-row ops-event error ${selectedDispute?.escrow.escrowId === row.escrow.escrowId ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelectedDispute(row);
-                    setSelectedEscrow(row.escrow);
-                    setTimelineEscrowId(row.escrow.escrowId);
-                  }}
-                >
-                  <div>
-                    <strong>{row.escrow.escrowId} · {money.format(row.escrow.amount)} {row.escrow.currency}</strong>
-                    <span>{row.escrow.purpose}</span>
-                    <span>{row.evidenceCount} evidence records · {row.supportCases.length} support cases</span>
-                  </div>
-                  <time>{formatTime(row.openedAt)}</time>
-                </button>
-              ))}
-              {disputes.length === 0 && <p className="muted">No open disputes</p>}
-            </div>
-          </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Manual Resolution</h2>
-              <span>{selectedDispute ? selectedDispute.escrow.escrowId : "none"}</span>
-            </div>
-            {selectedDispute ? (
-              <div className="detail-stack">
-                <div className="detail-row"><span>Status</span><strong>{selectedDispute.escrow.status}</strong></div>
-                <div className="detail-row"><span>Payment reference</span><strong>{selectedDispute.escrow.paymentReference || "none"}</strong></div>
-                <div className="detail-row"><span>Received</span><strong>{selectedDispute.escrow.receivedAmount === undefined ? "not verified" : `${money.format(selectedDispute.escrow.receivedAmount)} ${selectedDispute.escrow.currency}`}</strong></div>
-                <div className="detail-row"><span>Latest event</span><strong>{formatTime(selectedDispute.latestEventAt)}</strong></div>
-
-                <div className="section-head ops-subhead">
-                  <h2>Evidence Capture</h2>
-                  <span>{selectedDispute.evidenceCount} records</span>
-                </div>
-                <div className="control-grid">
-                  <label className="field">
-                    <span>Type</span>
-                    <select value={evidenceDraft.evidenceType} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, evidenceType: event.target.value })}>
-                      <option value="message">Message</option>
-                      <option value="payment_proof">Payment proof</option>
-                      <option value="delivery_proof">Delivery proof</option>
-                      <option value="identity">Identity</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Source</span>
-                    <select value={evidenceDraft.source} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, source: event.target.value })}>
-                      <option value="buyer">Buyer</option>
-                      <option value="seller">Seller</option>
-                      <option value="admin">Admin</option>
-                      <option value="support">Support</option>
-                      <option value="payment_provider">Payment provider</option>
-                    </select>
-                  </label>
-                </div>
-                <label className="field">
-                  <span>Evidence summary</span>
-                  <textarea rows={4} value={evidenceDraft.summary} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, summary: event.target.value })} />
-                </label>
-                <label className="field">
-                  <span>Evidence URL</span>
-                  <input type="url" value={evidenceDraft.uri} onChange={(event) => setEvidenceDraft({ ...evidenceDraft, uri: event.target.value })} placeholder="https://..." autoComplete="url" />
-                </label>
-                <button
-                  className="button secondary full"
-                  disabled={!evidenceDraft.summary.trim() || actionBusy}
-                  onClick={async () => {
-                    setActionBusy(true);
-                    try {
-                      await recordDisputeEvidence();
-                    } catch (err: any) {
-                      setError(err.message || "Evidence capture failed");
-                    } finally {
-                      setActionBusy(false);
-                    }
-                  }}
-                >
-                  Record evidence
-                </button>
-
-                <div className="section-head ops-subhead">
-                  <h2>Resolution Outcome</h2>
-                  <span>manual</span>
-                </div>
-                <label className="field">
-                  <span>Outcome</span>
-                  <select value={resolutionDraft.outcome} onChange={(event) => setResolutionDraft({ ...resolutionDraft, outcome: event.target.value })}>
-                    <option value="release_to_seller">Release to seller</option>
-                    <option value="refund_buyer">Refund buyer</option>
-                    <option value="cancel_no_funds">Cancel, no funds received</option>
-                    <option value="no_action_close">Close with no action</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Reference</span>
-                  <input value={resolutionDraft.reference} onChange={(event) => setResolutionDraft({ ...resolutionDraft, reference: event.target.value })} placeholder="Payout/refund/reference ID" autoComplete="off" />
-                </label>
-                <label className="field">
-                  <span>Resolution reason</span>
-                  <textarea rows={4} value={resolutionDraft.reason} onChange={(event) => setResolutionDraft({ ...resolutionDraft, reason: event.target.value })} />
-                </label>
-                <button
-                  className="button primary full"
-                  disabled={!resolutionDraft.reason.trim() || actionBusy}
-                  onClick={async () => {
-                    setActionBusy(true);
-                    try {
-                      await resolveDispute();
-                    } catch (err: any) {
-                      setError(err.message || "Dispute resolution failed");
-                    } finally {
-                      setActionBusy(false);
-                    }
-                  }}
-                >
-                  Record manual resolution
-                </button>
-                <button className="button secondary full" onClick={() => loadEscrowTimeline(selectedDispute.escrow.escrowId)}>
-                  Open full timeline
-                </button>
-              </div>
-            ) : (
-              <p className="muted">Select a dispute to capture evidence or record the manual outcome.</p>
-            )}
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "support" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Support Inbox</h2>
-              <span>{filteredSupportCases.length} of {supportCases.length} cases</span>
-            </div>
-            <label className="field compact-field">
-              <span>Search cases</span>
-              <input
-                type="search"
-                value={supportSearch}
-                onChange={(event) => setSupportSearch(event.target.value)}
-                placeholder="Escrow ID, user, assignee, status"
-                autoComplete="off"
-              />
+          <div className="strip-actions">
+            <button className="button primary small" onClick={refreshAll} disabled={loading}>
+              {loading ? "Syncing..." : "Sync Now"}
+            </button>
+            <label className="toggle">
+              <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+              <span>Auto-sync</span>
             </label>
-            <div className="event-grid">
-              {filteredSupportCases.map((supportCase) => (
-                <button
-                  key={supportCase.caseId}
-                  className={`event-row selectable-row ops-event ${supportCase.priority === "urgent" || supportCase.priority === "high" ? "error" : "warning"} ${selectedSupportCase?.caseId === supportCase.caseId ? "selected" : ""}`}
-                  onClick={async () => {
-                    try {
-                      await selectSupportCase(supportCase);
-                    } catch (err: any) {
-                      setError(err.message || "Support case load failed");
-                    }
-                  }}
-                >
-                  <div>
-                    <strong>{supportCase.subject}</strong>
-                    <span>{supportCase.status} · {supportCase.priority} · assigned {supportCase.assignedTo || "unassigned"}</span>
-                    <span>{supportCase.relatedEscrowId || supportCase.relatedUser || supportCase.source}</span>
-                  </div>
-                  <time>{formatTime(supportCase.updatedAt)}</time>
-                </button>
-              ))}
-              {filteredSupportCases.length === 0 && <p className="muted">No support cases match this search</p>}
-            </div>
           </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Case Workflow</h2>
-              <span>{selectedSupportCase ? compactId(selectedSupportCase.caseId, 14) : "none"}</span>
-            </div>
-            {selectedSupportCase ? (
-              <div className="detail-stack">
-                <div className="detail-row"><span>Status</span><strong>{selectedSupportCase.status}</strong></div>
-                <div className="detail-row"><span>Priority</span><strong>{selectedSupportCase.priority}</strong></div>
-                <div className="detail-row"><span>Assigned</span><strong>{selectedSupportCase.assignedTo || "unassigned"}</strong></div>
-                <div className="detail-row"><span>Linked escrow</span><strong>{selectedSupportCase.relatedEscrowId || "none"}</strong></div>
-                <div className="control-grid">
-                  <label className="field">
-                    <span>Status</span>
-                    <select
-                      value={selectedSupportCase.status}
-                      onChange={async (event) => {
-                        try {
-                          await updateSupportCase(selectedSupportCase.caseId, { status: event.target.value });
-                        } catch (err: any) {
-                          setError(err.message || "Status update failed");
-                        }
-                      }}
-                    >
-                      <option value="open">Open</option>
-                      <option value="pending">Pending</option>
-                      <option value="resolved">Resolved</option>
-                      <option value="closed">Closed</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Priority</span>
-                    <select
-                      value={selectedSupportCase.priority}
-                      onChange={async (event) => {
-                        try {
-                          await updateSupportCase(selectedSupportCase.caseId, { priority: event.target.value });
-                        } catch (err: any) {
-                          setError(err.message || "Priority update failed");
-                        }
-                      }}
-                    >
-                      <option value="low">Low</option>
-                      <option value="normal">Normal</option>
-                      <option value="high">High</option>
-                      <option value="urgent">Urgent</option>
-                    </select>
-                  </label>
-                </div>
-                <label className="field">
-                  <span>Assign operator</span>
-                  <input
-                    type="text"
-                    defaultValue={selectedSupportCase.assignedTo || ""}
-                    placeholder="operator name"
-                    autoComplete="name"
-                    onBlur={async (event) => {
-                      const assignedTo = event.target.value.trim();
-                      if (assignedTo !== (selectedSupportCase.assignedTo || "")) {
-                        try {
-                          await updateSupportCase(selectedSupportCase.caseId, { assignedTo });
-                        } catch (err: any) {
-                          setError(err.message || "Assignment failed");
-                        }
-                      }
-                    }}
-                  />
-                </label>
-                {selectedSupportCase.relatedEscrowId && (
-                  <button className="button secondary full" onClick={() => loadEscrowTimeline(selectedSupportCase.relatedEscrowId!)}>
-                    Open linked escrow timeline
-                  </button>
-                )}
-                <label className="field">
-                  <span>Internal note</span>
-                  <textarea value={supportNoteDraft} onChange={(event) => setSupportNoteDraft(event.target.value)} rows={4} />
-                </label>
-                <button
-                  className="button primary full"
-                  disabled={!supportNoteDraft.trim()}
-                  onClick={async () => {
-                    try {
-                      await addSupportNote();
-                    } catch (err: any) {
-                      setError(err.message || "Note failed");
-                    }
-                  }}
-                >
-                  Add internal note
-                </button>
-                <div className="section-head ops-subhead">
-                  <h2>Notes</h2>
-                  <span>{supportNotes.length}</span>
-                </div>
-                <div className="event-grid">
-                  {supportNotes.map((note) => (
-                    <div key={note.noteId} className="event-row">
-                      <div>
-                        <strong>{note.actionType || "note"} · {note.author}</strong>
-                        <span>{note.body}</span>
-                      </div>
-                      <time>{formatTime(note.createdAt)}</time>
-                    </div>
-                  ))}
-                  {supportNotes.length === 0 && <p className="muted">No notes recorded</p>}
-                </div>
-              </div>
-            ) : (
-              <p className="muted">Select a support case.</p>
-            )}
-          </aside>
         </section>
-      )}
 
-      {activeTab === "payout" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Payout Safety Queue</h2>
-              <span>{payoutSafetyRows.length} records</span>
-            </div>
-            <div className="metrics-grid ops-metrics">
-              <div className="metric-card watch"><span>Awaiting payout</span><strong>{reconciliationSummary.releasesAwaitingPayout}</strong></div>
-              <div className="metric-card critical"><span>Missing refs</span><strong>{reconciliationSummary.releasedMissingPayoutReference}</strong></div>
-              <div className="metric-card critical"><span>Amount mismatch</span><strong>{reconciliationSummary.paystackAmountMismatches}</strong></div>
-              <div className="metric-card watch"><span>Review jobs</span><strong>{queueJobs.filter((job) => job.jobType === "payout_review" && !["succeeded", "dead"].includes(job.status)).length}</strong></div>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Escrow</th>
-                    <th>Status</th>
-                    <th>Seller</th>
-                    <th>Payout account</th>
-                    <th>Gross</th>
-                    <th>Fee</th>
-                    <th>Seller net</th>
-                    <th>Risk</th>
-                    <th>Payout ref</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payoutSafetyRows.map((row) => (
-                    <tr key={row.escrowId}>
-                      <td><strong>{row.escrowId}</strong><small>{row.purpose}</small></td>
-                      <td><span className={`status ${statusTone(row.status)}`}>{row.status}</span></td>
-                      <td><strong>{row.sellerName || row.seller}</strong><small>{row.seller}</small></td>
-                      <td>
-                        <strong>{row.payoutBankName || "not set"} {row.payoutAccountNumber || ""}</strong>
-                        <small>{row.resolvedAccountName || "name not resolved"}{row.nameMatchLevel ? ` · ${row.nameMatchLevel}` : ""}</small>
-                      </td>
-                      <td>{money.format(row.grossAmount ?? row.expectedAmount)} {row.currency}</td>
-                      <td>{money.format(row.platformFeeAmount ?? 0)} {row.currency}</td>
-                      <td><strong>{money.format(row.sellerNetAmount ?? row.expectedAmount)} {row.currency}</strong></td>
-                      <td>
-                        <span className={`status ${statusTone(row.riskLevel || "LOW")}`}>{row.riskLevel || "LOW"}</span>
-                        <small>
-                          compliance {row.complianceRiskScore ?? 0}
-                          {row.reconciliationRiskLevel ? ` · recon ${row.reconciliationRiskLevel}` : ""}
-                        </small>
-                      </td>
-                      <td>{row.payoutReference || "missing"}</td>
-                      <td>
-                        <button
-                          className="button small"
-                          disabled={actionBusy}
-                          onClick={async () => {
-                            try {
-                              if (row.status === "PENDING_RELEASE") {
-                                const escrow = escrows.find((item) => item.escrowId === row.escrowId);
-                                if (!escrow) throw new Error("Open the escrow ledger once before approving payout.");
-                                openPayoutApproval(escrow, {
-                                  grossAmount: row.grossAmount ?? row.expectedAmount,
-                                  platformFeeAmount: row.platformFeeAmount ?? 0,
-                                  sellerNetAmount: row.sellerNetAmount ?? row.expectedAmount,
-                                  amountSource: row.amountSource || "escrow_record",
-                                  currency: row.currency,
-                                });
-                                return;
-                              }
-                              setActionBusy(true);
-                              await enqueuePayoutReview(row.escrowId, "operator_requested_from_payout_safety");
-                            } catch (err: any) {
-                              setError(err.message || "Payout action failed");
-                            } finally {
-                              setActionBusy(false);
-                            }
-                          }}
-                        >
-                          {row.status === "PENDING_RELEASE" ? "Approve payout" : "Review"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {payoutSafetyRows.length === 0 && <tr><td colSpan={10} className="empty-cell">No payout exceptions</td></tr>}
-                </tbody>
-              </table>
-            </div>
+        {error && <div className="error-banner">{error}</div>}
+
+        <section className="metrics-grid">
+          <div className="metric-card">
+            <span>Active Escrows</span>
+            <strong>{metrics.active}</strong>
           </div>
+          <div className="metric-card watch">
+            <span>Pending Escrows</span>
+            <strong>{metrics.pending}</strong>
+          </div>
+          <div className="metric-card good">
+            <span>Resolved/Settled</span>
+            <strong>{metrics.settled}</strong>
+          </div>
+          <div className="metric-card critical">
+            <span>Exceptions</span>
+            <strong>{metrics.failed}</strong>
+          </div>
+        </section>
 
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Recovery Jobs</h2>
-              <span>{deadOrFailedJobs.length} failed/dead</span>
-            </div>
-            <button
-              className="button primary full"
-              onClick={async () => {
-                try {
-                  await runQueueWorker();
-                } catch (err: any) {
-                  setError(err.message || "Queue run failed");
-                }
-              }}
-            >
-              Run retry worker
+        {activeTab === "escrows" && (
+          <section className="attention-grid">
+            <button className="attention-card critical" onClick={() => setEscrowFilter("review")}>
+              <span>Payments needing review</span>
+              <strong>{reconciliationSummary.paymentsNeedingReview}</strong>
             </button>
-            <div className="event-grid ops-subhead">
-              {deadOrFailedJobs.map((job) => (
-                <div key={job.jobId} className={`event-row ops-event ${job.status === "dead" ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{job.jobType} · {job.status}</strong>
-                    <span>{job.lastError || job.payload}</span>
-                    <span>{job.attempts}/{job.maxAttempts} attempts · next {formatTime(job.runAfter)}</span>
-                  </div>
-                  <button className="button small" onClick={() => retryQueueJob(job.jobId)}>Retry</button>
-                </div>
-              ))}
-              {deadOrFailedJobs.length === 0 && <p className="muted">No failed queue jobs</p>}
-            </div>
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "risk" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Abuse Analytics</h2>
-              <span>{abuseAnalytics?.totals.signals ?? 0} signals</span>
-            </div>
-            <div className="metrics-grid ops-metrics">
-              <div className="metric-card critical"><span>Critical</span><strong>{abuseAnalytics?.totals.criticalSignals ?? 0}</strong></div>
-              <div className="metric-card watch"><span>High risk</span><strong>{abuseAnalytics?.totals.highSignals ?? 0}</strong></div>
-              <div className="metric-card"><span>Monitored escrows</span><strong>{abuseAnalytics?.totals.monitoredEscrows ?? 0}</strong></div>
-              <div className="metric-card watch"><span>Active actions</span><strong>{abuseAnalytics?.totals.activeActions ?? 0}</strong></div>
-              <div className="metric-card watch"><span>Suggestions</span><strong>{abuseAnalytics?.totals.suggestedActions ?? 0}</strong></div>
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>Suggested Actions</h2>
-              <span>{abuseAnalytics?.suggestedActions?.length ?? 0}</span>
-            </div>
-            <div className="event-grid">
-              {abuseAnalytics?.suggestedActions?.map((item) => (
-                <div key={`${item.subjectType}:${item.subjectId}:${item.suggestedAction}`} className={`event-row ops-event ${item.suggestedAction === "block" ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{item.suggestedAction} · {compactId(item.subjectId, 34)}</strong>
-                    <span>{item.confidence}% confidence · {item.reason}</span>
-                  </div>
-                  <button className="button small" onClick={() => recordAbuseAction(item.subjectType, item.subjectId, item.suggestedAction)}>Apply</button>
-                </div>
-              ))}
-              {!abuseAnalytics?.suggestedActions?.length && <p className="muted">No reputation action suggestions</p>}
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>Reputation Watchlist</h2>
-              <span>{abuseAnalytics?.reputationWatchlist.length ?? 0}</span>
-            </div>
-            <div className="event-grid">
-              {abuseAnalytics?.reputationWatchlist.map((item) => (
-                <div key={`${item.subjectType}:${item.subjectId}`} className={`event-row ops-event ${item.maxRiskScore >= 90 ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{item.subjectId} · score {item.maxRiskScore}</strong>
-                    <span>{item.signals} signals · {item.reasons.slice(0, 2).join("; ")}</span>
-                  </div>
-                  <button className="button small" onClick={() => recordAbuseAction("user", item.subjectId, "watch")}>Watch</button>
-                  <button className="button small" onClick={() => recordAbuseAction("user", item.subjectId, "block")}>Block</button>
-                  <time>{formatTime(item.lastSeenAt)}</time>
-                </div>
-              ))}
-              {!abuseAnalytics?.reputationWatchlist.length && <p className="muted">No reputation watch records</p>}
-            </div>
-          </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Velocity Dashboard</h2>
-              <span>{abuseAnalytics?.velocityWatchlist.length ?? 0} users</span>
-            </div>
-            <div className="event-grid">
-              {abuseAnalytics?.velocityWatchlist.map((item) => (
-                <div key={item.buyerUserId} className="event-row ops-event warning">
-                  <div>
-                    <strong>{compactId(item.buyerUserId, 18)}</strong>
-                    <span>{item.escrows} escrows · {item.active} active · {item.disputed} disputed · {item.reviewRequired} review</span>
-                  </div>
-                  <time>{formatTime(item.latestAt)}</time>
-                </div>
-              ))}
-              {!abuseAnalytics?.velocityWatchlist.length && <p className="muted">No velocity outliers</p>}
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>Cross-Device Graph</h2>
-              <span>{abuseAnalytics?.fingerprintWatchlist.length ?? 0}</span>
-            </div>
-            <div className="event-grid">
-              {abuseAnalytics?.fingerprintWatchlist.map((item) => (
-                <div key={item.fingerprint} className={`event-row ops-event ${item.maxRiskScore >= 90 ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{compactId(item.fingerprint, 34)}</strong>
-                    <span>{item.signals} signals · score {item.maxRiskScore} · {item.subjects.length} subjects</span>
-                  </div>
-                  <time>{formatTime(item.lastSeenAt)}</time>
-                </div>
-              ))}
-              {!abuseAnalytics?.fingerprintWatchlist.length && <p className="muted">No repeated device/account fingerprints</p>}
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>Recent Signals</h2>
-              <span>{abuseAnalytics?.actions.length ?? 0} actions</span>
-            </div>
-            <div className="event-grid">
-              {abuseAnalytics?.actions.slice(0, 8).map((action) => (
-                <div key={action.actionId} className={`event-row ops-event ${action.action === "block" ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{action.action} · {action.subjectId}</strong>
-                    <span>{action.reason} · by {action.createdBy}</span>
-                  </div>
-                  <time>{formatTime(action.createdAt)}</time>
-                </div>
-              ))}
-              {!abuseAnalytics?.actions.length && <p className="muted">No persistent abuse actions</p>}
-            </div>
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "audit" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Escrow Event Explorer</h2>
-              <span>{timeline?.escrowId || "select escrow"}</span>
-            </div>
-            <label className="field compact-field">
-              <span>Escrow ID</span>
-              <input value={timelineEscrowId} onChange={(event) => setTimelineEscrowId(event.target.value)} placeholder="SIV-..." autoComplete="off" />
-            </label>
-            <button
-              className="button primary"
-              onClick={async () => {
-                try {
-                  await loadEscrowTimeline(timelineEscrowId || selectedEscrow?.escrowId || "");
-                } catch (err: any) {
-                  setError(err.message || "Timeline load failed");
-                }
-              }}
-            >
-              Load timeline
+            <button className="attention-card watch" onClick={() => setEscrowFilter("pendingRelease")}>
+              <span>Releases awaiting payout</span>
+              <strong>{reconciliationSummary.releasesAwaitingPayout}</strong>
             </button>
-            <div className="timeline-list">
-              {timeline?.events.map((event) => (
-                <div key={event.eventId} className="timeline-item">
-                  <div className="timeline-dot" />
-                  <div className="event-row">
-                    <div>
-                      <strong>{event.eventType}</strong>
-                      <span>{event.previousStatus || "-"} → {event.nextStatus || "-"} · {event.actorRole} · {event.channel}</span>
-                      <span>{event.reason || event.actor}</span>
-                    </div>
-                    <time>{formatTime(event.createdAt)}</time>
-                  </div>
-                </div>
-              ))}
-              {timeline && timeline.events.length === 0 && <p className="muted">No events recorded for this escrow</p>}
-              {!timeline && <p className="muted">Load an escrow to inspect payment, release, dispute, and operator action history.</p>}
-            </div>
-          </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Linked Records</h2>
-              <span>{timeline?.transactions.length || 0} payments</span>
-            </div>
-            <div className="event-grid">
-              {timeline?.transactions.map((transaction) => (
-                <div key={transaction.transactionId} className={`event-row ops-event ${statusTone(transaction.status) === "critical" ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{transaction.transactionType} · {transaction.status}</strong>
-                    <span>{transaction.provider} · {transaction.reference || "no reference"}</span>
-                    <span>{money.format(transaction.amount)} {transaction.currency}</span>
-                  </div>
-                  <time>{formatTime(transaction.updatedAt || transaction.createdAt)}</time>
-                </div>
-              ))}
-              {timeline?.supportCases.map((supportCase) => (
-                <div key={supportCase.caseId} className="event-row ops-event warning">
-                  <div>
-                    <strong>{supportCase.subject}</strong>
-                    <span>{supportCase.status} · {supportCase.priority} · assigned {supportCase.assignedTo || "unassigned"}</span>
-                  </div>
-                  <time>{formatTime(supportCase.updatedAt)}</time>
-                </div>
-              ))}
-              {timeline && timeline.transactions.length === 0 && timeline.supportCases.length === 0 && <p className="muted">No linked transactions or support cases</p>}
-            </div>
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "ops" && (
-        <section className="content-grid">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Operations Status</h2>
-              <span>{operationsStatus?.status || "unknown"}</span>
-            </div>
-            <div className="metrics-grid ops-metrics">
-              <div className={`metric-card ${operationsStatus?.database.status === "ok" ? "good" : "critical"}`}>
-                <span>Database</span>
-                <strong>{operationsStatus?.database.status || "-"}</strong>
-              </div>
-              <div className={`metric-card ${operationsStatus?.operations.sentryConfigured ? "good" : "watch"}`}>
-                <span>Sentry</span>
-                <strong>{operationsStatus?.operations.sentryConfigured ? "On" : "Off"}</strong>
-              </div>
-              <div className={`metric-card ${operationsStatus?.operations.alertsConfigured ? "good" : "watch"}`}>
-                <span>Alerts</span>
-                <strong>{operationsStatus?.operations.alertsConfigured ? "On" : "Off"}</strong>
-              </div>
-              <div className={`metric-card ${operationsStatus?.operations.recentErrors ? "critical" : "good"}`}>
-                <span>Recent errors</span>
-                <strong>{operationsStatus?.operations.recentErrors ?? 0}</strong>
-              </div>
-              <div className={`metric-card ${queueStatus?.dead || queueStatus?.failed ? "critical" : "good"}`}>
-                <span>Queue failures</span>
-                <strong>{(queueStatus?.dead || 0) + (queueStatus?.failed || 0)}</strong>
-              </div>
-              <div className={`metric-card ${abuseSignals.length ? "watch" : "good"}`}>
-                <span>Abuse signals</span>
-                <strong>{abuseSignals.length}</strong>
-              </div>
-              <div className={`metric-card ${supportCases.filter((item) => item.status === "open").length ? "watch" : "good"}`}>
-                <span>Open support</span>
-                <strong>{supportCases.filter((item) => item.status === "open").length}</strong>
-              </div>
-              <div className={`metric-card ${disasterRecoveryStatus?.status === "ok" ? "good" : "watch"}`}>
-                <span>Backup / DR</span>
-                <strong>{disasterRecoveryStatus?.status || "unknown"}</strong>
-              </div>
-            </div>
-            <div className="detail-stack">
-              <div className="detail-row"><span>Provider</span><strong>{operationsStatus?.database.provider || "unknown"}</strong></div>
-              <div className="detail-row"><span>DB latency</span><strong>{operationsStatus?.database.latencyMs ?? "-"} ms</strong></div>
-              <div className="detail-row"><span>Settings version</span><strong>{operationsStatus?.database.settingsVersion || "-"}</strong></div>
-              <div className="detail-row"><span>Recent warnings</span><strong>{operationsStatus?.operations.recentWarnings ?? 0}</strong></div>
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>WhatsApp Provider</h2>
-              <span>{whatsappProviderStatus?.activeProvider || "unknown"}</span>
-            </div>
-            <div className="detail-stack">
-              <div className="detail-row"><span>Active outbound</span><strong>{whatsappProviderStatus?.activeProvider || "unknown"}</strong></div>
-              <div className="detail-row"><span>Twilio</span><strong>{whatsappProviderStatus?.providers?.twilio?.configured ? "Configured" : "Not configured"}</strong></div>
-              <div className="detail-row"><span>Meta Cloud API</span><strong>{whatsappProviderStatus?.providers?.meta?.configured ? "Configured" : "Not configured"}</strong></div>
-              <div className="detail-row"><span>Meta Graph</span><strong>{whatsappProviderStatus?.providers?.meta?.graphApiVersion || "not set"}</strong></div>
-              {whatsappProviderStatus?.warning ? <div className="detail-note critical-note">{whatsappProviderStatus.warning}</div> : null}
-              <div className="toolbar-row">
-                <button
-                  className="button secondary"
-                  disabled={actionBusy || !whatsappProviderStatus?.providers?.twilio?.configured || whatsappProviderStatus?.activeProvider === "twilio"}
-                  onClick={async () => {
-                    try {
-                      await switchWhatsAppProvider("twilio");
-                    } catch (err: any) {
-                      setError(err.message || "WhatsApp provider switch failed");
-                    }
-                  }}
-                >
-                  Use Twilio
-                </button>
-                <button
-                  className="button secondary"
-                  disabled={actionBusy || !whatsappProviderStatus?.providers?.meta?.configured || whatsappProviderStatus?.activeProvider === "meta"}
-                  onClick={async () => {
-                    try {
-                      await switchWhatsAppProvider("meta");
-                    } catch (err: any) {
-                      setError(err.message || "WhatsApp provider switch failed");
-                    }
-                  }}
-                >
-                  Use Meta
-                </button>
-              </div>
-              <div className="detail-note">Runtime switching changes the current bot process. Update Render env `WHATSAPP_PROVIDER` for the permanent deploy default.</div>
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>Backup and Recovery</h2>
-              <span>{disasterRecoveryStatus?.backup.provider || "not configured"}</span>
-            </div>
-            <div className="detail-stack">
-              <div className="detail-row"><span>Database backups</span><strong>{disasterRecoveryStatus?.backup.configured ? "Configured" : "Needs setup"}</strong></div>
-              <div className="detail-row"><span>Retention</span><strong>{disasterRecoveryStatus?.backup.retentionDays ?? 0} days</strong></div>
-              <div className="detail-row"><span>Restore drill</span><strong>{disasterRecoveryStatus?.restore.fresh ? "Fresh" : disasterRecoveryStatus?.restore.lastStatus || "not recorded"}</strong></div>
-              <div className="detail-row"><span>Last restore test</span><strong>{formatTime(disasterRecoveryStatus?.restore.lastTestAt || undefined)}</strong></div>
-              <div className="detail-row"><span>Rollback plan</span><strong>{disasterRecoveryStatus?.rollback.configured ? "Configured" : "Needs setup"}</strong></div>
-              <div className="detail-row"><span>Outage procedure</span><strong>{disasterRecoveryStatus?.outage.configured ? "Configured" : "Needs contacts"}</strong></div>
-              {disasterRecoveryStatus?.status !== "ok" ? <div className="detail-note critical-note">Run `npm run dr:check` after deploys and record restore-test proof in release notes.</div> : null}
-            </div>
-            <div className="section-head ops-subhead">
-              <h2>Settlement Verification</h2>
-              <span>{settlementProof?.status || "not run"}</span>
-            </div>
-            <div className="detail-stack">
-              <div className="detail-row"><span>SAP</span><strong>{settlementProof?.sap?.status || "unknown"}</strong></div>
-              <div className="detail-row"><span>x402</span><strong>{settlementProof?.x402?.status || "unknown"}</strong></div>
-              <div className="detail-row"><span>Last checked</span><strong>{formatTime(settlementProof?.checkedAt)}</strong></div>
-              {settlementProof?.warnings?.length ? <div className="detail-note critical-note">{settlementProof.warnings.join("; ")}</div> : null}
-            </div>
-            <button
-              className="button primary full ops-action"
-              onClick={async () => {
-                try {
-                  await runSettlementVerification();
-                } catch (err: any) {
-                  setError(err.message || "Settlement verification failed");
-                }
-              }}
-            >
-              Run settlement verification
+            <button className="attention-card critical" onClick={() => setEscrowFilter("missingPayout")}>
+              <span>Released missing payout ref</span>
+              <strong>{reconciliationSummary.releasedMissingPayoutReference}</strong>
             </button>
-            <div className="section-head ops-subhead">
-              <h2>Abuse Signals</h2>
-              <span>{abuseSignals.length} records</span>
-            </div>
-            <div className="event-grid">
-              {abuseSignals.slice(0, 5).map((signal) => (
-                <div key={signal.signalId} className={`event-row ops-event ${signal.riskScore >= 70 ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{signal.category} · {signal.riskScore}</strong>
-                    <span>{signal.reason}</span>
-                  </div>
-                  <time>{formatTime(signal.createdAt)}</time>
-                </div>
-              ))}
-              {abuseSignals.length === 0 && <p className="muted">No abuse signals</p>}
-            </div>
-          </div>
-
-          <aside className="surface detail-surface">
-            <div className="section-head">
-              <h2>Support Queue</h2>
-              <span>{supportCases.length} cases</span>
-            </div>
-            <div className="event-grid">
-              {supportCases.map((supportCase) => (
-                <div key={supportCase.caseId} className={`event-row ops-event ${supportCase.priority === "urgent" || supportCase.priority === "high" ? "error" : "warning"}`}>
-                  <div>
-                    <strong>{supportCase.subject}</strong>
-                    <span>{supportCase.status} · {supportCase.priority} · {supportCase.relatedEscrowId || supportCase.source}</span>
-                  </div>
-                  <time>{formatTime(supportCase.updatedAt)}</time>
-                </div>
-              ))}
-              {supportCases.length === 0 && <p className="muted">No support cases</p>}
-            </div>
-
-            <div className="section-head ops-subhead">
-              <h2>Recent Events</h2>
-              <span>{operationalEvents.length} records</span>
-            </div>
-            <div className="event-grid">
-              {operationalEvents.map((event) => (
-                <div key={event.id} className={`event-row ops-event ${event.level}`}>
-                  <div>
-                    <strong>{event.message}</strong>
-                    <span>{event.error || JSON.stringify(event.context)}</span>
-                  </div>
-                  <time>{formatTime(event.createdAt)}</time>
-                </div>
-              ))}
-              {operationalEvents.length === 0 && <p className="muted">No operational events</p>}
-            </div>
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "revenue" && (
-        <section className="revenue-layout">
-          <div className="surface revenue-summary">
-            <div className="section-head">
-              <div>
-                <h2>Revenue & Processing</h2>
-                <span>Verified accounting data only</span>
-              </div>
-              <span>{formatTime(revenueAnalytics?.generatedAt)}</span>
-            </div>
-            <div className="filter-bar">
-              {revenueAnalytics?.periods.map((period) => (
-                <button key={period.key} className={revenuePeriod === period.key ? "active" : ""} onClick={() => setRevenuePeriod(period.key)}>
-                  {period.label}
-                </button>
-              ))}
-            </div>
-            <div className="revenue-currency-grid">
-              {selectedRevenuePeriod?.currencies.map((snapshot) => (
-                <section className="revenue-currency" key={snapshot.currency}>
-                  <div className="section-head">
-                    <h2>{snapshot.currency}</h2>
-                    <span>{snapshot.processedCount} funded escrows</span>
-                  </div>
-                  <div className="revenue-metrics">
-                    <div className="metric-card good">
-                      <span>Processed volume</span>
-                      <strong>{money.format(snapshot.processedVolume)}</strong>
-                      <small>{snapshot.currency}</small>
-                    </div>
-                    <div className="metric-card good">
-                      <span>Platform fees captured</span>
-                      <strong>{money.format(snapshot.platformFees)}</strong>
-                      <small>{snapshot.platformFeeCount} fee entries</small>
-                    </div>
-                    <div className="metric-card watch">
-                      <span>Processor fees reported</span>
-                      <strong>{money.format(snapshot.processorFees)}</strong>
-                      <small>{snapshot.processorFeeCoveragePercent}% coverage</small>
-                    </div>
-                    <div className="metric-card">
-                      <span>Net after processor fees</span>
-                      <strong>{money.format(snapshot.netRevenueAfterProcessorFees)}</strong>
-                      <small>{snapshot.currency}</small>
-                    </div>
-                  </div>
-                </section>
-              ))}
-              {!selectedRevenuePeriod && <div className="empty-cell">Revenue analytics unavailable</div>}
-            </div>
-          </div>
-
-          <div className="surface">
-            <div className="section-head">
-              <h2>Processor Breakdown</h2>
-              <span>all time</span>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Provider</th>
-                    <th>Currency</th>
-                    <th>Volume</th>
-                    <th>Transactions</th>
-                    <th>Reported fees</th>
-                    <th>Fee coverage</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revenueAnalytics?.processorBreakdown.map((row) => (
-                    <tr key={`${row.provider}-${row.currency}`}>
-                      <td><strong>{row.provider}</strong></td>
-                      <td>{row.currency}</td>
-                      <td>{money.format(row.processedVolume)}</td>
-                      <td>{row.transactionCount}</td>
-                      <td>{money.format(row.processorFees)}</td>
-                      <td>{row.processorFeeKnownCount}/{row.transactionCount}</td>
-                    </tr>
-                  ))}
-                  {!revenueAnalytics?.processorBreakdown.length && (
-                    <tr><td colSpan={6} className="empty-cell">No verified funding transactions yet</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="surface">
-            <div className="section-head">
-              <h2>Settlement Reconciliation</h2>
-              <span>provider reported</span>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Provider</th>
-                    <th>Settlements</th>
-                    <th>Settlement amount</th>
-                    <th>Provider fees</th>
-                    <th>Latest</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revenueAnalytics?.settlementSummary?.map((row) => (
-                    <tr key={row.provider}>
-                      <td><strong>{row.provider}</strong></td>
-                      <td>{row.settlementCount}</td>
-                      <td>{money.format(row.settlementAmount)}</td>
-                      <td>{money.format(row.providerFees)}</td>
-                      <td>{formatTime(row.latestSettlementAt)}</td>
-                    </tr>
-                  ))}
-                  {!revenueAnalytics?.settlementSummary?.length && (
-                    <tr><td colSpan={5} className="empty-cell">No provider settlement events recorded yet</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <aside className="surface">
-            <div className="section-head">
-              <h2>Accounting Basis</h2>
-              <span>definitions</span>
-            </div>
-            <div className="detail-stack">
-              <div className="detail-row"><span>Processed volume</span><strong>{revenueAnalytics?.accountingBasis.processedVolume || "-"}</strong></div>
-              <div className="detail-row"><span>Platform fees</span><strong>{revenueAnalytics?.accountingBasis.platformFees || "-"}</strong></div>
-              <div className="detail-row"><span>Processor fees</span><strong>{revenueAnalytics?.accountingBasis.processorFees || "-"}</strong></div>
-              <div className="detail-row"><span>Test activity</span><strong>{revenueAnalytics?.accountingBasis.testActivity || "-"}</strong></div>
-              <div className="detail-row"><span>Excluded test transactions</span><strong>{revenueAnalytics?.excludedTestActivity.transactionCount ?? 0}</strong></div>
-              {revenueAnalytics?.excludedTestActivity.processedVolumeByCurrency.map((row) => (
-                <div className="detail-row" key={row.currency}><span>Excluded {row.currency}</span><strong>{money.format(row.amount)}</strong></div>
-              ))}
-            </div>
-          </aside>
-        </section>
-      )}
-
-      {activeTab === "fees" && (
-        <section className="fees-layout">
-          <div className="surface">
-            <div className="section-head">
-              <h2>Platform Controls</h2>
-              <span>v{feeSettings?.version || "-"}</span>
-            </div>
-            {feeError && <div className="error-banner">{feeError}</div>}
-            {feeSuccess && <div className="success-banner">{feeSuccess}</div>}
-
-            <div className="fee-grid">
-              <div className="fee-column">
-                <h3>Naira</h3>
-                <label className="field">
-                  <span>Percentage</span>
-                  <input type="number" step="0.1" min="0" max="50" value={feeFormData.nairaFeePercent}
-                    onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeePercent: Number(event.target.value) })} />
-                </label>
-                <label className="field">
-                  <span>Fixed fee</span>
-                  <input type="number" step="1" min="0" value={feeFormData.nairaFeeFixed}
-                    onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeeFixed: Number(event.target.value) })} />
-                </label>
-              </div>
-              <div className="fee-column">
-                <h3>USDC</h3>
-                <label className="field">
-                  <span>Percentage</span>
-                  <input type="number" step="0.1" min="0" max="50" value={feeFormData.usdcFeePercent}
-                    onChange={(event) => setFeeFormData({ ...feeFormData, usdcFeePercent: Number(event.target.value) })} />
-                </label>
-                <label className="field">
-                  <span>Fixed fee</span>
-                  <input type="number" step="0.01" min="0" value={feeFormData.usdcFeeFixed}
-                    onChange={(event) => setFeeFormData({ ...feeFormData, usdcFeeFixed: Number(event.target.value) })} />
-                </label>
-              </div>
-            </div>
-            <div className="section-head" style={{ marginTop: 24 }}>
-              <h2>Naira Risk Limits</h2>
-              <span>creation controls</span>
-            </div>
-            <div className="fee-grid">
-              <div className="fee-column">
-                <h3>User tiers</h3>
-                {([
-                  ["New user limit", "nairaNewUserLimit"],
-                  ["Trusted user limit", "nairaTrustedUserLimit"],
-                  ["Established user limit", "nairaEstablishedUserLimit"],
-                  ["Special approval maximum", "nairaSpecialApprovalLimit"],
-                ] as const).map(([label, key]) => (
-                  <label className="field" key={key}>
-                    <span>{label}</span>
-                    <input type="number" step="1000" min="1" value={feeFormData[key]}
-                      onChange={(event) => setFeeFormData({ ...feeFormData, [key]: Number(event.target.value) })} />
-                  </label>
-                ))}
-              </div>
-              <div className="fee-column">
-                <h3>Exposure and promotion</h3>
-                {([
-                  ["Buyer active exposure limit", "nairaBuyerActiveExposureLimit"],
-                  ["Platform active exposure limit", "nairaPlatformActiveExposureLimit"],
-                  ["Successful escrows for trusted", "trustedUserSuccessfulEscrows"],
-                  ["Successful escrows for established", "establishedUserSuccessfulEscrows"],
-                ] as const).map(([label, key]) => (
-                  <label className="field" key={key}>
-                    <span>{label}</span>
-                    <input type="number" step="1" min="1" value={feeFormData[key]}
-                      onChange={(event) => setFeeFormData({ ...feeFormData, [key]: Number(event.target.value) })} />
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="section-head" style={{ marginTop: 24 }}>
-              <h2>Operating Mode</h2>
-              <span>{feeFormData.platformMode}</span>
-            </div>
-            <div className="fee-grid">
-              <div className="fee-column">
-                <h3>Runtime</h3>
-                <label className="field">
-                  <span>Platform mode</span>
-                  <select
-                    value={feeFormData.platformMode}
-                    onChange={(event) => setFeeFormData({ ...feeFormData, platformMode: event.target.value as "test" | "live" | "maintenance" })}
-                  >
-                    <option value="test">Test mode</option>
-                    <option value="live">Live mode</option>
-                    <option value="maintenance">Maintenance mode</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Naira payment method</span>
-                  <input value="bank_transfer" disabled readOnly />
-                </label>
-                <div className="detail-note">All Naira providers must stay bank-transfer only. Cards are not supported for Sivan escrow collection.</div>
-              </div>
-              <div className="fee-column">
-                <h3>Maintenance message</h3>
-                <label className="field">
-                  <span>User-facing message</span>
-                  <textarea
-                    rows={5}
-                    value={feeFormData.maintenanceMessage}
-                    onChange={(event) => setFeeFormData({ ...feeFormData, maintenanceMessage: event.target.value })}
-                  />
-                </label>
-                <div className="detail-note">When maintenance mode is active, customer API requests receive this message while admin, health, and payment webhooks stay available.</div>
-              </div>
-            </div>
-            <button className="button primary full" onClick={() => setShowConfirmModal(true)} disabled={savingFees}>
-              Review changes
+            <button className="attention-card critical" onClick={() => setEscrowFilter("amountMismatch")}>
+              <span>Paystack amount mismatch</span>
+              <strong>{reconciliationSummary.paystackAmountMismatches}</strong>
             </button>
-          </div>
+          </section>
+        )}
 
-          <div className="surface">
-            <div className="section-head">
-              <h2>Payment Providers</h2>
-              <span>v{paymentProviderStatus?.version || "-"}</span>
-            </div>
-            <div className="detail-stack">
-              <div className="detail-row"><span>Active provider</span><strong>{paymentProviderStatus?.activePaymentProvider || "unknown"}</strong></div>
-              <div className="detail-row"><span>Backup provider</span><strong>{paymentProviderStatus?.backupPaymentProvider || "unknown"}</strong></div>
-              <div className="detail-row"><span>Emergency provider</span><strong>{paymentProviderStatus?.emergencyPaymentProvider || "unknown"}</strong></div>
-              <div className="detail-row"><span>Fallback</span><strong>{paymentProviderStatus?.paymentProviderFallbackEnabled ? "Enabled" : "Disabled"}</strong></div>
-              <div className="detail-row"><span>Platform mode</span><strong>{paymentProviderStatus?.platformMode || feeSettings?.platformMode || "unknown"}</strong></div>
-              <div className="detail-row"><span>Naira method</span><strong>{paymentProviderStatus?.nairaPaymentMethod || "bank_transfer"}</strong></div>
-            </div>
-            <div className="fee-grid" style={{ marginTop: 16 }}>
-              <div className="fee-column">
-                <h3>Provider routing</h3>
-                {([
-                  ["Active", "activePaymentProvider"],
-                  ["Backup", "backupPaymentProvider"],
-                  ["Emergency", "emergencyPaymentProvider"],
-                ] as const).map(([label, key]) => (
-                  <label className="field" key={key}>
-                    <span>{label}</span>
-                    <select
-                      value={paymentProviderForm[key]}
-                      onChange={(event) => setPaymentProviderForm({ ...paymentProviderForm, [key]: event.target.value })}
-                    >
-                      {(paymentProviderStatus?.providers || []).map((provider) => (
-                        <option
-                          key={`${key}-${provider.provider}`}
-                          value={provider.provider}
-                          disabled={key === "activePaymentProvider" && (!provider.configured || !provider.implemented)}
-                        >
-                          {provider.label} {provider.configured ? "configured" : "not configured"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-                <label className="field checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={paymentProviderForm.paymentProviderFallbackEnabled}
-                    onChange={(event) => setPaymentProviderForm({ ...paymentProviderForm, paymentProviderFallbackEnabled: event.target.checked })}
-                  />
-                  <span>Enable fallback for new payment creation only</span>
-                </label>
-                <button className="button secondary full" onClick={handleSavePaymentProviders} disabled={savingFees || !paymentProviderStatus}>
-                  Save payment providers
+        {activeTab === "escrows" && (
+          <EscrowsTab
+            filteredEscrows={filteredEscrows}
+            escrows={escrows}
+            escrowFilter={escrowFilter}
+            setEscrowFilter={setEscrowFilter}
+            downloadReconciliationCsv={downloadReconciliationCsv}
+            setError={setError}
+            selectedEscrow={selectedEscrow}
+            setSelectedEscrow={setSelectedEscrow}
+            selectedPayoutQuote={selectedPayoutQuote}
+            recheckEscrowPayment={recheckEscrowPayment}
+            loadEscrowTimeline={loadEscrowTimeline}
+            enqueuePayoutReview={enqueuePayoutReview}
+            openPayoutApproval={openPayoutApproval}
+            disputeEscrow={disputeEscrow}
+          />
+        )}
+
+        {activeTab === "tasks" && (
+          <TasksTab
+            tasks={tasks}
+            selectedTask={selectedTask}
+            setSelectedTask={setSelectedTask}
+          />
+        )}
+
+        {activeTab === "webhooks" && (
+          <WebhooksTab webhooks={webhooks} />
+        )}
+
+        {activeTab === "limitReviews" && (
+          <LimitReviewsTab
+            limitReviews={limitReviews}
+            selectedLimitReview={selectedLimitReview}
+            setSelectedLimitReview={setSelectedLimitReview}
+            limitReviewNotes={limitReviewNotes}
+            setLimitReviewNotes={setLimitReviewNotes}
+            actionBusy={actionBusy}
+            decideLimitReview={decideLimitReview}
+          />
+        )}
+
+        {activeTab === "disputes" && (
+          <DisputesTab
+            disputes={disputes}
+            selectedDispute={selectedDispute}
+            setSelectedDispute={setSelectedDispute}
+            setSelectedEscrow={setSelectedEscrow}
+            setTimelineEscrowId={setTimelineEscrowId}
+            evidenceDraft={evidenceDraft}
+            setEvidenceDraft={setEvidenceDraft}
+            resolutionDraft={resolutionDraft}
+            setResolutionDraft={setResolutionDraft}
+            actionBusy={actionBusy}
+            setActionBusy={setActionBusy}
+            recordDisputeEvidence={recordDisputeEvidence}
+            resolveDispute={resolveDispute}
+            loadEscrowTimeline={loadEscrowTimeline}
+            setError={setError}
+          />
+        )}
+
+        {activeTab === "support" && (
+          <SupportTab
+            filteredSupportCases={filteredSupportCases}
+            supportCases={supportCases}
+            supportSearch={supportSearch}
+            setSupportSearch={setSupportSearch}
+            selectedSupportCase={selectedSupportCase}
+            selectSupportCase={selectSupportCase}
+            supportNotes={supportNotes}
+            supportNoteDraft={supportNoteDraft}
+            setSupportNoteDraft={setSupportNoteDraft}
+            updateSupportCase={updateSupportCase}
+            addSupportNote={addSupportNote}
+            loadEscrowTimeline={loadEscrowTimeline}
+            setError={setError}
+          />
+        )}
+
+        {activeTab === "payout" && (
+          <PayoutTab
+            payoutSafetyRows={payoutSafetyRows}
+            reconciliationSummary={reconciliationSummary}
+            queueJobs={queueJobs}
+            escrows={escrows}
+            actionBusy={actionBusy}
+            setActionBusy={setActionBusy}
+            enqueuePayoutReview={enqueuePayoutReview}
+            openPayoutApproval={openPayoutApproval}
+            runQueueWorker={runQueueWorker}
+            retryQueueJob={retryQueueJob}
+            setError={setError}
+          />
+        )}
+
+        {activeTab === "risk" && (
+          <RiskTab
+            abuseAnalytics={abuseAnalytics}
+            recordAbuseAction={recordAbuseAction}
+          />
+        )}
+
+        {activeTab === "audit" && (
+          <AuditTab
+            timeline={timeline}
+            timelineEscrowId={timelineEscrowId}
+            setTimelineEscrowId={setTimelineEscrowId}
+            selectedEscrow={selectedEscrow}
+            loadEscrowTimeline={loadEscrowTimeline}
+            setError={setError}
+          />
+        )}
+
+        {activeTab === "ops" && (
+          <OpsTab
+            operationsStatus={operationsStatus}
+            queueStatus={queueStatus}
+            abuseSignals={abuseSignals}
+            supportCases={supportCases}
+            disasterRecoveryStatus={disasterRecoveryStatus}
+            whatsappProviderStatus={whatsappProviderStatus}
+            actionBusy={actionBusy}
+            switchWhatsAppProvider={switchWhatsAppProvider}
+            settlementProof={settlementProof}
+            runSettlementVerification={runSettlementVerification}
+            operationalEvents={operationalEvents}
+            setError={setError}
+          />
+        )}
+
+        {activeTab === "revenue" && (
+          <RevenueTab
+            revenueAnalytics={revenueAnalytics}
+            revenuePeriod={revenuePeriod}
+            setRevenuePeriod={setRevenuePeriod}
+          />
+        )}
+
+        {activeTab === "fees" && (
+          <FeesTab
+            feeSettings={feeSettings}
+            feeError={feeError}
+            feeSuccess={feeSuccess}
+            feeFormData={feeFormData}
+            setFeeFormData={setFeeFormData}
+            savingFees={savingFees}
+            setShowConfirmModal={setShowConfirmModal}
+            paymentProviderStatus={paymentProviderStatus}
+            paymentProviderForm={paymentProviderForm}
+            setPaymentProviderForm={setPaymentProviderForm}
+            handleSavePaymentProviders={handleSavePaymentProviders}
+            auditHistory={auditHistory}
+          />
+        )}
+
+        {activeTab === "auth" && (
+          <AuthTab
+            adminKey={adminKey}
+            isJwtToken={isJwtToken}
+            decodeJwtPayload={decodeJwtPayload}
+            authIdentity={authIdentity}
+            requestTelegramToken={requestTelegramToken}
+            clearAdminKey={clearAdminKey}
+            authError={authError}
+            authLoading={authLoading}
+            loadAuthServiceInfo={loadAuthServiceInfo}
+            authStats={authStats}
+            authAuditEvents={authAuditEvents}
+            authSessions={authSessions}
+            revokeAuthSession={revokeAuthSession}
+            adminAuthBase={adminAuthBase}
+          />
+        )}
+
+        {showConfirmModal && (
+          <div className="modal-overlay">
+            <div className="modal">
+              <h2>Confirm Platform Update</h2>
+              <p className="muted">Platform controls take effect immediately for new customer actions.</p>
+              <div className="modal-summary">
+                <div><span>Naira</span><strong>{feeFormData.nairaFeePercent}% + {feeFormData.nairaFeeFixed} NGN</strong></div>
+                <div><span>USDC</span><strong>{feeFormData.usdcFeePercent}% + {feeFormData.usdcFeeFixed} USDC</strong></div>
+                <div><span>Mode</span><strong>{feeFormData.platformMode}</strong></div>
+                <div><span>Naira method</span><strong>{feeFormData.nairaPaymentMethod}</strong></div>
+              </div>
+              <div className="modal-actions">
+                <button className="button secondary" onClick={() => setShowConfirmModal(false)} disabled={savingFees}>Cancel</button>
+                <button className="button primary" onClick={handleSaveFees} disabled={savingFees}>
+                  {savingFees ? "Saving" : "Confirm"}
                 </button>
               </div>
-              <div className="fee-column">
-                <h3>Provider status</h3>
-                <div className="detail-stack">
-                  {(paymentProviderStatus?.providers || []).map((provider) => (
-                    <div className="detail-row" key={provider.provider}>
-                      <span>{provider.label}</span>
-                      <strong>{provider.implemented ? (provider.configured ? "Configured" : "Needs env") : "Not implemented"}</strong>
-                    </div>
-                  ))}
-                </div>
-                <div className="detail-note">Existing escrows stay on the provider that created their payment reference. Fallback is disabled until both active and backup providers pass live bank-transfer tests.</div>
-              </div>
             </div>
           </div>
+        )}
 
-          <div className="surface">
-            <div className="section-head">
-              <h2>Fee Preview</h2>
-              <span>sample</span>
-            </div>
-            <div className="preview-list">
-              <div className="preview-row">
-                <span>Naira on 50,000</span>
-                <strong>{money.format(calculateFee(50000, feeFormData.nairaFeePercent, feeFormData.nairaFeeFixed))} NGN</strong>
-              </div>
-              <div className="preview-row">
-                <span>USDC on 1,000</span>
-                <strong>{money.format(calculateFee(1000, feeFormData.usdcFeePercent, feeFormData.usdcFeeFixed))} USDC</strong>
-              </div>
-              <div className="preview-row">
-                <span>Last update</span>
-                <strong>{formatTime(feeSettings?.updatedAt)}</strong>
-              </div>
-              <div className="preview-row"><span>New user cap</span><strong>NGN {money.format(feeFormData.nairaNewUserLimit)}</strong></div>
-              <div className="preview-row"><span>Special approval max</span><strong>NGN {money.format(feeFormData.nairaSpecialApprovalLimit)}</strong></div>
-              <div className="preview-row"><span>Platform exposure cap</span><strong>NGN {money.format(feeFormData.nairaPlatformActiveExposureLimit)}</strong></div>
-            </div>
-          </div>
-
-          <div className="surface audit-surface">
-            <div className="section-head">
-              <h2>Audit Trail</h2>
-              <span>{auditHistory.length} entries</span>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Setting</th>
-                    <th>Changed by</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditHistory.map((record) => (
-                    <tr key={record.id}>
-                      <td>{formatTime(record.changedAt)}</td>
-                      <td>{record.settingName}</td>
-                      <td>{record.changedBy}</td>
-                    </tr>
-                  ))}
-                  {auditHistory.length === 0 && (
-                    <tr><td colSpan={3} className="empty-cell">No audit records</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {activeTab === "auth" && (
-        <section className="surface auth-surface">
-          <div className="section-head">
-            <h2>Admin Auth</h2>
-            <span>Telegram session and activity</span>
-          </div>
-          <div className="auth-grid">
-            <div className="surface auth-card">
-              <h3>Authentication Status</h3>
-              <div className="detail-row"><span>Backend auth base</span><strong>{adminAuthBase.replace(/^https?:\/\//, "")}</strong></div>
-              <div className="detail-row"><span>Logged in</span><strong>{adminKey ? "Yes" : "No"}</strong></div>
-              <div className="detail-row"><span>Auth method</span><strong>{adminKey ? (isJwtToken(adminKey) ? "Telegram JWT" : "Legacy static key") : "Not authenticated"}</strong></div>
-              {adminKey && isJwtToken(adminKey) ? (
-                (() => {
-                  const payload = decodeJwtPayload(adminKey);
-                  return payload ? (
-                    <>
-                      <div className="detail-row"><span>Admin</span><strong>{authIdentity?.adminUsername || payload.adminUsername || payload.adminIdentifier || payload.sub || "admin"}</strong></div>
-                      <div className="detail-row"><span>Expires</span><strong>{payload.exp ? new Date(payload.exp * 1000).toLocaleString() : "unknown"}</strong></div>
-                    </>
-                  ) : null;
-                })()
-              ) : null}
-              <div className="button-group">
-                <button className="button primary full" onClick={requestTelegramToken} disabled={loading}>
-                  Request Telegram token
-                </button>
-                <button className="button secondary full" onClick={clearAdminKey}>
-                  Logout / Clear session
-                </button>
-              </div>
-            </div>
-
-            <div className="surface auth-card">
-              <h3>Activity & metrics</h3>
-              {authError && <div className="error-banner">{authError}</div>}
-              {!adminKey ? (
-                <p className="muted">Sign in with Telegram first to view activity.</p>
-              ) : !isJwtToken(adminKey) ? (
-                <p className="muted">Admin metrics require a Telegram JWT. Legacy admin key mode has limited visibility.</p>
-              ) : authLoading ? (
-                <p className="muted">Loading session activity…</p>
-              ) : (
-                <>
-                  <button className="button secondary full" onClick={loadAuthServiceInfo} disabled={authLoading}>
-                    Refresh auth activity
-                  </button>
-                  {authStats ? (
-                    <div className="preview-list" style={{ marginTop: 16 }}>
-                      <div className="preview-row"><span>Current admin</span><strong>{authIdentity?.adminUsername || "-"}</strong></div>
-                      <div className="preview-row"><span>Total requests</span><strong>{authStats.total_requests ?? "-"}</strong></div>
-                      <div className="preview-row"><span>Successful verifications</span><strong>{authStats.successful_verifications ?? "-"}</strong></div>
-                      <div className="preview-row"><span>Failed verifications</span><strong>{authStats.failed_verifications ?? "-"}</strong></div>
-                      <div className="preview-row"><span>Telegram errors</span><strong>{authStats.telegram_errors ?? "-"}</strong></div>
-                      <div className="preview-row"><span>Unique admins</span><strong>{authStats.unique_admins ?? "-"}</strong></div>
-                      <div className="preview-row"><span>Unique IPs</span><strong>{authStats.unique_ips ?? "-"}</strong></div>
-                    </div>
-                  ) : (
-                    <p className="muted">No auth metrics available yet.</p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="surface auth-card">
-            <h3>Auth Audit</h3>
-            {authAuditEvents.length === 0 ? (
-              <p className="muted">No auth audit events to display.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Event</th>
-                      <th>Admin</th>
-                      <th>Status</th>
-                      <th>Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {authAuditEvents.map((event) => (
-                      <tr key={event.eventId}>
-                        <td>{formatTime(event.createdAt)}</td>
-                        <td>{event.eventType}</td>
-                        <td>{event.adminUsername || "-"}</td>
-                        <td>{event.status}</td>
-                        <td>{event.reason || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="surface auth-card">
-            <h3>Active Sessions</h3>
-            {authSessions.length === 0 ? (
-              <p className="muted">No active Telegram auth sessions to display.</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Admin</th>
-                      <th>Created</th>
-                      <th>Expires</th>
-                      <th>IP</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {authSessions.map((session) => (
-                      <tr key={session.sessionId}>
-                        <td>{session.adminIdentifier}</td>
-                        <td>{formatTime(session.createdAt)}</td>
-                        <td>{session.expiresAt ? formatTime(session.expiresAt) : "unknown"}</td>
-                        <td>{session.ip || "-"}</td>
-                        <td>
-                          <button className="button small" onClick={() => revokeAuthSession(session.sessionId)} disabled={authLoading}>
-                            Revoke
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {showConfirmModal && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <h2>Confirm Platform Update</h2>
-            <p className="muted">Platform controls take effect immediately for new customer actions.</p>
-            <div className="modal-summary">
-              <div><span>Naira</span><strong>{feeFormData.nairaFeePercent}% + {feeFormData.nairaFeeFixed} NGN</strong></div>
-              <div><span>USDC</span><strong>{feeFormData.usdcFeePercent}% + {feeFormData.usdcFeeFixed} USDC</strong></div>
-              <div><span>Mode</span><strong>{feeFormData.platformMode}</strong></div>
-              <div><span>Naira method</span><strong>{feeFormData.nairaPaymentMethod}</strong></div>
-            </div>
-            <div className="modal-actions">
-              <button className="button secondary" onClick={() => setShowConfirmModal(false)} disabled={savingFees}>Cancel</button>
-              <button className="button primary" onClick={handleSaveFees} disabled={savingFees}>
-                {savingFees ? "Saving" : "Confirm"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {payoutApproval && (
-        <div
-          className="modal-overlay"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !payoutApproval.submitting) {
-              setPayoutApproval(null);
-            }
-          }}
-        >
+        {payoutApproval && (
           <div
-            className="modal payout-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="payout-approval-title"
+            className="modal-overlay"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !payoutApproval.submitting) {
+                setPayoutApproval(null);
+              }
+            }}
           >
-            <div className="payout-modal-head">
-              <div>
-                <span className="eyebrow">Manual Payout Approval</span>
-                <h2 id="payout-approval-title">Record seller payout</h2>
-                <p className="muted">Confirm the bank transfer reference after paying the seller. The payout amount is locked to the escrow record.</p>
+            <div
+              className="modal payout-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="payout-approval-title"
+            >
+              <div className="payout-modal-head">
+                <div>
+                  <span className="eyebrow">Manual Payout Approval</span>
+                  <h2 id="payout-approval-title">Record seller payout</h2>
+                  <p className="muted">Confirm the bank transfer reference after paying the seller. The payout amount is locked to the escrow record.</p>
+                </div>
+                <span className={`status ${statusTone(payoutApproval.escrow.status)}`}>{payoutApproval.escrow.status}</span>
               </div>
-              <span className={`status ${statusTone(payoutApproval.escrow.status)}`}>{payoutApproval.escrow.status}</span>
-            </div>
 
-            <div className="payout-amount-band" aria-label="Seller net payout">
-              <span>Seller net payout</span>
-              <strong>{money.format(payoutApproval.quote.sellerNetAmount)} {payoutApproval.quote.currency}</strong>
-              <small>Amount source: {payoutApproval.quote.amountSource || "escrow_record"}</small>
-            </div>
+              <div className="payout-amount-band" aria-label="Seller net payout">
+                <span>Seller net payout</span>
+                <strong>{money.format(payoutApproval.quote.sellerNetAmount)} {payoutApproval.quote.currency}</strong>
+                <small>Amount source: {payoutApproval.quote.amountSource || "escrow_record"}</small>
+              </div>
 
-            <div className="modal-summary payout-summary">
-              <div><span>Escrow</span><strong>{payoutApproval.escrow.escrowId}</strong></div>
-              <div><span>Escrow amount</span><strong>{money.format(payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount)} {payoutApproval.quote.currency}</strong></div>
-              <div><span>Sivan fee paid by buyer</span><strong>{money.format(payoutApproval.quote.platformFeeAmount ?? 0)} {payoutApproval.quote.currency}</strong></div>
-              <div><span>Buyer total funded</span><strong>{money.format(((payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount) + (payoutApproval.quote.platformFeeAmount ?? 0)))} {payoutApproval.quote.currency}</strong></div>
-              <div><span>Seller</span><strong>{payoutApproval.escrow.sellerWhatsapp || payoutApproval.escrow.sellerUserId || "pending"}</strong></div>
-            </div>
+              <div className="modal-summary payout-summary">
+                <div><span>Escrow</span><strong>{payoutApproval.escrow.escrowId}</strong></div>
+                <div><span>Escrow amount</span><strong>{money.format(payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount)} {payoutApproval.quote.currency}</strong></div>
+                <div><span>Sivan fee paid by buyer</span><strong>{money.format(payoutApproval.quote.platformFeeAmount ?? 0)} {payoutApproval.quote.currency}</strong></div>
+                <div><span>Buyer total funded</span><strong>{money.format(((payoutApproval.quote.grossAmount ?? payoutApproval.escrow.amount) + (payoutApproval.quote.platformFeeAmount ?? 0)))} {payoutApproval.quote.currency}</strong></div>
+                <div><span>Seller</span><strong>{payoutApproval.escrow.sellerWhatsapp || payoutApproval.escrow.sellerUserId || "pending"}</strong></div>
+              </div>
 
-            <div className="payout-safety-note">
-              <strong>Safety check</strong>
-              <span>Enter only the Paystack, bank transfer, or provider payout reference. Do not enter or edit a payout amount.</span>
-            </div>
+              <div className="payout-safety-note">
+                <strong>Safety check</strong>
+                <span>Enter only the Paystack, bank transfer, or provider payout reference. Do not enter or edit a payout amount.</span>
+              </div>
 
-            <label className="field">
-              <span>Payout reference</span>
-              <input
-                type="text"
-                value={payoutApproval.manualPayoutReference}
-                onChange={(event) => setPayoutApproval((current) => current ? {
-                  ...current,
-                  manualPayoutReference: event.target.value,
-                  error: undefined,
-                } : current)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    submitPayoutApproval();
-                  }
-                  if (event.key === "Escape" && !payoutApproval.submitting) {
-                    setPayoutApproval(null);
-                  }
-                }}
-                autoComplete="off"
-                autoFocus
-                placeholder="e.g. TRF-20260611-001"
-              />
-            </label>
+              <label className="field">
+                <span>Payout reference</span>
+                <input
+                  type="text"
+                  value={payoutApproval.manualPayoutReference}
+                  onChange={(event) => setPayoutApproval((current) => current ? {
+                    ...current,
+                    manualPayoutReference: event.target.value,
+                    error: undefined,
+                  } : current)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitPayoutApproval();
+                    }
+                    if (event.key === "Escape" && !payoutApproval.submitting) {
+                      setPayoutApproval(null);
+                    }
+                  }}
+                  autoComplete="off"
+                  autoFocus
+                  placeholder="e.g. TRF-20260611-001"
+                />
+              </label>
 
-            <label className="field">
-              <span>Notes optional</span>
-              <textarea
-                rows={3}
-                value={payoutApproval.payoutNotes}
-                onChange={(event) => setPayoutApproval((current) => current ? {
-                  ...current,
-                  payoutNotes: event.target.value,
-                } : current)}
-                placeholder="Add operator context, if needed"
-              />
-            </label>
+              <label className="field">
+                <span>Notes optional</span>
+                <textarea
+                  rows={3}
+                  value={payoutApproval.payoutNotes}
+                  onChange={(event) => setPayoutApproval((current) => current ? {
+                    ...current,
+                    payoutNotes: event.target.value,
+                  } : current)}
+                  placeholder="Add operator context, if needed"
+                />
+              </label>
 
-            {payoutApproval.error && <div className="modal-error" role="alert">{payoutApproval.error}</div>}
+              {payoutApproval.error && <div className="modal-error" role="alert">{payoutApproval.error}</div>}
 
-            <div className="modal-actions">
-              <button className="button secondary" type="button" onClick={() => setPayoutApproval(null)} disabled={payoutApproval.submitting}>Cancel</button>
-              <button className="button primary" type="button" onClick={submitPayoutApproval} disabled={payoutApproval.submitting}>
-                {payoutApproval.submitting ? "Recording" : "Record payout"}
-              </button>
+              <div className="modal-actions">
+                <button className="button secondary" type="button" onClick={() => setPayoutApproval(null)} disabled={payoutApproval.submitting}>Cancel</button>
+                <button className="button primary" type="button" onClick={submitPayoutApproval} disabled={payoutApproval.submitting}>
+                  {payoutApproval.submitting ? "Recording" : "Record payout"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </main>
+        )}
+      </main>
+    </div>
   );
+}
+
+function getTabIcon(tab: Tab) {
+  switch (tab) {
+    case "escrows":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M16 10.5a2.5 2.5 0 0 0 0 5h5v-5z" />
+          <path d="M12 8v8" />
+        </svg>
+      );
+    case "limitReviews":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 10h12" />
+          <path d="M4 14h9" />
+          <circle cx="19" cy="10" r="3" />
+          <circle cx="16" cy="18" r="3" />
+        </svg>
+      );
+    case "disputes":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      );
+    case "payout":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="m9 11 2 2 4-4" />
+        </svg>
+      );
+    case "revenue":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+      );
+    case "risk":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      );
+    case "audit":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+      );
+    case "ops":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+      );
+    case "support":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+      );
+    case "tasks":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 11 12 14 22 4" />
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+      );
+    case "webhooks":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="18" cy="5" r="3" />
+          <circle cx="6" cy="12" r="3" />
+          <circle cx="18" cy="19" r="3" />
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+        </svg>
+      );
+    case "fees":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      );
+    case "auth":
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      );
+  }
 }
 
 export default App;
