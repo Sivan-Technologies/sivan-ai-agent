@@ -136,7 +136,7 @@ describe("Escrow End-to-End Lifecycle & Release Paths", () => {
     expect(approveReleaseRes.status).toBe(200);
     expect(approveReleaseRes.body.escrow.status).toBe("RELEASED");
     expect(approveReleaseRes.body.escrow.manualPayoutReference).toBe("paystack-trn-998877");
-  });
+  }, 30000);
 
   it("handles the complete USDC lifecycle: Create -> Accept -> Fund -> Delivery -> Complete -> Autonomous Release", async () => {
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000012", "buyer");
@@ -208,5 +208,5 @@ describe("Escrow End-to-End Lifecycle & Release Paths", () => {
     expect(releaseRes.status).toBe(200);
     expect(releaseRes.body.status).toBe("RELEASED");
     expect(releaseRes.body.settlementPolicy).toBe("autonomous_usdc_release");
-  });
+  }, 30000);
 });

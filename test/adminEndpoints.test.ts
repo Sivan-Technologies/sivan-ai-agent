@@ -5,7 +5,7 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-admin-settings.db");
 process.env.ADMIN_API_KEY = "test-admin-key";
-process.env.CORE_API_SECRET = "test-core-key";
+process.env.CORE_API_SECRET = "test-core-secret";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
@@ -164,7 +164,7 @@ describe("Admin Settings API Integration", () => {
   it("should enforce the configured new-user Naira escrow limit", async () => {
     const res = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         buyerWhatsapp: "whatsapp:+2348000000101",
         sellerWhatsapp: "whatsapp:+2348000000102",
@@ -210,7 +210,7 @@ describe("Admin Settings API Integration", () => {
 
     const normal = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-normal-1",
         buyerWhatsapp: "whatsapp:+2348000000201",
@@ -224,7 +224,7 @@ describe("Admin Settings API Integration", () => {
 
     const exposureBlocked = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-exposure-1",
         buyerWhatsapp: "whatsapp:+2348000000201",
@@ -248,7 +248,7 @@ describe("Admin Settings API Integration", () => {
 
     const tierBlocked = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-tier-reject-1",
         buyerWhatsapp: "whatsapp:+2348000000211",
@@ -263,7 +263,7 @@ describe("Admin Settings API Integration", () => {
 
     const repeated = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-tier-reject-1",
         buyerWhatsapp: "whatsapp:+2348000000211",
@@ -427,7 +427,7 @@ describe("Admin Settings API Integration", () => {
 
     const customerRequest = await request(app)
       .post("/api/users/profile")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         whatsappNumber: "whatsapp:+2348000000991",
         firstName: "Mode",
@@ -599,7 +599,7 @@ describe("Admin Settings API Integration", () => {
   it("should allow escrow participants to submit dispute evidence through the core API", async () => {
     const created = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         buyerWhatsapp: "whatsapp:+2348000000001",
         sellerWhatsapp: "whatsapp:+2348000000002",
@@ -613,14 +613,14 @@ describe("Admin Settings API Integration", () => {
 
     const disputed = await request(app)
       .post(`/api/escrows/${escrowId}/dispute`)
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({ actorWhatsapp: "whatsapp:+2348000000001", reason: "Testing participant evidence" });
     expect(disputed.status).toBe(200);
     expect(disputed.body.status).toBe("DISPUTED");
 
     const evidence = await request(app)
       .post(`/api/escrows/${escrowId}/dispute/evidence`)
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         actorWhatsapp: "whatsapp:+2348000000001",
         evidenceType: "message",
@@ -632,7 +632,7 @@ describe("Admin Settings API Integration", () => {
 
     const outsider = await request(app)
       .post(`/api/escrows/${escrowId}/dispute/evidence`)
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         actorWhatsapp: "whatsapp:+2348000000999",
         evidenceType: "message",
@@ -642,7 +642,7 @@ describe("Admin Settings API Integration", () => {
   });
 
   it("should let the funded seller submit delivery proof without external links", async () => {
-    const headers = { "x-core-api-key": "test-core-key" };
+    const headers = { "x-core-api-key": "test-core-secret" };
     const suffix = Date.now().toString().slice(-6);
     const buyerWhatsapp = `whatsapp:+23480${suffix}31`;
     const sellerWhatsapp = "whatsapp:+2348000000902";
@@ -759,7 +759,7 @@ describe("Admin Settings API Integration", () => {
   });
 
   it("should enforce escrow-derived manual payout approval with accounting and audit proof", async () => {
-    const headers = { "x-core-api-key": "test-core-key" };
+    const headers = { "x-core-api-key": "test-core-secret" };
     const adminHeaders = { "x-admin-key": "test-admin-key" };
     const buyerWhatsapp = "whatsapp:+2348000000901";
     const sellerWhatsapp = "whatsapp:+2348000000902";

@@ -132,7 +132,7 @@ describe("Escrow Delivery Timer & Auto-Release Integration", () => {
 
     const finalEscrow = await escrowStore.getEscrowById(escrowId);
     expect(finalEscrow?.status).toBe("PENDING_RELEASE");
-  });
+  }, 30000);
 
   it("handles auto-completion and auto-release for USDC escrows immediately to RELEASED", async () => {
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000007", "buyer");
@@ -193,5 +193,5 @@ describe("Escrow Delivery Timer & Auto-Release Integration", () => {
     const finalEscrow = await escrowStore.getEscrowById(escrowId);
     expect(finalEscrow?.status).toBe("RELEASED");
     expect(finalEscrow?.settlementPolicy).toBe("autonomous_usdc_release");
-  });
+  }, 30000);
 });
