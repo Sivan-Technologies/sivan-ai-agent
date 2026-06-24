@@ -174,6 +174,15 @@ export class PaystackPaymentProvider implements PaymentProvider {
   public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
     const paymentReference = String(payload?.data?.reference || "").trim();
     const eventType = String(payload?.event || "unknown").trim();
+    if (!paymentReference && (eventType === "ping" || eventType === "test" || eventType.toLowerCase().includes("ping"))) {
+      return {
+        provider: this.id,
+        eventId: `${this.id}:${eventType}:ping`,
+        eventType,
+        paymentReference: "ping",
+        raw: payload,
+      };
+    }
     if (!paymentReference) throw new Error("Paystack webhook payload is missing payment reference");
     return {
       provider: this.id,
@@ -238,6 +247,15 @@ export class MonnifyPaymentProvider implements PaymentProvider {
       ""
     ).trim();
     const transactionReference = String(data.transactionReference || "").trim();
+    if (!paymentReference && (eventType === "ping" || eventType === "test" || eventType.toLowerCase().includes("ping"))) {
+      return {
+        provider: this.id,
+        eventId: `${this.id}:${eventType}:ping`,
+        eventType,
+        paymentReference: "ping",
+        raw: payload,
+      };
+    }
     if (!paymentReference) throw new Error("Monnify webhook payload is missing payment reference");
     return {
       provider: this.id,
