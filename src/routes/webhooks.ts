@@ -214,7 +214,14 @@ router.post("/webhooks/monnify", async (req, res) => {
       return res.status(400).send({ error: "Invalid webhook signature" });
     }
 
-    const normalizedWebhook = monnifyPaymentProvider.normalizeWebhook(req.body);
+    let normalizedWebhook;
+    try {
+      normalizedWebhook = monnifyPaymentProvider.normalizeWebhook(req.body);
+    } catch (err: any) {
+      capturePaymentWarning("Invalid Monnify webhook payload: " + err.message, { path: req.path });
+      return res.status(400).send({ error: err.message });
+    }
+
     normalizedPaymentReference = normalizedWebhook.paymentReference;
     info("Monnify webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
     await workflowStore.addWebhookEvent(
@@ -334,7 +341,14 @@ router.post("/webhooks/flutterwave", async (req, res) => {
       return res.status(400).send({ error: "Invalid webhook signature" });
     }
 
-    const normalizedWebhook = flutterwavePaymentProvider.normalizeWebhook(req.body);
+    let normalizedWebhook;
+    try {
+      normalizedWebhook = flutterwavePaymentProvider.normalizeWebhook(req.body);
+    } catch (err: any) {
+      capturePaymentWarning("Invalid Flutterwave webhook payload: " + err.message, { path: req.path });
+      return res.status(400).send({ error: err.message });
+    }
+
     normalizedPaymentReference = normalizedWebhook.paymentReference;
     info("Flutterwave webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
     await workflowStore.addWebhookEvent(

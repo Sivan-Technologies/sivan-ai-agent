@@ -295,11 +295,21 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   }
 
   public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
-    const eventType = String(payload?.type || payload?.event || "unknown").trim();
+    const eventType = String(payload?.type || payload?.event || payload?.["event.type"] || "unknown").trim();
     const data = payload?.data || {};
-    const paymentReference = String(data.reference || data.tx_ref || "").trim();
-    const chargeId = String(data.id || "").trim();
-    if (!paymentReference) throw new Error("Flutterwave webhook payload is missing payment reference");
+    const paymentReference = String(
+      data.tx_ref ||
+      data.txRef ||
+      data.reference ||
+      payload?.tx_ref ||
+      payload?.txRef ||
+      payload?.reference ||
+      ""
+    ).trim();
+    const chargeId = String(data.id || payload?.id || "").trim();
+    if (!paymentReference) {
+      throw new Error("Flutterwave webhook payload is missing payment reference");
+    }
     return {
       provider: this.id,
       eventId: String(payload?.webhook_id || `${this.id}:${eventType}:${paymentReference}:${chargeId || "none"}`),
