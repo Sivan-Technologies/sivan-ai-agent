@@ -218,16 +218,13 @@ describe("MonnifyPaymentProvider", () => {
 });
 
 describe("FlutterwavePaymentProvider", () => {
-  it("initializes dynamic bank-transfer-only Flutterwave virtual accounts", async () => {
+  it("initializes dynamic bank-transfer-only Flutterwave payments via checkout link", async () => {
     (config.flutterwave as any).paymentMethods = ["bank_transfer"];
     const client = {
       initializeBankTransferPayment: vi.fn().mockResolvedValue({
         paymentReference: "flutterwave-SIV-300",
-        transactionReference: "van_300",
-        accountNumber: "4032866864",
-        accountName: "Please make a bank transfer to Sivan Buyer",
-        bankName: "WEMA BANK",
-        expiresAt: "2026-06-11T11:40:00Z",
+        transactionReference: "flutterwave-SIV-300",
+        authorizationUrl: "https://checkout-v2.dev-flutterwave.com/v3/hosted/pay/57ca14f7a6b07296b623",
         expiresInSeconds: 3600,
         raw: { ok: true },
       }),
@@ -245,9 +242,8 @@ describe("FlutterwavePaymentProvider", () => {
       provider: "flutterwave",
       status: "pending",
       paymentReference: "flutterwave-SIV-300",
-      transactionReference: "van_300",
-      accountNumber: "4032866864",
-      bankName: "WEMA BANK",
+      transactionReference: "flutterwave-SIV-300",
+      authorizationUrl: "https://checkout-v2.dev-flutterwave.com/v3/hosted/pay/57ca14f7a6b07296b623",
       expiresInSeconds: 3600,
     });
   });
