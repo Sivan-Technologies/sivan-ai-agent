@@ -587,8 +587,6 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "released_by", "TEXT");
     this.ensureSqliteColumn("escrows", "released_at", "TEXT");
     this.ensureSqliteColumn("escrows", "client_request_id", "TEXT");
-    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
-    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
     this.ensureSqliteColumn("escrows", "received_amount", "REAL");
     this.ensureSqliteColumn("escrows", "delivered_at", "TEXT");
     this.ensureSqliteColumn("escrows", "inspection_expires_at", "TEXT");
@@ -600,6 +598,9 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
     this.ensureSqliteColumn("transactions", "processor_fee", "REAL");
+
+    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
+    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
   }
 
   private ensureSqliteColumn(table: string, column: string, definition: string) {
@@ -631,8 +632,6 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "client_request_id", "TEXT");
-      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
-      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
       await this.ensurePostgresColumn("escrows", "received_amount", "DOUBLE PRECISION");
       await this.ensurePostgresColumn("escrows", "delivered_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "inspection_expires_at", "TEXT");
@@ -644,6 +643,9 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
       await this.ensurePostgresColumn("transactions", "processor_fee", "DOUBLE PRECISION");
+
+      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
+      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
     }
     this.initialized = true;
   }
