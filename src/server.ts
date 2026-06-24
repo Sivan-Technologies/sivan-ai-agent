@@ -49,8 +49,11 @@ function hasValidStaticServiceAuth(req: express.Request) {
   );
 }
 
-const corsOrigin = process.env.FRONTEND_URL || "*";
-app.use(cors({ origin: corsOrigin }));
+const corsOrigin = process.env.FRONTEND_URL;
+if (!corsOrigin && process.env.NODE_ENV === "production") {
+  throw new Error("FRONTEND_URL must be specified in production; CORS wildcard is disabled.");
+}
+app.use(cors({ origin: corsOrigin || "*" }));
 
 // Basic rate limiting to protect public endpoints.
 const limiter = rateLimit({
