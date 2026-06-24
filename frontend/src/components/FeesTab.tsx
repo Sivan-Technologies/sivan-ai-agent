@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FeeSettings, PaymentProviderStatus, AuditRecord } from "../types";
 import { money, formatTime } from "../utils";
 
@@ -51,8 +52,29 @@ export function FeesTab({
   handleSavePaymentProviders,
   auditHistory,
 }: FeesTabProps) {
-  const calculateFeeLocal = (amount: number, feePercent: number, feeFixed: number) => {
-    return Math.round(((amount * feePercent) / 100) * 100) / 100 + feeFixed;
+  const [previewAmount, setPreviewAmount] = useState<number>(50000);
+
+  const calculateNairaFeeLocal = (amount: number) => {
+    if (feeFormData.nairaFeeModel === "tiered") {
+      try {
+        const tiers = JSON.parse(feeFormData.nairaFeeTiers);
+        if (Array.isArray(tiers)) {
+          const tier = tiers.find((t: any) => t.max === null || amount <= t.max);
+          if (tier) {
+            if (tier.fee !== undefined) return tier.fee;
+            if (tier.rate !== undefined) return Math.round((amount * tier.rate) / 100);
+          }
+        }
+      } catch (err) {
+        // fallback
+      }
+    }
+    return Math.round(((amount * feeFormData.nairaFeePercent) / 100) * 100) / 100 + feeFormData.nairaFeeFixed;
+  };
+
+  const calculateUSDCFeeLocal = (amount: number) => {
+    const percentFee = parseFloat((amount * (feeFormData.usdcFeePercent / 100)).toFixed(6));
+    return parseFloat((percentFee + feeFormData.usdcFeeFixed).toFixed(6));
   };
 
   return (
@@ -69,15 +91,83 @@ export function FeesTab({
           <div className="fee-column">
             <h3>Naira</h3>
             <label className="field">
-              <span>Percentage</span>
-              <input type="number" step="0.1" min="0" max="50" value={feeFormData.nairaFeePercent}
-                onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeePercent: Number(event.target.value) })} />
+              <span>Fee Model</span>
+              <select
+                value={feeFormData.nairaFeeModel}
+                onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeeModel: event.target.value as "simple" | "tiered" })}
+              >
+                <option value="simple">Simple Mode (Percent + Fixed)</option>
+                <option value="tiered">Structured Mode (Tiers)</option>
+              </select>
             </label>
-            <label className="field">
-              <span>Fixed fee</span>
-              <input type="number" step="1" min="0" value={feeFormData.nairaFeeFixed}
-                onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeeFixed: Number(event.target.value) })} />
-            </label>
+
+            {feeFormData.nairaFeeModel === "simple" ? (
+              <>
+                <label className="field">
+                  <span>Percentage</span>
+                  <input type="number" step="0.1" min="0" max="50" value={feeFormData.nairaFeePercent}
+                    onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeePercent: Number(event.target.value) })} />
+                </label>
+                <label className="field">
+                  <span>Fixed fee</span>
+                  <input type="number" step="1" min="0" value={feeFormData.nairaFeeFixed}
+                    onChange={(event) => setFeeFormData({ ...feeFormData, nairaFeeFixed: Number(event.target.value) })} />
+                </label>
+              </>
+            ) : (
+              <div className="tiered-settings-container" style={{ marginTop: 12 }}>
+                <span className="field-label" style={{ display: "block", marginBottom: 8, fontSize: 13, fontWeight: 500, color: "var(--foreground-muted)" }}>Structured Tiers (NGN)</span>
+                <table className="tiered-table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", fontSize: 11, color: "var(--foreground-muted)", borderBottom: "1px solid var(--border)" }}>
+                      <th style={{ paddingBottom: 6 }}>Max Amount</th>
+                      <th style={{ paddingBottom: 6 }}>Flat Fee / % Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      try {
+                        const tiers = JSON.parse(feeFormData.nairaFeeTiers);
+                        if (!Array.isArray(tiers)) return null;
+                        return tiers.map((tier: any, index: number) => {
+                          const isFlat = tier.fee !== undefined;
+                          const label = tier.max === null ? "Above 100k (or fallback)" : `Up to ${tier.max.toLocaleString()} NGN`;
+                          return (
+                            <tr key={index} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                              <td style={{ fontSize: 12, padding: "8px 0" }}>{label}</td>
+                              <td style={{ padding: "8px 0" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                  <input
+                                    type="number"
+                                    step={isFlat ? "50" : "0.05"}
+                                    min="0"
+                                    value={isFlat ? (tier.fee ?? 0) : (tier.rate ?? 0)}
+                                    style={{ width: 80, padding: "2px 6px", fontSize: 12, border: "1px solid var(--border)", borderRadius: 4, background: "var(--background-card)", color: "var(--foreground)" }}
+                                    onChange={(event) => {
+                                      const val = Number(event.target.value);
+                                      const updated = [...tiers];
+                                      if (isFlat) {
+                                        updated[index] = { ...tier, fee: val };
+                                      } else {
+                                        updated[index] = { ...tier, rate: val };
+                                      }
+                                      setFeeFormData({ ...feeFormData, nairaFeeTiers: JSON.stringify(updated) });
+                                    }}
+                                  />
+                                  <span style={{ fontSize: 12 }}>{isFlat ? "NGN" : "%"}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      } catch {
+                        return <tr><td colSpan={2} style={{ color: "red", fontSize: 12 }}>Invalid tiers JSON format</td></tr>;
+                      }
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
           <div className="fee-column">
             <h3>USDC</h3>
@@ -239,17 +329,26 @@ export function FeesTab({
 
       <div className="surface">
         <div className="section-head">
-          <h2>Fee Preview</h2>
-          <span>sample</span>
+          <h2>Fee Calculator</h2>
+          <span>preview</span>
         </div>
         <div className="preview-list">
+          <label className="field" style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+            <span>Test amount to preview</span>
+            <input
+              type="number"
+              value={previewAmount}
+              onChange={(e) => setPreviewAmount(Number(e.target.value))}
+              placeholder="Enter amount..."
+            />
+          </label>
           <div className="preview-row">
-            <span>Naira on 50,000</span>
-            <strong>{money.format(calculateFeeLocal(50000, feeFormData.nairaFeePercent, feeFormData.nairaFeeFixed))} NGN</strong>
+            <span>Calculated Naira Fee</span>
+            <strong>{money.format(calculateNairaFeeLocal(previewAmount))} NGN</strong>
           </div>
           <div className="preview-row">
-            <span>USDC on 1,000</span>
-            <strong>{money.format(calculateFeeLocal(1000, feeFormData.usdcFeePercent, feeFormData.usdcFeeFixed))} USDC</strong>
+            <span>Calculated USDC Fee</span>
+            <strong>{money.format(calculateUSDCFeeLocal(previewAmount))} USDC</strong>
           </div>
           <div className="preview-row">
             <span>Last update</span>

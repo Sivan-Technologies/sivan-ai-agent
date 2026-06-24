@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { Pool } from "pg";
+import { AsyncLocalStorage } from "async_hooks";
 
 export type EscrowCurrency = "NAIRA" | "USDC";
 export type EscrowStatus =
@@ -12,6 +13,7 @@ export type EscrowStatus =
   | "PENDING_PAYMENT"
   | "FUNDED"
   | "IN_PROGRESS"
+  | "DELIVERED"
   | "COMPLETED"
   | "PENDING_RELEASE"
   | "RELEASED"
@@ -79,6 +81,8 @@ export interface EscrowRecord {
   paymentCheckedAt?: string;
   reconciliationFlags?: string[];
   releaseRequestedAt?: string;
+  deliveredAt?: string;
+  inspectionExpiresAt?: string;
   manualPayoutReference?: string;
   payoutNotes?: string;
   releasedBy?: string;
@@ -227,11 +231,32 @@ function maskAccountNumber(accountNumber?: string | null, last4?: string | null)
   return suffix ? `****${suffix}` : "****";
 }
 
+class Mutex {
+  private queue: Promise<void> = Promise.resolve();
+
+  public async acquire(): Promise<() => void> {
+    let release: () => void;
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = this.queue;
+    this.queue = next;
+    await current;
+    return release!;
+  }
+}
+
 export class EscrowStore {
   private provider: StoreProvider;
   private sqlite?: Database.Database;
-  private pool?: Pool;
+  private _pool?: Pool;
   private initialized = false;
+  private transactionStorage = new AsyncLocalStorage<any>();
+  private sqliteMutex = new Mutex();
+
+  private get pool(): Pool | undefined {
+    return this.transactionStorage.getStore() || this._pool;
+  }
 
   constructor(private databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
     if (!databaseUrl) throw new Error("DATABASE_URL is required for escrow persistence");
@@ -244,7 +269,7 @@ export class EscrowStore {
       this.initializeSchemaSync();
       this.initialized = true;
     } else {
-      this.pool = new Pool({
+      this._pool = new Pool({
         connectionString: databaseUrl,
         connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "5000"),
         query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "8000"),
@@ -317,6 +342,8 @@ export class EscrowStore {
       paymentCheckedAt: row.payment_checked_at || undefined,
       reconciliationFlags: row.reconciliation_flags ? JSON.parse(row.reconciliation_flags) : undefined,
       releaseRequestedAt: row.release_requested_at || undefined,
+      deliveredAt: row.delivered_at || undefined,
+      inspectionExpiresAt: row.inspection_expires_at || undefined,
       manualPayoutReference: row.manual_payout_reference || undefined,
       payoutNotes: row.payout_notes || undefined,
       releasedBy: row.released_by || undefined,
@@ -456,6 +483,8 @@ export class EscrowStore {
         payment_checked_at TEXT,
         reconciliation_flags TEXT,
         release_requested_at TEXT,
+        delivered_at TEXT,
+        inspection_expires_at TEXT,
         manual_payout_reference TEXT,
         payout_notes TEXT,
         released_by TEXT,
@@ -557,8 +586,9 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "released_by", "TEXT");
     this.ensureSqliteColumn("escrows", "released_at", "TEXT");
     this.ensureSqliteColumn("escrows", "client_request_id", "TEXT");
-    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
     this.ensureSqliteColumn("escrows", "received_amount", "REAL");
+    this.ensureSqliteColumn("escrows", "delivered_at", "TEXT");
+    this.ensureSqliteColumn("escrows", "inspection_expires_at", "TEXT");
     this.ensureSqliteColumn("escrows", "funding_expires_at", "TEXT");
     this.ensureSqliteColumn("escrows", "active_payment_expires_at", "TEXT");
     this.ensureSqliteColumn("escrows", "payment_regeneration_count", "INTEGER NOT NULL DEFAULT 0");
@@ -567,6 +597,9 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
     this.ensureSqliteColumn("transactions", "processor_fee", "REAL");
+
+    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
+    this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
   }
 
   private ensureSqliteColumn(table: string, column: string, definition: string) {
@@ -598,8 +631,9 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "client_request_id", "TEXT");
-      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
       await this.ensurePostgresColumn("escrows", "received_amount", "DOUBLE PRECISION");
+      await this.ensurePostgresColumn("escrows", "delivered_at", "TEXT");
+      await this.ensurePostgresColumn("escrows", "inspection_expires_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "funding_expires_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "active_payment_expires_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "payment_regeneration_count", "INTEGER NOT NULL DEFAULT 0");
@@ -608,12 +642,57 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
       await this.ensurePostgresColumn("transactions", "processor_fee", "DOUBLE PRECISION");
+
+      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
+      await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
     }
     this.initialized = true;
   }
 
   private async ensurePostgresColumn(table: string, column: string, definition: string) {
     await this.pool!.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
+  }
+
+  public async runTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      const release = await this.sqliteMutex.acquire();
+      const inTx = this.sqlite!.inTransaction;
+      if (!inTx) {
+        this.sqlite!.exec("BEGIN TRANSACTION");
+      }
+      try {
+        const result = await fn();
+        if (!inTx) {
+          this.sqlite!.exec("COMMIT");
+        }
+        return result;
+      } catch (error) {
+        if (!inTx) {
+          this.sqlite!.exec("ROLLBACK");
+        }
+        throw error;
+      } finally {
+        release();
+      }
+    } else {
+      const existingClient = this.transactionStorage.getStore();
+      if (existingClient) {
+        return await fn();
+      }
+      const client = await this._pool!.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await this.transactionStorage.run(client, () => fn());
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
   }
 
   private migrateSqlitePayoutAccountNumbers() {
@@ -1231,161 +1310,169 @@ export class EscrowStore {
   }
 
   public async acceptEscrow(escrowId: string, sellerWhatsapp: string): Promise<EscrowRecord> {
-    const escrow = await this.getEscrowById(escrowId);
-    if (!escrow) throw new Error("Escrow not found");
-    if (escrow.sellerWhatsapp && escrow.sellerWhatsapp !== sellerWhatsapp) {
-      throw new Error("Only the invited seller can accept this escrow");
-    }
-    if (!["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status)) {
-      return escrow;
-    }
+    return this.runTransaction(async () => {
+      const escrow = await this.getEscrowById(escrowId);
+      if (!escrow) throw new Error("Escrow not found");
+      if (escrow.sellerWhatsapp && escrow.sellerWhatsapp !== sellerWhatsapp) {
+        throw new Error("Only the invited seller can accept this escrow");
+      }
+      if (!["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status)) {
+        return escrow;
+      }
 
-    await this.transitionEscrow(escrowId, "PENDING_PAYMENT", {
-      actor: sellerWhatsapp,
-      actorRole: "seller",
-      channel: "whatsapp_dm",
-      eventType: "seller_accepted",
-      reason: "Seller accepted escrow invitation",
+      await this.transitionEscrow(escrowId, "PENDING_PAYMENT", {
+        actor: sellerWhatsapp,
+        actorRole: "seller",
+        channel: "whatsapp_dm",
+        eventType: "seller_accepted",
+        reason: "Seller accepted escrow invitation",
+      });
+      return (await this.getEscrowById(escrowId))!;
     });
-    return (await this.getEscrowById(escrowId))!;
   }
+
 
   public async markFundedByPaymentReference(paymentReference: string, metadata?: any): Promise<EscrowRecord | null> {
-    await this.initializeSchema();
-    const escrow = await this.findEscrowByPaymentReference(paymentReference);
-    if (!escrow) return null;
-    if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status)) return escrow;
+    return this.runTransaction(async () => {
+      const escrow = await this.findEscrowByPaymentReference(paymentReference);
+      if (!escrow) return null;
+      if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status)) return escrow;
 
-    await this.recordPaymentReconciliation(escrow.escrowId, {
-      receivedAmount: metadata?.amount,
-      providerPaymentStatus: metadata?.status || "success",
-      reconciliationFlags: [],
+      await this.recordPaymentReconciliation(escrow.escrowId, {
+        receivedAmount: metadata?.amount,
+        providerPaymentStatus: metadata?.status || "success",
+        reconciliationFlags: [],
+      });
+      await this.transitionEscrow(escrow.escrowId, "IN_PROGRESS", {
+        actor: metadata?.provider || escrow.paymentProvider || "payment_provider",
+        actorRole: "payment_provider",
+        channel: "webhook",
+        eventType: "payment_verified",
+        reason: paymentReference,
+        metadata,
+      });
+      await this.updateTransactionStatus(paymentReference, "success", metadata, metadata?.processorFee);
+      await this.addLedgerEntry({
+        escrowId: escrow.escrowId,
+        entryType: "funding",
+        debitAccount: escrow.currency === "NAIRA"
+          ? `buyer_payment_${metadata?.provider || escrow.paymentProvider || "provider"}`
+          : "buyer_payment_x402",
+        creditAccount: "escrow_liability",
+        amount: metadata?.amount || escrow.amount,
+        currency: escrow.currency,
+        providerReference: paymentReference,
+      });
+      return this.getEscrowById(escrow.escrowId);
     });
-    await this.transitionEscrow(escrow.escrowId, "IN_PROGRESS", {
-      actor: metadata?.provider || escrow.paymentProvider || "payment_provider",
-      actorRole: "payment_provider",
-      channel: "webhook",
-      eventType: "payment_verified",
-      reason: paymentReference,
-      metadata,
-    });
-    await this.updateTransactionStatus(paymentReference, "success", metadata, metadata?.processorFee);
-    await this.addLedgerEntry({
-      escrowId: escrow.escrowId,
-      entryType: "funding",
-      debitAccount: escrow.currency === "NAIRA"
-        ? `buyer_payment_${metadata?.provider || escrow.paymentProvider || "provider"}`
-        : "buyer_payment_x402",
-      creditAccount: "escrow_liability",
-      amount: metadata?.amount || escrow.amount,
-      currency: escrow.currency,
-      providerReference: paymentReference,
-    });
-    return this.getEscrowById(escrow.escrowId);
   }
 
-  public async expirePendingPaymentIfDue(escrowId: string, now = new Date()): Promise<EscrowRecord | null> {
-    const escrow = await this.getEscrowById(escrowId);
-    if (!escrow) return null;
-    if (escrow.status !== "PENDING_PAYMENT") return escrow;
 
-    const fundingExpiresAt = escrow.fundingExpiresAt ? new Date(escrow.fundingExpiresAt) : null;
-    if (fundingExpiresAt && !Number.isNaN(fundingExpiresAt.getTime()) && fundingExpiresAt.getTime() <= now.getTime()) {
-      if (escrow.paymentReference) {
-        await this.updateTransactionStatus(escrow.paymentReference, "expired", {
-          reason: "escrow_funding_window_expired",
-          fundingExpiresAt: fundingExpiresAt.toISOString(),
+  public async expirePendingPaymentIfDue(escrowId: string, now = new Date()): Promise<EscrowRecord | null> {
+    return this.runTransaction(async () => {
+      const escrow = await this.getEscrowById(escrowId);
+      if (!escrow) return null;
+      if (escrow.status !== "PENDING_PAYMENT") return escrow;
+
+      const fundingExpiresAt = escrow.fundingExpiresAt ? new Date(escrow.fundingExpiresAt) : null;
+      if (fundingExpiresAt && !Number.isNaN(fundingExpiresAt.getTime()) && fundingExpiresAt.getTime() <= now.getTime()) {
+        if (escrow.paymentReference) {
+          await this.updateTransactionStatus(escrow.paymentReference, "expired", {
+            reason: "escrow_funding_window_expired",
+            fundingExpiresAt: fundingExpiresAt.toISOString(),
+          });
+        }
+        await this.transitionEscrow(escrowId, "EXPIRED", {
+          actor: "system",
+          actorRole: "system",
+          channel: "api",
+          eventType: "escrow_funding_expired",
+          reason: escrow.paymentReference || escrowId,
+          metadata: {
+            paymentReference: escrow.paymentReference || null,
+            paymentProvider: escrow.paymentProvider || null,
+            fundingExpiresAt: fundingExpiresAt.toISOString(),
+          },
         });
+        return this.getEscrowById(escrowId);
       }
-      await this.transitionEscrow(escrowId, "EXPIRED", {
-        actor: "system",
-        actorRole: "system",
+
+      if (!escrow.paymentReference) return escrow;
+
+      const transactions = await this.listTransactions(escrowId);
+      const funding = transactions.find((transaction) =>
+        transaction.transactionType === "funding" &&
+        transaction.reference === escrow.paymentReference &&
+        transaction.status === "pending"
+      );
+      if (!funding?.rawPayload) return escrow;
+
+      let metadata: any = {};
+      try {
+        metadata = JSON.parse(funding.rawPayload);
+      } catch {
+        metadata = {};
+      }
+
+      const expiresAtValue =
+        escrow.activePaymentExpiresAt ||
+        metadata.expiresAt ||
+        metadata.expires_at ||
+        metadata.raw?.expiresAt ||
+        metadata.raw?.account_expiration_datetime ||
+        metadata.raw?.virtualAccount?.data?.account_expiration_datetime;
+      const expiresInSeconds = Number(metadata.expiresInSeconds || metadata.expires_in_seconds || 0);
+      const expiresAt = expiresAtValue
+        ? new Date(expiresAtValue)
+        : expiresInSeconds > 0
+        ? new Date(new Date(funding.createdAt).getTime() + expiresInSeconds * 1000)
+        : null;
+
+      if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() > now.getTime()) {
+        return escrow;
+      }
+
+      await this.updateTransactionStatus(escrow.paymentReference, "expired", {
+        reason: "payment_instruction_expired",
+        expiresAt: expiresAt.toISOString(),
+      });
+
+      const updatedAt = new Date().toISOString();
+      if (this.provider === "sqlite") {
+        this.sqlite!.prepare(`
+          UPDATE escrows
+          SET payment_reference = NULL,
+              payment_authorization_url = NULL,
+              active_payment_expires_at = NULL,
+              updated_at = @updatedAt
+          WHERE escrow_id = @escrowId
+        `).run({ escrowId, updatedAt });
+      } else {
+        await this.pool!.query(
+          `UPDATE escrows SET payment_reference = NULL, payment_authorization_url = NULL, active_payment_expires_at = NULL, updated_at = $1 WHERE escrow_id = $2`,
+          [updatedAt, escrowId]
+        );
+      }
+
+      await this.addEvent({
+        escrowId,
+        actor: escrow.paymentProvider || "payment_provider",
+        actorRole: "payment_provider",
         channel: "api",
-        eventType: "escrow_funding_expired",
-        reason: escrow.paymentReference || escrowId,
+        eventType: "payment_expired",
+        previousStatus: "PENDING_PAYMENT",
+        nextStatus: "PENDING_PAYMENT",
+        reason: escrow.paymentReference,
         metadata: {
-          paymentReference: escrow.paymentReference || null,
+          paymentReference: escrow.paymentReference,
           paymentProvider: escrow.paymentProvider || null,
-          fundingExpiresAt: fundingExpiresAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
         },
       });
       return this.getEscrowById(escrowId);
-    }
-
-    if (!escrow.paymentReference) return escrow;
-
-    const transactions = await this.listTransactions(escrowId);
-    const funding = transactions.find((transaction) =>
-      transaction.transactionType === "funding" &&
-      transaction.reference === escrow.paymentReference &&
-      transaction.status === "pending"
-    );
-    if (!funding?.rawPayload) return escrow;
-
-    let metadata: any = {};
-    try {
-      metadata = JSON.parse(funding.rawPayload);
-    } catch {
-      metadata = {};
-    }
-
-    const expiresAtValue =
-      escrow.activePaymentExpiresAt ||
-      metadata.expiresAt ||
-      metadata.expires_at ||
-      metadata.raw?.expiresAt ||
-      metadata.raw?.account_expiration_datetime ||
-      metadata.raw?.virtualAccount?.data?.account_expiration_datetime;
-    const expiresInSeconds = Number(metadata.expiresInSeconds || metadata.expires_in_seconds || 0);
-    const expiresAt = expiresAtValue
-      ? new Date(expiresAtValue)
-      : expiresInSeconds > 0
-      ? new Date(new Date(funding.createdAt).getTime() + expiresInSeconds * 1000)
-      : null;
-
-    if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() > now.getTime()) {
-      return escrow;
-    }
-
-    await this.updateTransactionStatus(escrow.paymentReference, "expired", {
-      reason: "payment_instruction_expired",
-      expiresAt: expiresAt.toISOString(),
     });
-
-    const updatedAt = new Date().toISOString();
-    if (this.provider === "sqlite") {
-      this.sqlite!.prepare(`
-        UPDATE escrows
-        SET payment_reference = NULL,
-            payment_authorization_url = NULL,
-            active_payment_expires_at = NULL,
-            updated_at = @updatedAt
-        WHERE escrow_id = @escrowId
-      `).run({ escrowId, updatedAt });
-    } else {
-      await this.pool!.query(
-        `UPDATE escrows SET payment_reference = NULL, payment_authorization_url = NULL, active_payment_expires_at = NULL, updated_at = $1 WHERE escrow_id = $2`,
-        [updatedAt, escrowId]
-      );
-    }
-
-    await this.addEvent({
-      escrowId,
-      actor: escrow.paymentProvider || "payment_provider",
-      actorRole: "payment_provider",
-      channel: "api",
-      eventType: "payment_expired",
-      previousStatus: "PENDING_PAYMENT",
-      nextStatus: "PENDING_PAYMENT",
-      reason: escrow.paymentReference,
-      metadata: {
-        paymentReference: escrow.paymentReference,
-        paymentProvider: escrow.paymentProvider || null,
-        expiresAt: expiresAt.toISOString(),
-      },
-    });
-    return this.getEscrowById(escrowId);
   }
+
 
   public async markPaymentReminderSent(escrowId: string, when = new Date().toISOString()) {
     await this.initializeSchema();
@@ -1592,135 +1679,183 @@ export class EscrowStore {
   }
 
   public async completeEscrow(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
-    const escrow = await this.getEscrowById(escrowId);
-    if (!escrow) throw new Error("Escrow not found");
-    await this.assertBuyerActor(escrow, actor);
-    if (!["IN_PROGRESS", "FUNDED"].includes(escrow.status)) {
-      throw new Error(`Escrow cannot be completed from ${escrow.status}`);
-    }
+    return this.runTransaction(async () => {
+      const escrow = await this.getEscrowById(escrowId);
+      if (!escrow) throw new Error("Escrow not found");
+      await this.assertBuyerActor(escrow, actor);
+      if (!["IN_PROGRESS", "FUNDED", "DELIVERED"].includes(escrow.status)) {
+        throw new Error(`Escrow cannot be completed from ${escrow.status}`);
+      }
 
-    await this.transitionEscrow(escrowId, "COMPLETED", {
-      actor,
-      actorRole: "buyer",
-      channel,
-      eventType: "buyer_completed",
-      reason: "Buyer confirmed work is complete",
+      await this.transitionEscrow(escrowId, "COMPLETED", {
+        actor,
+        actorRole: "buyer",
+        channel,
+        eventType: "buyer_completed",
+        reason: "Buyer confirmed work is complete",
+      });
+      return (await this.getEscrowById(escrowId))!;
     });
-    return (await this.getEscrowById(escrowId))!;
   }
+
+
+  public async markDelivered(escrowId: string, actor: string, channel: string, summary: string, metadata: string): Promise<EscrowRecord> {
+    return this.runTransaction(async () => {
+      const escrow = await this.getEscrowById(escrowId);
+      if (!escrow) throw new Error("Escrow not found");
+      if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+        throw new Error(`Escrow cannot be marked delivered from status ${escrow.status}`);
+      }
+      const deliveredAt = new Date().toISOString();
+      const inspectionDays = Number(process.env.DELIVERY_INSPECTION_WINDOW_DAYS || "3");
+      const inspectionExpiresAt = new Date(Date.now() + inspectionDays * 24 * 60 * 60 * 1000).toISOString();
+
+      await this.transitionEscrow(escrowId, "DELIVERED", {
+        actor,
+        actorRole: "seller",
+        channel,
+        eventType: "seller_delivery_proof_recorded",
+        reason: summary,
+        metadata,
+      });
+
+      if (this.provider === "sqlite") {
+        this.sqlite!.prepare(`
+          UPDATE escrows
+          SET delivered_at = @deliveredAt,
+              inspection_expires_at = @inspectionExpiresAt,
+              updated_at = @deliveredAt
+          WHERE escrow_id = @escrowId
+        `).run({ escrowId, deliveredAt, inspectionExpiresAt });
+      } else {
+        await this.pool!.query(
+          `UPDATE escrows SET delivered_at = $1, inspection_expires_at = $2, updated_at = $1 WHERE escrow_id = $3`,
+          [deliveredAt, inspectionExpiresAt, escrowId]
+        );
+      }
+      return (await this.getEscrowById(escrowId))!;
+    });
+  }
+
 
   public async cancelUnfundedEscrow(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
-    const escrow = await this.getEscrowById(escrowId);
-    if (!escrow) throw new Error("Escrow not found");
-    await this.assertBuyerActor(escrow, actor);
-    if (escrow.status === "CANCELLED") return escrow;
-    if (!["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) {
-      throw new Error(`Escrow cannot be cancelled from ${escrow.status}. Open a dispute or request a refund if funds were received.`);
-    }
-    if (escrow.receivedAmount || ["success", "sandbox_success"].includes(escrow.providerPaymentStatus || "")) {
-      throw new Error("Funded escrow cannot be cancelled. Open a dispute or request a refund.");
-    }
+    return this.runTransaction(async () => {
+      const escrow = await this.getEscrowById(escrowId);
+      if (!escrow) throw new Error("Escrow not found");
+      await this.assertBuyerActor(escrow, actor);
+      if (escrow.status === "CANCELLED") return escrow;
+      if (!["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) {
+        throw new Error(`Escrow cannot be cancelled from ${escrow.status}. Open a dispute or request a refund if funds were received.`);
+      }
+      if (escrow.receivedAmount || ["success", "sandbox_success"].includes(escrow.providerPaymentStatus || "")) {
+        throw new Error("Funded escrow cannot be cancelled. Open a dispute or request a refund.");
+      }
 
-    await this.transitionEscrow(escrowId, "CANCELLED", {
-      actor,
-      actorRole: "buyer",
-      channel,
-      eventType: "buyer_cancelled_unfunded",
-      reason: "Buyer cancelled escrow before funding",
-    });
-    if (escrow.paymentReference) {
-      await this.updateTransactionStatus(escrow.paymentReference, "cancelled", {
-        reason: "buyer_cancelled_unfunded",
+      await this.transitionEscrow(escrowId, "CANCELLED", {
+        actor,
+        actorRole: "buyer",
+        channel,
+        eventType: "buyer_cancelled_unfunded",
+        reason: "Buyer cancelled escrow before funding",
       });
-    }
-    return (await this.getEscrowById(escrowId))!;
+      if (escrow.paymentReference) {
+        await this.updateTransactionStatus(escrow.paymentReference, "cancelled", {
+          reason: "buyer_cancelled_unfunded",
+        });
+      }
+      return (await this.getEscrowById(escrowId))!;
+    });
   }
 
+
   public async approveManualRelease(escrowId: string, adminUser: string, options: ManualReleaseOptions): Promise<EscrowRecord> {
-    const escrow = await this.getEscrowById(escrowId);
-    if (!escrow) throw new Error("Escrow not found");
-    if (!options.manualPayoutReference?.trim()) throw new Error("Manual payout reference is required");
-    const grossAmount = options.grossAmount ?? escrow.amount;
-    const platformFeeAmount = Math.max(0, options.platformFeeAmount ?? 0);
-    const sellerNetAmount = Math.max(0, options.sellerNetAmount ?? grossAmount);
-    if (grossAmount !== escrow.amount) {
-      throw new Error("Release gross amount must match the escrow amount");
-    }
-    if (sellerNetAmount > grossAmount) {
-      throw new Error("Seller net payout cannot exceed escrow amount");
-    }
-    if (escrow.currency === "NAIRA" && escrow.status !== "PENDING_RELEASE") {
-      throw new Error("Naira escrow must be pending release before admin approval");
-    }
-    if (escrow.currency === "NAIRA" && escrow.sellerUserId) {
-      const payout = await this.getPayoutAccount(escrow.sellerUserId);
-      if (!payout || payout.verificationStatus !== "verified") {
-        throw new Error("Seller payout account must be verified before payout approval");
+    return this.runTransaction(async () => {
+      const escrow = await this.getEscrowById(escrowId);
+      if (!escrow) throw new Error("Escrow not found");
+      if (!options.manualPayoutReference?.trim()) throw new Error("Manual payout reference is required");
+      const grossAmount = options.grossAmount ?? escrow.amount;
+      const platformFeeAmount = Math.max(0, options.platformFeeAmount ?? 0);
+      const sellerNetAmount = Math.max(0, options.sellerNetAmount ?? grossAmount);
+      if (grossAmount !== escrow.amount) {
+        throw new Error("Release gross amount must match the escrow amount");
       }
-      if (!payoutNameMatchAcceptable(payout)) {
-        throw new Error("Seller payout account name match must be strong or medium before payout approval");
+      if (sellerNetAmount > grossAmount) {
+        throw new Error("Seller net payout cannot exceed escrow amount");
       }
-      if (payout.sharedAccountFlag) {
-        throw new Error("Shared payout account requires compliance review before payout approval");
+      if (escrow.currency === "NAIRA" && escrow.status !== "PENDING_RELEASE") {
+        throw new Error("Naira escrow must be pending release before admin approval");
       }
-    }
-    await this.transitionEscrow(escrowId, "RELEASED", {
-      actor: adminUser,
-      actorRole: "admin",
-      channel: "admin",
-      eventType: "manual_release_approved",
-      reason: escrow.currency === "NAIRA" ? `Manual payout approved: ${options.manualPayoutReference}` : "Admin release approved",
-      metadata: {
-        manualPayoutReference: options.manualPayoutReference,
-        payoutNotes: options.payoutNotes || null,
-        grossAmount,
-        platformFeeAmount,
-        sellerNetAmount,
-        amountSource: "escrow_record",
-      },
-    });
-    await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
-    const transactionId = await this.addTransaction({
-      escrowId,
-      provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
-      transactionType: "release",
-      status: escrow.currency === "NAIRA" ? "manual_approved" : "released",
-      amount: sellerNetAmount,
-      currency: escrow.currency,
-      reference: options.manualPayoutReference,
-      rawPayload: JSON.stringify({
-        paymentReference: escrow.paymentReference,
-        payoutNotes: options.payoutNotes || null,
-        grossAmount,
-        platformFeeAmount,
-        sellerNetAmount,
-        amountSource: "escrow_record",
-      }),
-    });
-    await this.addLedgerEntry({
-      escrowId,
-      transactionId,
-      entryType: "release",
-      debitAccount: "escrow_liability",
-      creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
-      amount: sellerNetAmount,
-      currency: escrow.currency,
-      providerReference: options.manualPayoutReference,
-    });
-    if (platformFeeAmount > 0) {
+      if (escrow.currency === "NAIRA" && escrow.sellerUserId) {
+        const payout = await this.getPayoutAccount(escrow.sellerUserId);
+        if (!payout || payout.verificationStatus !== "verified") {
+          throw new Error("Seller payout account must be verified before payout approval");
+        }
+        if (!payoutNameMatchAcceptable(payout)) {
+          throw new Error("Seller payout account name match must be strong or medium before payout approval");
+        }
+        if (payout.sharedAccountFlag) {
+          throw new Error("Shared payout account requires compliance review before payout approval");
+        }
+      }
+      await this.transitionEscrow(escrowId, "RELEASED", {
+        actor: adminUser,
+        actorRole: "admin",
+        channel: "admin",
+        eventType: "manual_release_approved",
+        reason: escrow.currency === "NAIRA" ? `Manual payout approved: ${options.manualPayoutReference}` : "Admin release approved",
+        metadata: {
+          manualPayoutReference: options.manualPayoutReference,
+          payoutNotes: options.payoutNotes || null,
+          grossAmount,
+          platformFeeAmount,
+          sellerNetAmount,
+          amountSource: "escrow_record",
+        },
+      });
+      await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
+      const transactionId = await this.addTransaction({
+        escrowId,
+        provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
+        transactionType: "release",
+        status: escrow.currency === "NAIRA" ? "manual_approved" : "released",
+        amount: sellerNetAmount,
+        currency: escrow.currency,
+        reference: options.manualPayoutReference,
+        rawPayload: JSON.stringify({
+          paymentReference: escrow.paymentReference,
+          payoutNotes: options.payoutNotes || null,
+          grossAmount,
+          platformFeeAmount,
+          sellerNetAmount,
+          amountSource: "escrow_record",
+        }),
+      });
       await this.addLedgerEntry({
         escrowId,
         transactionId,
-        entryType: "fee",
+        entryType: "release",
         debitAccount: "escrow_liability",
-        creditAccount: "platform_fee_revenue",
-        amount: platformFeeAmount,
+        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+        amount: sellerNetAmount,
         currency: escrow.currency,
         providerReference: options.manualPayoutReference,
       });
-    }
-    return (await this.getEscrowById(escrowId))!;
+      if (platformFeeAmount > 0) {
+        await this.addLedgerEntry({
+          escrowId,
+          transactionId,
+          entryType: "fee",
+          debitAccount: "escrow_liability",
+          creditAccount: "platform_fee_revenue",
+          amount: platformFeeAmount,
+          currency: escrow.currency,
+          providerReference: options.manualPayoutReference,
+        });
+      }
+      return (await this.getEscrowById(escrowId))!;
+    });
   }
+
 
   private async recordPayoutReconciliation(escrowId: string, releasedBy: string, manualPayoutReference: string, payoutNotes?: string): Promise<void> {
     await this.initializeSchema();
@@ -1842,6 +1977,7 @@ export class EscrowStore {
   }
 
   private async assertBuyerActor(escrow: EscrowRecord, actor: string): Promise<void> {
+    if (actor === "system-sweep") return;
     const buyer = await this.getUserById(escrow.buyerUserId);
     if (!buyer || buyer.whatsappNumber !== actor) {
       throw new Error("Only the buyer can perform this escrow action");
@@ -1954,6 +2090,18 @@ export class EscrowStore {
     const result = await this.pool!.query(`SELECT * FROM escrows ORDER BY created_at DESC LIMIT $1`, [limit]);
     return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
   }
+
+  public async listEscrowsByStatus(status: EscrowStatus, limit = 100): Promise<EscrowRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM escrows WHERE status = @status ORDER BY created_at DESC LIMIT @limit`)
+        .all({ status, limit })
+        .map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+    }
+    const result = await this.pool!.query(`SELECT * FROM escrows WHERE status = $1 ORDER BY created_at DESC LIMIT $2`, [status, limit]);
+    return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+  }
+
 
   public async listEscrowsForWhatsapp(whatsappNumber: string, limit = 20): Promise<EscrowRecord[]> {
     await this.initializeSchema();

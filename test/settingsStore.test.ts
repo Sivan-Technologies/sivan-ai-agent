@@ -140,4 +140,59 @@ describe("SettingsStore", () => {
     expect(fee.totalWithFee).toBe(1015.5);
     expect(fee.recipientNet).toBe(1000);
   });
+
+  it("calculates tiered Naira fees and toggles models", async () => {
+    const settings = await settingsStore.getSettings();
+
+    // Toggle model to tiered
+    const updated = await settingsStore.updateSettings(settingsUpdate({
+      nairaFeeModel: "tiered",
+      expectedVersion: settings.version,
+    }));
+    expect(updated.nairaFeeModel).toBe("tiered");
+
+    // Test tier 1 flat fee (5,000 NGN -> 500 NGN)
+    const fee1 = settingsStore.calculateNairaFee(5000, updated);
+    expect(fee1.totalPlatformFee).toBe(500);
+    expect(fee1.platformFeeFixed).toBe(500);
+    expect(fee1.platformFeePercent).toBe(0);
+
+    // Test tier 2 flat fee (15,000 NGN -> 900 NGN)
+    const fee2 = settingsStore.calculateNairaFee(15000, updated);
+    expect(fee2.totalPlatformFee).toBe(900);
+
+    // Test tier 3 flat fee (22,000 NGN -> 1,000 NGN)
+    const fee3 = settingsStore.calculateNairaFee(22000, updated);
+    expect(fee3.totalPlatformFee).toBe(1000);
+
+    // Test tier 4 percentage fee (40,000 NGN -> 3.75% -> 1,500 NGN)
+    const fee4 = settingsStore.calculateNairaFee(40000, updated);
+    expect(fee4.totalPlatformFee).toBe(1500);
+    expect(fee4.platformFeePercent).toBe(1500);
+    expect(fee4.platformFeeFixed).toBe(0);
+
+    // Test tier 5 percentage fee (80,000 NGN -> 3.5% -> 2,800 NGN)
+    const fee5 = settingsStore.calculateNairaFee(80000, updated);
+    expect(fee5.totalPlatformFee).toBe(2800);
+
+    // Test fallback / above 100k (200,000 NGN -> 3.5% -> 7,000 NGN)
+    const fee6 = settingsStore.calculateNairaFee(200000, updated);
+    expect(fee6.totalPlatformFee).toBe(7000);
+  });
+
+  it("validates invalid tiered Naira configurations", async () => {
+    const settings = await settingsStore.getSettings();
+
+    // Invalid JSON
+    await expect(settingsStore.updateSettings(settingsUpdate({
+      nairaFeeTiers: "{invalid}",
+      expectedVersion: settings.version,
+    }))).rejects.toThrow(/valid JSON array/i);
+
+    // Empty array/non-array
+    await expect(settingsStore.updateSettings(settingsUpdate({
+      nairaFeeTiers: '"not-array"',
+      expectedVersion: settings.version,
+    }))).rejects.toThrow(/valid JSON array/i);
+  });
 });

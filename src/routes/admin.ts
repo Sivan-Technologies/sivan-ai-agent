@@ -452,6 +452,8 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       platformMode: updates.platformMode ?? current.platformMode,
       maintenanceMessage: updates.maintenanceMessage ?? current.maintenanceMessage,
       nairaPaymentMethod: "bank_transfer",
+      nairaFeeModel: updates.nairaFeeModel ?? current.nairaFeeModel,
+      nairaFeeTiers: updates.nairaFeeTiers ?? current.nairaFeeTiers,
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });

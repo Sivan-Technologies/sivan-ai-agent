@@ -174,6 +174,15 @@ export class PaystackPaymentProvider implements PaymentProvider {
   public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
     const paymentReference = String(payload?.data?.reference || "").trim();
     const eventType = String(payload?.event || "unknown").trim();
+    if (!paymentReference && (eventType === "ping" || eventType === "test" || eventType.toLowerCase().includes("ping"))) {
+      return {
+        provider: this.id,
+        eventId: `${this.id}:${eventType}:ping`,
+        eventType,
+        paymentReference: "ping",
+        raw: payload,
+      };
+    }
     if (!paymentReference) throw new Error("Paystack webhook payload is missing payment reference");
     return {
       provider: this.id,
@@ -238,6 +247,15 @@ export class MonnifyPaymentProvider implements PaymentProvider {
       ""
     ).trim();
     const transactionReference = String(data.transactionReference || "").trim();
+    if (!paymentReference && (eventType === "ping" || eventType === "test" || eventType.toLowerCase().includes("ping"))) {
+      return {
+        provider: this.id,
+        eventId: `${this.id}:${eventType}:ping`,
+        eventType,
+        paymentReference: "ping",
+        raw: payload,
+      };
+    }
     if (!paymentReference) throw new Error("Monnify webhook payload is missing payment reference");
     return {
       provider: this.id,
@@ -295,11 +313,21 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   }
 
   public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
-    const eventType = String(payload?.type || payload?.event || "unknown").trim();
+    const eventType = String(payload?.type || payload?.event || payload?.["event.type"] || "unknown").trim();
     const data = payload?.data || {};
-    const paymentReference = String(data.reference || data.tx_ref || "").trim();
-    const chargeId = String(data.id || "").trim();
-    if (!paymentReference) throw new Error("Flutterwave webhook payload is missing payment reference");
+    const paymentReference = String(
+      data.tx_ref ||
+      data.txRef ||
+      data.reference ||
+      payload?.tx_ref ||
+      payload?.txRef ||
+      payload?.reference ||
+      ""
+    ).trim();
+    const chargeId = String(data.id || payload?.id || "").trim();
+    if (!paymentReference) {
+      throw new Error("Flutterwave webhook payload is missing payment reference");
+    }
     return {
       provider: this.id,
       eventId: String(payload?.webhook_id || `${this.id}:${eventType}:${paymentReference}:${chargeId || "none"}`),

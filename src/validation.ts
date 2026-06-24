@@ -138,6 +138,8 @@ export const adminSettingsSchema = z.object({
   platformMode: z.enum(["test", "live", "maintenance"]).optional(),
   maintenanceMessage: z.string().trim().min(10).max(500).optional(),
   nairaPaymentMethod: z.literal("bank_transfer").optional(),
+  nairaFeeModel: z.enum(["simple", "tiered"]).optional(),
+  nairaFeeTiers: z.string().optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 

@@ -114,6 +114,9 @@ router.post("/webhooks/paystack", async (req, res) => {
 
     const event = parsedEvent.data;
     const normalizedWebhook = paystackPaymentProvider.normalizeWebhook(event);
+    if (normalizedWebhook.paymentReference === "ping") {
+      return res.status(200).send({ status: "ping_received" });
+    }
     info("Paystack webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
 
     const paymentReference = normalizedWebhook.paymentReference;
@@ -214,7 +217,18 @@ router.post("/webhooks/monnify", async (req, res) => {
       return res.status(400).send({ error: "Invalid webhook signature" });
     }
 
-    const normalizedWebhook = monnifyPaymentProvider.normalizeWebhook(req.body);
+    let normalizedWebhook;
+    try {
+      normalizedWebhook = monnifyPaymentProvider.normalizeWebhook(req.body);
+    } catch (err: any) {
+      capturePaymentWarning("Invalid Monnify webhook payload: " + err.message, { path: req.path });
+      return res.status(400).send({ error: err.message });
+    }
+
+    if (normalizedWebhook.paymentReference === "ping") {
+      return res.status(200).send({ status: "ping_received" });
+    }
+
     normalizedPaymentReference = normalizedWebhook.paymentReference;
     info("Monnify webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
     await workflowStore.addWebhookEvent(
@@ -334,7 +348,18 @@ router.post("/webhooks/flutterwave", async (req, res) => {
       return res.status(400).send({ error: "Invalid webhook signature" });
     }
 
-    const normalizedWebhook = flutterwavePaymentProvider.normalizeWebhook(req.body);
+    let normalizedWebhook;
+    try {
+      normalizedWebhook = flutterwavePaymentProvider.normalizeWebhook(req.body);
+    } catch (err: any) {
+      capturePaymentWarning("Invalid Flutterwave webhook payload: " + err.message, { path: req.path });
+      return res.status(400).send({ error: err.message });
+    }
+
+    if (normalizedWebhook.paymentReference === "ping") {
+      return res.status(200).send({ status: "ping_received" });
+    }
+
     normalizedPaymentReference = normalizedWebhook.paymentReference;
     info("Flutterwave webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
     await workflowStore.addWebhookEvent(

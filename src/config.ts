@@ -119,6 +119,15 @@ export const config = {
 };
 
 export function validateConfig() {
+  if (config.app.env === "production") {
+    if (config.app.databaseProvider === "sqlite") {
+      throw new Error("SQLite database provider is not allowed in production. Sivan requires PostgreSQL.");
+    }
+    if (config.app.databaseUrl.includes("/tmp/") || config.app.databaseUrl.includes("/temp/")) {
+      throw new Error("Database URL cannot point to temporary/ephemeral storage (/tmp) in production to prevent data loss.");
+    }
+  }
+
   if (process.env.PAYOUT_VERIFICATION_TEST_MODE === "true") {
     if (!config.paystack.secretKey.startsWith("sk_test_")) {
       throw new Error("PAYOUT_VERIFICATION_TEST_MODE requires a Paystack sk_test_ secret key");

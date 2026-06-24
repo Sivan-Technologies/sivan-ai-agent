@@ -105,58 +105,64 @@ export class FlutterwaveClient {
     if (!this.isCollectionConfigured()) {
       throw new Error("Flutterwave collection credentials are not configured");
     }
-    assertNairaBankTransferOnly(config.nairaPayments.methods);
-    assertNairaBankTransferOnly(config.flutterwave.paymentMethods, "FLUTTERWAVE_PAYMENT_METHODS");
 
-    const expiresInSeconds = config.flutterwave.dynamicAccountExpirySeconds;
+    const optionsMap: Record<string, string> = {
+      bank_transfer: "banktransfer",
+      card: "card",
+      ussd: "ussd",
+    };
+    const paymentOptions = config.flutterwave.paymentMethods
+      .map((method) => optionsMap[method.toLowerCase().trim()] || method.toLowerCase().trim())
+      .join(",");
 
-    // Derive firstname/lastname from the synthetic email so the narration
-    // shown in the bank transfer is human-readable.
     const local = input.customerEmail.split("@")[0]?.replace(/[^a-zA-Z0-9]+/g, " ").trim() || "Sivan Buyer";
     const parts = local.split(/\s+/).filter(Boolean);
     const firstname = parts[0] || "Sivan";
     const lastname = parts.slice(1).join(" ") || "Buyer";
 
     const body: Record<string, unknown> = {
-      email: input.customerEmail,
+      tx_ref: input.paymentReference,
       amount: input.amount,
       currency: "NGN",
-      is_permanent: false,
-      tx_ref: input.paymentReference,
-      firstname,
-      lastname,
-      narration: input.paymentDescription,
+      redirect_url: input.redirectUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl,
+      payment_options: paymentOptions || "banktransfer",
+      customer: {
+        email: input.customerEmail,
+        name: `${firstname} ${lastname}`.trim(),
+      },
+      customizations: {
+        title: "Sivan Payments",
+        description: input.paymentDescription,
+      },
+      meta: input.metadata,
     };
 
     let response: any;
     try {
       const res = await axios.post(
-        `${this.baseUrl}/v3/virtual-account-numbers`,
+        `${this.baseUrl}/v3/payments`,
         body,
         { headers: this.authHeaders(), timeout: this.timeoutMs }
       );
       response = res.data;
     } catch (err) {
-      throw new Error(`Flutterwave virtual account creation failed: ${extractAxiosMessage(err)}`);
+      throw new Error(`Flutterwave hosted payment initialization failed: ${extractAxiosMessage(err)}`);
     }
 
     const data = response?.data;
-    if (response?.status !== "success" || !data?.account_number) {
+    if (response?.status !== "success" || !data?.link) {
       throw new Error(
         response?.message ||
         response?.error?.message ||
-        "Flutterwave virtual account creation returned no account number"
+        "Flutterwave hosted payment initialization returned no payment link"
       );
     }
 
     return {
-      paymentReference: data.tx_ref || input.paymentReference,
-      transactionReference: String(data.order_ref || data.flw_ref || input.paymentReference),
-      accountNumber: data.account_number,
-      accountName: data.account_name || "Sivan payment collection",
-      bankName: data.bank_name,
-      expiresAt: data.expiry_date || undefined,
-      expiresInSeconds,
+      paymentReference: input.paymentReference,
+      transactionReference: input.paymentReference,
+      authorizationUrl: data.link,
+      expiresInSeconds: config.flutterwave.dynamicAccountExpirySeconds,
       raw: response,
     };
   }

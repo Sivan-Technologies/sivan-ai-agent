@@ -126,6 +126,8 @@ function App() {
     platformMode: "test" as "test" | "live" | "maintenance",
     maintenanceMessage: "Sivan is temporarily under maintenance. Please try again soon.",
     nairaPaymentMethod: "bank_transfer" as const,
+    nairaFeeModel: "simple" as "simple" | "tiered",
+    nairaFeeTiers: "[]",
   });
 
   const [activeTab, setActiveTab] = useState<Tab>("escrows");
@@ -468,6 +470,8 @@ function App() {
       platformMode: data.platformMode || "test",
       maintenanceMessage: data.maintenanceMessage || "Sivan is temporarily under maintenance. Please try again soon.",
       nairaPaymentMethod: "bank_transfer",
+      nairaFeeModel: data.nairaFeeModel || "simple",
+      nairaFeeTiers: data.nairaFeeTiers || "[]",
     });
   };
 
@@ -588,6 +592,14 @@ function App() {
     setFeeSuccess(null);
 
     try {
+      if (feeFormData.nairaFeeModel === "tiered") {
+        try {
+          const parsed = JSON.parse(feeFormData.nairaFeeTiers);
+          if (!Array.isArray(parsed) || parsed.length === 0) throw new Error();
+        } catch {
+          throw new Error("Naira fee tiers must be a valid, non-empty JSON list.");
+        }
+      }
       if (feeFormData.nairaFeePercent < 0 || feeFormData.nairaFeePercent > 50 || feeFormData.nairaFeeFixed < 0) {
         throw new Error("Naira fees must stay within approved bounds.");
       }

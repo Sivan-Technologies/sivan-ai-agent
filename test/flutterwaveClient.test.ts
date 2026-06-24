@@ -24,25 +24,13 @@ describe("FlutterwaveClient", () => {
     (config.nairaPayments as any).methods = ["bank_transfer"];
   });
 
-  it("creates a v3 virtual account via the single-call POST /v3/virtual-account-numbers endpoint", async () => {
-    // Flutterwave v3 creates the virtual account in one call (no separate customer step).
+  it("initializes a hosted payment page via the POST /v3/payments endpoint", async () => {
     mockedAxios.post.mockResolvedValueOnce({
       data: {
         status: "success",
-        message: "Virtual account created",
+        message: "Hosted payment page initialized",
         data: {
-          response_code: "02",
-          response_message: "Transaction fetched successfully",
-          flw_ref: "FLW-MOCK-REF-001",
-          order_ref: "URF_1719072000_001",
-          account_number: "4032866864",
-          account_name: "Sivan - Sivan Buyer",
-          frequency: 1,
-          bank_name: "WEMA BANK",
-          created_at: "2026-06-23 14:00:00",
-          expiry_date: "2026-06-23 15:00:00",
-          amount: 1500,
-          tx_ref: "flutterwave-SIV-100-abc12345",
+          link: "https://checkout-v2.dev-flutterwave.com/v3/hosted/pay/57ca14f7a6b07296b623",
         },
       },
     });
@@ -58,24 +46,28 @@ describe("FlutterwaveClient", () => {
 
     expect(result).toMatchObject({
       paymentReference: "flutterwave-SIV-100-abc12345",
-      accountNumber: "4032866864",
-      accountName: "Sivan - Sivan Buyer",
-      bankName: "WEMA BANK",
-      expiresAt: "2026-06-23 15:00:00",
+      transactionReference: "flutterwave-SIV-100-abc12345",
+      authorizationUrl: "https://checkout-v2.dev-flutterwave.com/v3/hosted/pay/57ca14f7a6b07296b623",
       expiresInSeconds: 3600,
     });
 
-    // Should call exactly ONE endpoint — no separate customer step.
+    // Should call exactly ONE endpoint.
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
     expect(mockedAxios.post).toHaveBeenCalledWith(
-      "https://api.flutterwave.com/v3/virtual-account-numbers",
+      "https://api.flutterwave.com/v3/payments",
       expect.objectContaining({
-        email: "buyer@example.com",
+        tx_ref: "flutterwave-SIV-100-abc12345",
         amount: 1500,
         currency: "NGN",
-        is_permanent: false,
-        tx_ref: "flutterwave-SIV-100-abc12345",
-        narration: "Sivan service agreement SIV-100",
+        payment_options: "banktransfer",
+        customer: expect.objectContaining({
+          email: "buyer@example.com",
+          name: "buyer Buyer",
+        }),
+        customizations: expect.objectContaining({
+          title: "Sivan Payments",
+          description: "Sivan service agreement SIV-100",
+        }),
       }),
       expect.objectContaining({
         headers: expect.objectContaining({
@@ -161,7 +153,7 @@ describe("FlutterwaveClient", () => {
     );
   });
 
-  it("fails closed instead of silently swallowing errors when the virtual-account API fails", async () => {
+  it("fails closed instead of silently swallowing errors when the payments API fails", async () => {
     const networkErr = Object.assign(new Error("Request failed with status code 400"), {
       response: {
         status: 400,
@@ -180,9 +172,8 @@ describe("FlutterwaveClient", () => {
         paymentDescription: "Sivan service agreement SIV-100",
         metadata: { escrowId: "SIV-100" },
       })
-    ).rejects.toThrow(/virtual account creation failed/i);
+    ).rejects.toThrow(/hosted payment initialization failed/i);
 
-    // Must NOT fall back to a hosted checkout — single endpoint, single call.
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
 });

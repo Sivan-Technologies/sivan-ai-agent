@@ -44,6 +44,8 @@ export type EscrowRecord = {
   paymentCheckedAt?: string;
   reconciliationFlags?: string[];
   releaseRequestedAt?: string;
+  deliveredAt?: string;
+  inspectionExpiresAt?: string;
   manualPayoutReference?: string;
   payoutNotes?: string;
   releasedBy?: string;
@@ -158,6 +160,8 @@ export type FeeSettings = {
   platformMode: "test" | "live" | "maintenance";
   maintenanceMessage: string;
   nairaPaymentMethod: "bank_transfer";
+  nairaFeeModel: "simple" | "tiered";
+  nairaFeeTiers: string;
   version: number;
   updatedAt: string;
   updatedBy: string;
