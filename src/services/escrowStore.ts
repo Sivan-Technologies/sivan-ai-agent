@@ -565,7 +565,6 @@ export class EscrowStore {
       CREATE INDEX IF NOT EXISTS idx_ledger_entries_escrow_id ON ledger_entries(escrow_id);
       CREATE INDEX IF NOT EXISTS idx_limit_reviews_status ON escrow_limit_reviews(status, created_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_reviews_client_request_id ON escrow_limit_reviews(client_request_id);
-      CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED';
     `;
   }
 
