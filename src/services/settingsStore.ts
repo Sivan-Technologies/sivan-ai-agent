@@ -24,6 +24,8 @@ export interface PlatformSettings {
   platformMode: "test" | "live" | "maintenance";
   maintenanceMessage: string;
   nairaPaymentMethod: "bank_transfer";
+  nairaFeeModel: "simple" | "tiered";
+  nairaFeeTiers: string;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -105,6 +107,15 @@ export class SettingsStore {
       platformMode: ["test", "live", "maintenance"].includes(row.platform_mode) ? row.platform_mode : (process.env.PLATFORM_MODE as any) || "test",
       maintenanceMessage: row.maintenance_message || process.env.MAINTENANCE_MESSAGE || "Sivan is temporarily under maintenance. Please try again soon.",
       nairaPaymentMethod: "bank_transfer",
+      nairaFeeModel: ["simple", "tiered"].includes(row.naira_fee_model) ? row.naira_fee_model : "simple",
+      nairaFeeTiers: row.naira_fee_tiers || JSON.stringify([
+        { max: 10000, fee: 500 },
+        { max: 20000, fee: 900 },
+        { max: 25000, fee: 1000 },
+        { max: 50000, rate: 3.75 },
+        { max: 100000, rate: 3.5 },
+        { max: null, rate: 3.5 }
+      ]),
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -130,6 +141,8 @@ export class SettingsStore {
         naira_fee_fixed REAL NOT NULL DEFAULT 50,
         usdc_fee_percent REAL NOT NULL DEFAULT 1.5,
         usdc_fee_fixed REAL NOT NULL DEFAULT 0.5,
+        naira_fee_model TEXT NOT NULL DEFAULT 'simple',
+        naira_fee_tiers TEXT NOT NULL DEFAULT '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]',
         version INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT NOT NULL,
         updated_by TEXT NOT NULL
@@ -168,6 +181,8 @@ export class SettingsStore {
       "platform_mode TEXT NOT NULL DEFAULT 'test'",
       "maintenance_message TEXT NOT NULL DEFAULT 'Sivan is temporarily under maintenance. Please try again soon.'",
       "naira_payment_method TEXT NOT NULL DEFAULT 'bank_transfer'",
+      "naira_fee_model TEXT NOT NULL DEFAULT 'simple'",
+      "naira_fee_tiers TEXT NOT NULL DEFAULT '[{\"max\":10000,\"fee\":500},{\"max\":20000,\"fee\":900},{\"max\":25000,\"fee\":1000},{\"max\":50000,\"rate\":3.75},{\"max\":100000,\"rate\":3.5},{\"max\":null,\"rate\":3.5}]'",
     ];
     for (const column of columns) {
       try {
@@ -187,13 +202,13 @@ export class SettingsStore {
           id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed,
           active_payment_provider, backup_payment_provider, emergency_payment_provider,
           payment_provider_fallback_enabled, platform_mode, maintenance_message,
-          naira_payment_method, version, updated_at, updated_by
+          naira_payment_method, naira_fee_model, naira_fee_tiers, version, updated_at, updated_by
         )
         VALUES (
           'default', 2.5, 50, 1.5, 0.5,
           @activePaymentProvider, @backupPaymentProvider, @emergencyPaymentProvider,
           @paymentProviderFallbackEnabled, @platformMode, @maintenanceMessage,
-          'bank_transfer', 1, @now, 'system'
+          'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', 1, @now, 'system'
         )
       `).run({
         now,
@@ -222,6 +237,8 @@ export class SettingsStore {
         naira_fee_fixed DOUBLE PRECISION NOT NULL DEFAULT 50,
         usdc_fee_percent DOUBLE PRECISION NOT NULL DEFAULT 1.5,
         usdc_fee_fixed DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+        naira_fee_model TEXT NOT NULL DEFAULT 'simple',
+        naira_fee_tiers TEXT NOT NULL DEFAULT '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]',
         version INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT NOT NULL,
         updated_by TEXT NOT NULL
@@ -254,6 +271,8 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS platform_mode TEXT NOT NULL DEFAULT 'test';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS maintenance_message TEXT NOT NULL DEFAULT 'Sivan is temporarily under maintenance. Please try again soon.';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_payment_method TEXT NOT NULL DEFAULT 'bank_transfer';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_fee_model TEXT NOT NULL DEFAULT 'simple';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_fee_tiers TEXT NOT NULL DEFAULT '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]';
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
@@ -263,9 +282,9 @@ export class SettingsStore {
           id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed,
           active_payment_provider, backup_payment_provider, emergency_payment_provider,
           payment_provider_fallback_enabled, platform_mode, maintenance_message,
-          naira_payment_method, version, updated_at, updated_by
+          naira_payment_method, naira_fee_model, naira_fee_tiers, version, updated_at, updated_by
         )
-         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 1, $7, 'system')`,
+         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', 1, $7, 'system')`,
         [
           process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
           process.env.BACKUP_PAYMENT_PROVIDER || "monnify",
@@ -309,6 +328,8 @@ export class SettingsStore {
     platformMode?: "test" | "live" | "maintenance";
     maintenanceMessage?: string;
     nairaPaymentMethod?: "bank_transfer";
+    nairaFeeModel?: "simple" | "tiered";
+    nairaFeeTiers?: string;
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
@@ -331,7 +352,24 @@ export class SettingsStore {
       platformMode: settings.platformMode ?? current.platformMode,
       maintenanceMessage: settings.maintenanceMessage ?? current.maintenanceMessage,
       nairaPaymentMethod: "bank_transfer",
+      nairaFeeModel: settings.nairaFeeModel ?? current.nairaFeeModel,
+      nairaFeeTiers: settings.nairaFeeTiers ?? current.nairaFeeTiers,
     };
+    if (resolved.nairaFeeModel !== "simple" && resolved.nairaFeeModel !== "tiered") {
+      throw new Error("Naira fee model must be simple or tiered");
+    }
+    try {
+      const parsed = JSON.parse(resolved.nairaFeeTiers);
+      if (!Array.isArray(parsed)) throw new Error();
+      for (const t of parsed) {
+        if (t.max !== null && (typeof t.max !== "number" || t.max <= 0)) throw new Error();
+        if (t.fee !== undefined && (typeof t.fee !== "number" || t.fee < 0)) throw new Error();
+        if (t.rate !== undefined && (typeof t.rate !== "number" || t.rate < 0 || t.rate > 50)) throw new Error();
+        if (t.fee === undefined && t.rate === undefined) throw new Error();
+      }
+    } catch {
+      throw new Error("Naira fee tiers must be a valid JSON array of tier configurations");
+    }
     if (resolved.nairaFeePercent < 0 || resolved.nairaFeePercent > 50) throw new Error("Naira fee percent must be between 0 and 50");
     if (resolved.nairaFeeFixed < 0) throw new Error("Naira fixed fee must be non-negative");
     if (resolved.usdcFeePercent < 0 || resolved.usdcFeePercent > 50) throw new Error("USDC fee percent must be between 0 and 50");
@@ -395,6 +433,8 @@ export class SettingsStore {
             platform_mode = @platformMode,
             maintenance_message = @maintenanceMessage,
             naira_payment_method = @nairaPaymentMethod,
+            naira_fee_model = @nairaFeeModel,
+            naira_fee_tiers = @nairaFeeTiers,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
@@ -423,10 +463,12 @@ export class SettingsStore {
              platform_mode = $17,
              maintenance_message = $18,
              naira_payment_method = $19,
-             version = $20,
-             updated_at = $21,
-             updated_by = $22
-         WHERE id = 'default' AND version = $23`,
+             naira_fee_model = $20,
+             naira_fee_tiers = $21,
+             version = $22,
+             updated_at = $23,
+             updated_by = $24
+         WHERE id = 'default' AND version = $25`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -447,6 +489,8 @@ export class SettingsStore {
           resolved.platformMode,
           resolved.maintenanceMessage,
           resolved.nairaPaymentMethod,
+          resolved.nairaFeeModel,
+          resolved.nairaFeeTiers,
           newVersion,
           now,
           resolved.updatedBy,
@@ -494,6 +538,41 @@ export class SettingsStore {
   }
 
   public calculateNairaFee(amount: number, settings: PlatformSettings): FeeCalculation {
+    if (settings.nairaFeeModel === "tiered") {
+      try {
+        const tiers = JSON.parse(settings.nairaFeeTiers);
+        if (Array.isArray(tiers)) {
+          const tier = tiers.find((t: any) => t.max === null || amount <= t.max);
+          if (tier) {
+            let totalFee = 0;
+            let platformFeePercent = 0;
+            let platformFeeFixed = 0;
+
+            if (tier.fee !== undefined) {
+              totalFee = tier.fee;
+              platformFeeFixed = tier.fee;
+              platformFeePercent = 0;
+            } else if (tier.rate !== undefined) {
+              totalFee = Math.round((amount * tier.rate) / 100);
+              platformFeePercent = totalFee;
+              platformFeeFixed = 0;
+            }
+
+            return {
+              subtotal: amount,
+              platformFeePercent,
+              platformFeeFixed,
+              totalPlatformFee: totalFee,
+              totalWithFee: amount + totalFee,
+              recipientNet: amount,
+            };
+          }
+        }
+      } catch (err) {
+        // Fallback to simple calculation below
+      }
+    }
+
     const percentFee = Math.round((amount * settings.nairaFeePercent) / 100);
     const totalFee = percentFee + settings.nairaFeeFixed;
     return {

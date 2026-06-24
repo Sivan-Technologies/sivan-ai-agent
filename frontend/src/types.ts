@@ -160,6 +160,8 @@ export type FeeSettings = {
   platformMode: "test" | "live" | "maintenance";
   maintenanceMessage: string;
   nairaPaymentMethod: "bank_transfer";
+  nairaFeeModel: "simple" | "tiered";
+  nairaFeeTiers: string;
   version: number;
   updatedAt: string;
   updatedBy: string;
