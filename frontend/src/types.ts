@@ -44,6 +44,8 @@ export type EscrowRecord = {
   paymentCheckedAt?: string;
   reconciliationFlags?: string[];
   releaseRequestedAt?: string;
+  deliveredAt?: string;
+  inspectionExpiresAt?: string;
   manualPayoutReference?: string;
   payoutNotes?: string;
   releasedBy?: string;

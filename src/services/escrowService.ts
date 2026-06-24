@@ -310,6 +310,7 @@ export function participantDealStatus(status: EscrowRecord["status"]) {
     PENDING_PAYMENT: "Waiting for buyer payment",
     FUNDED: "Payment confirmed",
     IN_PROGRESS: "Work in progress",
+    DELIVERED: "Work delivered",
     COMPLETED: "Completion awaiting confirmation",
     PENDING_RELEASE: "Completion confirmation under review",
     RELEASED: "Service completed",
@@ -330,10 +331,10 @@ export function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buy
   if (role === "seller" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE"].includes(escrow.status)) actions.add("accept");
   if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
   if (role === "buyer" && escrow.status === "PENDING_PAYMENT") actions.add("pay");
-  if (role === "buyer" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("complete");
+  if (role === "buyer" && ["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) actions.add("complete");
   if (role === "seller" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("deliver");
   if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
-  if (["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
+  if (["FUNDED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
   if (escrow.status === "DISPUTED") actions.add("evidence");
 
   return Array.from(actions);
@@ -541,24 +542,20 @@ export async function recordDeliveryProof(input: {
 }) {
   const { escrow, actorWhatsapp, summary, media, notifyBuyer } = input;
   const safeSummary = summary.trim() || "Seller submitted delivery proof";
-  await escrowStore.addEvent({
-    escrowId: escrow.escrowId,
-    actor: actorWhatsapp,
-    actorRole: "seller",
-    channel: "whatsapp_dm",
-    previousStatus: escrow.status,
-    nextStatus: escrow.status,
-    eventType: "seller_delivery_proof_recorded",
-    reason: safeSummary,
-    metadata: JSON.stringify({
+  const updated = await escrowStore.markDelivered(
+    escrow.escrowId,
+    actorWhatsapp,
+    "whatsapp_dm",
+    safeSummary,
+    JSON.stringify({
       summary: safeSummary,
       media,
       mediaCount: media.length,
       externalLinksAllowed: externalDeliveryLinksAllowed(),
-    }),
-  });
+    })
+  );
 
-  if (notifyBuyer) await notifyBuyerDeliverySubmitted(escrow, safeSummary);
+  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary);
   return buildEscrowDetail(escrow.escrowId);
 }
 
@@ -969,12 +966,50 @@ export async function reconcileEscrowPayment(
   return funded;
 }
 
-export async function runPaymentLifecycleSweep(limit = Number(process.env.PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE || "250")) {
-  const escrows = await escrowStore.listEscrows(limit);
-  const pending = escrows.filter((escrow) => escrow.status === "PENDING_PAYMENT");
-  await Promise.all(pending.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId)));
-  return { scanned: escrows.length, refreshed: pending.length };
+export async function checkInspectionExpirations() {
+  const delivered = await escrowStore.listEscrowsByStatus("DELIVERED", 250);
+  
+  let transitionedCount = 0;
+  const now = new Date().toISOString();
+  
+  for (const escrow of delivered) {
+    if (escrow.inspectionExpiresAt && now >= escrow.inspectionExpiresAt) {
+      try {
+        await escrowStore.completeEscrow(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
+        const updated = await escrowStore.requestRelease(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
+        await notifyEscrowParticipants(
+          updated,
+          participantLifecycleMessage(
+            updated,
+            "The inspection window has expired. Work has been automatically confirmed as completed.",
+            updated.status === "RELEASED"
+              ? "Autonomous USDC release executed successfully."
+              : "Payout request has been queued for manual review."
+          )
+        );
+        transitionedCount++;
+      } catch (err: any) {
+        capturePaymentWarning("Sweep failed to auto-complete delivered escrow", {
+          escrowId: escrow.escrowId,
+          error: err.message,
+        });
+      }
+    }
+  }
+  return transitionedCount;
 }
+
+export async function runPaymentLifecycleSweep(limit = Number(process.env.PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE || "250")) {
+  const pending = await escrowStore.listEscrowsByStatus("PENDING_PAYMENT", limit);
+  
+  const [refreshedCount, autoCompletedCount] = await Promise.all([
+    Promise.all(pending.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))).then((res) => res.length),
+    checkInspectionExpirations(),
+  ]);
+  
+  return { scanned: pending.length, refreshed: refreshedCount, autoCompleted: autoCompletedCount };
+}
+
 
 export async function buildDatabaseStatus() {
   const startedAt = Date.now();
