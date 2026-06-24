@@ -22,6 +22,8 @@ interface FeesTabProps {
     platformMode: "test" | "live" | "maintenance";
     maintenanceMessage: string;
     nairaPaymentMethod: "bank_transfer";
+    nairaFeeModel: "simple" | "tiered";
+    nairaFeeTiers: string;
   };
   setFeeFormData: (formData: any) => void;
   savingFees: boolean;
