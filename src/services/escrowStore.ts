@@ -58,6 +58,10 @@ export interface PayoutAccountRecord {
   updatedAt: string;
 }
 
+export type PayoutAccountTransferRecord = PayoutAccountRecord & {
+  accountNumberRaw: string;
+};
+
 export interface EscrowRecord {
   escrowId: string;
   clientRequestId?: string;
@@ -163,6 +167,7 @@ export interface ManualReleaseOptions {
   grossAmount?: number;
   platformFeeAmount?: number;
   sellerNetAmount?: number;
+  payoutProvider?: string;
 }
 
 function detectProvider(databaseUrl: string, provider?: string): StoreProvider {
@@ -988,6 +993,20 @@ export class EscrowStore {
     return this.mapPayout(result.rows[0]);
   }
 
+  public async getPayoutAccountForTransfer(userId: string): Promise<PayoutAccountTransferRecord | null> {
+    await this.initializeSchema();
+    const row = this.provider === "sqlite"
+      ? this.sqlite!.prepare(`SELECT * FROM payout_accounts WHERE user_id = @userId ORDER BY updated_at DESC LIMIT 1`).get({ userId }) as any
+      : (await this.pool!.query(`SELECT * FROM payout_accounts WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`, [userId])).rows[0];
+    const payout = this.mapPayout(row);
+    if (!row || !payout) return null;
+    const decrypted = decryptAccountNumber(row.account_number_encrypted);
+    const legacyRaw = String(row.account_number || "").startsWith("acct:") ? "" : String(row.account_number || "");
+    const accountNumberRaw = decrypted || legacyRaw;
+    if (!accountNumberRaw) return null;
+    return { ...payout, accountNumberRaw };
+  }
+
   public async createEscrow(input: {
     clientRequestId?: string;
     buyerUserId: string;
@@ -1623,6 +1642,24 @@ export class EscrowStore {
     return result.rows[0] ? this.mapTransaction(result.rows[0]) : null;
   }
 
+  public async getTransactionByProviderReference(provider: string, reference: string): Promise<EscrowTransactionRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`
+        SELECT * FROM transactions
+        WHERE provider = @provider AND reference = @reference
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `).get({ provider, reference });
+      return row ? this.mapTransaction(row) : null;
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM transactions WHERE provider = $1 AND reference = $2 ORDER BY updated_at DESC LIMIT 1`,
+      [provider, reference]
+    );
+    return result.rows[0] ? this.mapTransaction(result.rows[0]) : null;
+  }
+
   public async requestRelease(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
@@ -1802,9 +1839,10 @@ export class EscrowStore {
         actorRole: "admin",
         channel: "admin",
         eventType: "manual_release_approved",
-        reason: escrow.currency === "NAIRA" ? `Manual payout approved: ${options.manualPayoutReference}` : "Admin release approved",
+        reason: escrow.currency === "NAIRA" ? `Payout approved via ${options.payoutProvider || "manual_bank_transfer"}: ${options.manualPayoutReference}` : "Admin release approved",
         metadata: {
           manualPayoutReference: options.manualPayoutReference,
+          payoutProvider: options.payoutProvider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
           payoutNotes: options.payoutNotes || null,
           grossAmount,
           platformFeeAmount,
@@ -1815,14 +1853,15 @@ export class EscrowStore {
       await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
+        provider: options.payoutProvider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
         transactionType: "release",
-        status: escrow.currency === "NAIRA" ? "manual_approved" : "released",
+        status: escrow.currency === "NAIRA" ? "payout_succeeded" : "released",
         amount: sellerNetAmount,
         currency: escrow.currency,
         reference: options.manualPayoutReference,
         rawPayload: JSON.stringify({
           paymentReference: escrow.paymentReference,
+          payoutProvider: options.payoutProvider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
           payoutNotes: options.payoutNotes || null,
           grossAmount,
           platformFeeAmount,
@@ -1835,7 +1874,7 @@ export class EscrowStore {
         transactionId,
         entryType: "release",
         debitAccount: "escrow_liability",
-        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+        creditAccount: escrow.currency === "NAIRA" ? `seller_payable_${options.payoutProvider || "manual_bank_transfer"}` : "seller_payable_x402",
         amount: sellerNetAmount,
         currency: escrow.currency,
         providerReference: options.manualPayoutReference,
@@ -2169,6 +2208,50 @@ export class EscrowStore {
       return this.sqlite!.prepare(`SELECT * FROM transactions WHERE escrow_id = @escrowId ORDER BY created_at DESC`).all({ escrowId }).map((row) => this.mapTransaction(row));
     }
     const result = await this.pool!.query(`SELECT * FROM transactions WHERE escrow_id = $1 ORDER BY created_at DESC`, [escrowId]);
+    return result.rows.map((row) => this.mapTransaction(row));
+  }
+
+  public async listFundingTransactionsForReconciliation(input: {
+    windowStart: string;
+    windowEnd: string;
+    providers?: string[];
+  }): Promise<EscrowTransactionRecord[]> {
+    await this.initializeSchema();
+    const providers = input.providers || [];
+    if (this.provider === "sqlite") {
+      const providerClause = providers.length ? `AND provider IN (${providers.map(() => "?").join(",")})` : "";
+      return this.sqlite!.prepare(`
+        SELECT * FROM transactions
+        WHERE transaction_type = 'funding'
+          AND reference IS NOT NULL
+          AND updated_at >= ?
+          AND updated_at <= ?
+          ${providerClause}
+        ORDER BY updated_at DESC
+      `).all(input.windowStart, input.windowEnd, ...providers).map((row) => this.mapTransaction(row));
+    }
+    if (providers.length) {
+      const result = await this.pool!.query(
+        `SELECT * FROM transactions
+         WHERE transaction_type = 'funding'
+           AND reference IS NOT NULL
+           AND updated_at >= $1
+           AND updated_at <= $2
+           AND provider = ANY($3::text[])
+         ORDER BY updated_at DESC`,
+        [input.windowStart, input.windowEnd, providers]
+      );
+      return result.rows.map((row) => this.mapTransaction(row));
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM transactions
+       WHERE transaction_type = 'funding'
+         AND reference IS NOT NULL
+         AND updated_at >= $1
+         AND updated_at <= $2
+       ORDER BY updated_at DESC`,
+      [input.windowStart, input.windowEnd]
+    );
     return result.rows.map((row) => this.mapTransaction(row));
   }
 

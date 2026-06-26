@@ -6,10 +6,10 @@ Sivan should treat every payment company as a transport, not as the escrow engin
 
 Recommended pilot order:
 
-1. Monnify
-2. Paystack
-3. PalmPay
-4. Flutterwave as emergency backup
+1. PalmPay
+2. Flutterwave as emergency backup
+3. Monnify after approval
+4. OPay when approved/available
 
 Flutterwave can remain available for emergency continuity, but it should not become the first-choice pilot rail if its fees are materially higher.
 
@@ -18,9 +18,11 @@ Flutterwave can remain available for emergency continuity, but it should not bec
 Target environment shape:
 
 ```env
-ACTIVE_PAYMENT_PROVIDER=monnify
-BACKUP_PAYMENT_PROVIDER=paystack
+ACTIVE_PAYMENT_PROVIDER=palmpay
+BACKUP_PAYMENT_PROVIDER=flutterwave
 EMERGENCY_PAYMENT_PROVIDER=flutterwave
+ACTIVE_PAYOUT_PROVIDER=manual_bank_transfer
+PALMPAY_PAYOUT_ENABLED=false
 ```
 
 The escrow engine should not branch on provider-specific concepts. Provider clients should normalize raw responses and webhooks into internal events:
@@ -112,4 +114,5 @@ Flutterwave live backup proof: 0%
 | Admin provider/settings controls | ✅ Implemented / smoke verified | DB-backed provider routing, platform mode, maintenance message, and bank-transfer-only policy controls exist in admin Platform Controls with audit history; deployed admin-page smoke passed on 2026-06-11 |
 | Monnify settlement events | ✅ Implemented / live proof pending | `SETTLEMENT` webhooks are persisted, linked to matching escrows, and surfaced in Revenue/Reconciliation analytics; live settlement proof remains next |
 | Flutterwave backup transport | 🟡 Implemented / live proof pending | Dynamic virtual account adapter, signed webhook endpoint, server-side charge verification, admin provider visibility, and hosted-checkout/card fail-closed guard exist; low-value backup transfer proof and settlement reconciliation remain next |
-| PalmPay transport | 🔴 Not started | Keep as future backup/provider adapter |
+| PalmPay transport | 🟡 Implemented / provider proof pending | PalmPay adapter, signed API client, callback verification, `/webhooks/palmpay`, admin visibility, provider selection, and local tests are implemented. Remaining work is Render env setup, sandbox order proof, signed callback proof, settlement/reconciliation proof, and live low-value proof. See `docs/palmpay-payment-transport.md` |
+| PalmPay payout automation | 🟡 Provider layer started / automated PalmPay disabled | `PayoutProvider` now exists with `manual_bank_transfer` active. PalmPay/Flutterwave/Monnify automated payout providers fail closed until their payout clients, webhooks, and live low-value proof are implemented. See `docs/palmpay-payout-automation.md` |

@@ -11,6 +11,7 @@ import { settingsStore, initializeDatabaseSchemas } from "./context";
 import { captureOperationalError } from "./services/monitoring";
 import { runPaymentLifecycleSweep } from "./services/escrowService";
 import { retryWorker } from "./services/retryWorkerInstance";
+import { runDailyReconciliation } from "./services/reconciliationService";
 
 // Route Routers
 import healthRouter from "./routes/health";
@@ -129,6 +130,17 @@ if (process.env.PAYMENT_LIFECYCLE_WORKER_ENABLED === "true") {
     runPaymentLifecycleSweep()
       .catch((err) => captureOperationalError("Payment lifecycle sweep failed", err));
   }, intervalMs);
+}
+
+if (process.env.RECONCILIATION_WORKER_ENABLED === "true") {
+  const intervalMs = Number(process.env.RECONCILIATION_WORKER_INTERVAL_MS || String(24 * 60 * 60 * 1000));
+  const initialDelayMs = Number(process.env.RECONCILIATION_WORKER_INITIAL_DELAY_MS || "60000");
+  const run = () => {
+    runDailyReconciliation({ reason: "scheduled" })
+      .catch((err) => captureOperationalError("Daily reconciliation worker failed", err));
+  };
+  setTimeout(run, initialDelayMs);
+  setInterval(run, intervalMs);
 }
 
 const port = Number(process.env.PORT || 4000);

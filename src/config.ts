@@ -84,6 +84,25 @@ export const config = {
       .map((method) => method.trim())
       .filter(Boolean),
   },
+  palmpay: {
+    appId: envValue("PALMPAY_APP_ID"),
+    merchantId: envValue("PALMPAY_MERCHANT_ID"),
+    merchantPrivateKey: envValue("PALMPAY_MERCHANT_PRIVATE_KEY"),
+    merchantPublicKey: envValue("PALMPAY_MERCHANT_PUBLIC_KEY"),
+    platformPublicKey: envValue("PALMPAY_PLATFORM_PUBLIC_KEY"),
+    baseUrl: envValue("PALMPAY_BASE_URL", "https://open-gw-sandbox.palmpay-inc.com"),
+    webhookUrl: envValue("PALMPAY_WEBHOOK_URL"),
+    callbackUrl: envValue("PALMPAY_CALLBACK_URL", envValue("PAYSTACK_CALLBACK_URL")),
+    countryCode: envValue("PALMPAY_COUNTRY_CODE", "NG"),
+    timeoutMs: envNumber("PALMPAY_TIMEOUT_MS", 8000),
+    orderExpireSeconds: envNumber("PALMPAY_ORDER_EXPIRE_SECONDS", 1800),
+    paymentMethods: envValue("PALMPAY_PAYMENT_METHODS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
+      .split(",")
+      .map((method) => method.trim())
+      .filter(Boolean),
+    payoutEnabled: envValue("PALMPAY_PAYOUT_ENABLED", "false").toLowerCase() === "true",
+    payoutNotifyUrl: envValue("PALMPAY_PAYOUT_NOTIFY_URL"),
+  },
   flutterwave: {
     secretKey: envValue("FLUTTERWAVE_SECRET_KEY"),
     publicKey: envValue("FLUTTERWAVE_PUBLIC_KEY"),
@@ -106,6 +125,15 @@ export const config = {
     highValueFundingWindowHours: envNumber("NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS", 48),
     highValueFundingWindowAmount: envNumber("NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT", 100000),
     fundingReminderBeforeExpiryHours: envNumber("NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS", 6),
+  },
+  reconciliation: {
+    enabled: envValue("RECONCILIATION_WORKER_ENABLED", "false").toLowerCase() === "true",
+    intervalMs: envNumber("RECONCILIATION_WORKER_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    lookbackHours: envNumber("RECONCILIATION_LOOKBACK_HOURS", 24),
+    providers: envValue("RECONCILIATION_PROVIDERS", "paystack,monnify,palmpay,flutterwave")
+      .split(",")
+      .map((provider) => provider.trim())
+      .filter(Boolean),
   },
   app: {
     env: envValue("NODE_ENV", "development"),

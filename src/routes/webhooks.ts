@@ -4,6 +4,7 @@ import { paystackWebhookSchema, formatZodError } from "../validation";
 import {
   paystackPaymentProvider,
   monnifyPaymentProvider,
+  palmpayPaymentProvider,
   flutterwavePaymentProvider,
   workflowStore,
   escrowStore,
@@ -324,6 +325,102 @@ router.post("/webhooks/monnify", async (req, res) => {
     }
     captureOperationalError("Monnify webhook processing failed", err, { paymentReference: normalizedPaymentReference || "unknown" });
     return res.status(500).send({ error: "Webhook processing failed" });
+  }
+});
+
+router.post("/webhooks/palmpay", async (req, res) => {
+  let normalizedPaymentReference = "";
+  try {
+    const signature = String(req.body?.sign || req.headers["signature"] || "");
+    if (!signature) {
+      capturePaymentWarning("Missing PalmPay webhook signature", { path: req.path });
+      return res.status(400).send("missing signature");
+    }
+
+    const verified = typeof (palmpayPaymentProvider as any).verifyWebhookPayload === "function"
+      ? (palmpayPaymentProvider as any).verifyWebhookPayload(req.body || {}, signature)
+      : false;
+    if (!verified) {
+      capturePaymentWarning("Invalid PalmPay webhook signature", { paymentReference: req.body?.orderId || "unknown" });
+      return res.status(400).send("invalid signature");
+    }
+
+    let normalizedWebhook;
+    try {
+      normalizedWebhook = palmpayPaymentProvider.normalizeWebhook(req.body);
+    } catch (err: any) {
+      capturePaymentWarning("Invalid PalmPay webhook payload: " + err.message, { path: req.path });
+      return res.status(400).send(err.message);
+    }
+
+    normalizedPaymentReference = normalizedWebhook.paymentReference;
+    info("PalmPay webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
+    await workflowStore.addWebhookEvent(
+      normalizedWebhook.eventId || crypto.randomUUID(),
+      normalizedWebhook.paymentReference,
+      `palmpay:${normalizedWebhook.eventType}`,
+      JSON.stringify(req.body)
+    );
+
+    if (Number(req.body?.orderStatus) !== 2) {
+      return res.status(200).send("success");
+    }
+
+    const escrow = await escrowStore.findEscrowByPaymentReference(normalizedWebhook.paymentReference);
+    if (!escrow) {
+      capturePaymentWarning("PalmPay webhook did not match any escrow", {
+        paymentReference: normalizedWebhook.paymentReference,
+        eventType: normalizedWebhook.eventType,
+      });
+      return res.status(202).send("success");
+    }
+    if (escrow.paymentProvider && escrow.paymentProvider !== "palmpay") {
+      capturePaymentWarning("PalmPay webhook matched escrow with different provider", {
+        escrowId: escrow.escrowId,
+        escrowProvider: escrow.paymentProvider,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      return res.status(409).send("provider mismatch");
+    }
+
+    const transaction = await palmpayPaymentProvider.verifyPayment(normalizedWebhook.paymentReference);
+    if (transaction.paymentReference !== normalizedWebhook.paymentReference) {
+      capturePaymentWarning("PalmPay verification reference mismatch", {
+        webhookReference: normalizedWebhook.paymentReference,
+        verifiedReference: transaction.paymentReference,
+      });
+      return res.status(202).send("success");
+    }
+
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+    if (funded.status === "IN_PROGRESS") {
+      info("Escrow funded from verified PalmPay webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      await notifyEscrowFundedParticipants(funded);
+    } else if (funded.status === "REVIEW_REQUIRED") {
+      info("Escrow payment moved to review from PalmPay webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+    }
+    return res.status(200).send("success");
+  } catch (err: any) {
+    if (normalizedPaymentReference) {
+      try {
+        await opsStore.enqueueJob("webhook_recovery", {
+          paymentReference: normalizedPaymentReference,
+          provider: "palmpay",
+          eventType: `order.${req.body?.orderStatus ?? "unknown"}`,
+          reason: "palmpay_webhook_processing_failed",
+        }, { maxAttempts: 8 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue PalmPay webhook recovery job", enqueueErr, { paymentReference: normalizedPaymentReference });
+      }
+    }
+    captureOperationalError("PalmPay webhook processing failed", err, { paymentReference: normalizedPaymentReference || req.body?.orderId || "unknown" });
+    return res.status(500).send("webhook processing failed");
   }
 });
 

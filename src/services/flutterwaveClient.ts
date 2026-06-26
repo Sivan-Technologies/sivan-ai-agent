@@ -209,6 +209,48 @@ export class FlutterwaveClient {
     return this.mapTransactionResponse(response, paymentReference);
   }
 
+  public async listTransactions(input: { from: string; to: string; perPage?: number }): Promise<FlutterwaveVerifiedCharge[]> {
+    const transactions: FlutterwaveVerifiedCharge[] = [];
+    const perPage = input.perPage || 100;
+    let page = 1;
+
+    while (page <= 20) {
+      let response: any;
+      try {
+        const res = await axios.get(
+          `${this.baseUrl}/v3/transactions`,
+          {
+            headers: this.authHeaders(),
+            params: {
+              from: input.from.slice(0, 10),
+              to: input.to.slice(0, 10),
+              page,
+              per_page: perPage,
+            },
+            timeout: this.timeoutMs,
+          }
+        );
+        response = res.data;
+      } catch (err) {
+        throw new Error(`Flutterwave transaction list failed: ${extractAxiosMessage(err)}`);
+      }
+
+      if (response?.status !== "success" || !Array.isArray(response.data)) {
+        throw new Error(response?.message || "Flutterwave transaction list returned no data");
+      }
+
+      transactions.push(...response.data.map((tx: any) => this.mapTransaction(tx, response, String(tx.tx_ref || tx.id || ""))));
+
+      const meta = response.meta || {};
+      const totalPages = Number(meta.total_pages || meta.pageCount || 0);
+      if (!response.data.length || (totalPages && page >= totalPages)) break;
+      if (response.data.length < perPage) break;
+      page += 1;
+    }
+
+    return transactions.filter((transaction) => transaction.paymentReference);
+  }
+
   private mapTransactionResponse(response: any, fallbackReference: string): FlutterwaveVerifiedCharge {
     const data = response?.data;
     if (response?.status !== "success" || !data) {

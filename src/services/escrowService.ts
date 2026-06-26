@@ -33,6 +33,14 @@ export function sellerInviteMessage(escrowId: string, currency: string, amount: 
   return `You have been invited to Sivan service agreement ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
 }
 
+function displayCurrency(currency: string) {
+  return currency === "NAIRA" ? "NGN" : currency;
+}
+
+function displayAmount(amount: number) {
+  return new Intl.NumberFormat("en-NG").format(amount);
+}
+
 export function parseMaybeJson(value: any) {
   if (typeof value !== "string") return value;
   try {
@@ -57,7 +65,20 @@ export function queueWhatsAppNotification(params: {
   dealCard?: any;
   context?: Record<string, any>;
 }) {
-  void notifyWhatsAppBotStrict(params.to, params.message, params.dealCard).catch(async (err) => {
+  void sendOrQueueWhatsAppNotification(params);
+}
+
+export async function sendOrQueueWhatsAppNotification(params: {
+  to: string;
+  message: string;
+  reason: string;
+  escrowId?: string;
+  dealCard?: any;
+  context?: Record<string, any>;
+}) {
+  try {
+    await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard);
+  } catch (err) {
     const context = {
       escrowId: params.escrowId,
       to: params.to,
@@ -84,7 +105,7 @@ export function queueWhatsAppNotification(params: {
     } catch (enqueueErr) {
       captureOperationalError("Failed to enqueue WhatsApp notification retry", enqueueErr, context);
     }
-  });
+  }
 }
 
 export function queueSellerInviteNotification(params: {
@@ -103,6 +124,62 @@ export function queueSellerInviteNotification(params: {
     escrowId: params.escrowId,
     context: params.context,
   });
+}
+
+export function escrowCreatedMessage(escrow: EscrowRecord, role: "buyer" | "seller") {
+  const currency = displayCurrency(escrow.currency);
+  const amount = displayAmount(escrow.amount);
+  if (role === "buyer") {
+    return [
+      `Sivan agreement created: ${escrow.escrowId}`,
+      `${escrow.purpose}`,
+      `${currency} ${amount}`,
+      "",
+      "We have sent the agreement to the other party.",
+      `Reply STATUS ${escrow.escrowId} to view the agreement or track acceptance.`,
+    ].join("\n");
+  }
+  return [
+    `You have been invited to a Sivan service agreement: ${escrow.escrowId}`,
+    `${escrow.purpose}`,
+    `${currency} ${amount}`,
+    "",
+    `Reply ACCEPT ${escrow.escrowId} to accept the deal.`,
+    `Reply STATUS ${escrow.escrowId} to view the agreement first.`,
+  ].join("\n");
+}
+
+export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord) {
+  const detail = await buildEscrowDetail(escrow.escrowId);
+  if (!detail) return;
+  const buyerWhatsapp = detail.buyer?.whatsappNumber;
+  const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
+  await Promise.all([
+    buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
+      sendOrQueueWhatsAppNotification({
+        to: buyerWhatsapp,
+        message: escrowCreatedMessage(detail.escrow, "buyer"),
+        reason: "buyer_agreement_created",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
+    ) : Promise.resolve(),
+    sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
+      sendOrQueueWhatsAppNotification({
+        to: sellerWhatsapp,
+        message: escrowCreatedMessage(detail.escrow, "seller"),
+        reason: "seller_invite",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
+    ) : Promise.resolve(),
+  ]);
 }
 
 export async function refreshEscrowPaymentLifecycle(escrowId: string) {
@@ -272,7 +349,7 @@ export async function notifyEscrowParticipants(escrow: EscrowRecord, message: st
 }
 
 export function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, nextLine: string) {
-  const currency = escrow.currency === "NAIRA" ? "NGN" : escrow.currency;
+  const currency = displayCurrency(escrow.currency);
   return [
     `Sivan update for ${escrow.escrowId}`,
     `${escrow.purpose}`,

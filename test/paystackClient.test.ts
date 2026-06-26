@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import crypto from "crypto";
 import axios from "axios";
 import { PaystackClient } from "../src/services/paystackClient";
@@ -10,6 +10,10 @@ vi.mock("axios", () => ({
     get: vi.fn(),
   },
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("PaystackClient.verifyWebhookSignature", () => {
   it("validates a known signature", async () => {
@@ -91,5 +95,55 @@ describe("PaystackClient.listBanks", () => {
 
     expect(banks.some((bank) => bank.code === "058")).toBe(true);
     expect(banks.some((bank) => /kuda/i.test(bank.name))).toBe(true);
+  });
+});
+
+describe("PaystackClient.listTransactions", () => {
+  it("pulls and normalizes Paystack transactions for reconciliation", async () => {
+    (config.paystack as any).secretKey = "sk_test_secret";
+    (config.paystack as any).baseUrl = "https://api.paystack.co";
+
+    const mockedAxios = vi.mocked(axios);
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        status: true,
+        data: [{
+          reference: "paystack-ref-1",
+          status: "success",
+          amount: 125000,
+          currency: "NGN",
+          fees: 1500,
+          channel: "bank_transfer",
+          paid_at: "2026-06-26T01:00:00.000Z",
+        }],
+        meta: { page: 1, pageCount: 1 },
+      },
+    });
+
+    const client = new PaystackClient();
+    const transactions = await client.listTransactions({
+      from: "2026-06-25T00:00:00.000Z",
+      to: "2026-06-26T00:00:00.000Z",
+    });
+
+    expect(transactions).toEqual([expect.objectContaining({
+      reference: "paystack-ref-1",
+      status: "success",
+      amount: 1250,
+      currency: "NGN",
+      processorFee: 15,
+      channel: "bank_transfer",
+    })]);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      "https://api.paystack.co/transaction",
+      expect.objectContaining({
+        params: expect.objectContaining({
+          from: "2026-06-25",
+          to: "2026-06-26",
+          perPage: 100,
+          page: 1,
+        }),
+      })
+    );
   });
 });

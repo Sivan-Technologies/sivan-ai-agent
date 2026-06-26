@@ -4,6 +4,7 @@ import { notifyWhatsAppBotStrict } from "./notificationService";
 import { getProviderForEscrow } from "./paymentService";
 import { capturePaymentWarning } from "./monitoring";
 import { reconcileEscrowPayment } from "./escrowService";
+import { runDailyReconciliation } from "./reconciliationService";
 
 export const retryWorker = new RetryWorker(opsStore, {
   whatsapp_notification: async (payload) => {
@@ -39,6 +40,15 @@ export const retryWorker = new RetryWorker(opsStore, {
       status: escrow.status,
       manualPayoutReference: escrow.manualPayoutReference,
       reason: payload.reason || "payout_review",
+    });
+  },
+  daily_reconciliation: async (payload) => {
+    await runDailyReconciliation({
+      windowStart: payload.windowStart,
+      windowEnd: payload.windowEnd,
+      providers: Array.isArray(payload.providers) ? payload.providers : undefined,
+      reason: payload.reason || "queue_job",
+      alertOnFindings: payload.alertOnFindings !== false,
     });
   },
 }, {

@@ -758,6 +758,48 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("Paystack reference");
   });
 
+  it("should run and expose daily provider reconciliation history", async () => {
+    const unauthorized = await request(app)
+      .post("/admin/reconciliation/run")
+      .send({ providers: ["palmpay"] });
+    expect(unauthorized.status).toBe(401);
+
+    const run = await request(app)
+      .post("/admin/reconciliation/run")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        providers: ["palmpay"],
+        windowStart: "2026-06-25T00:00:00.000Z",
+        windowEnd: "2026-06-26T00:00:00.000Z",
+        alertOnFindings: false,
+      });
+
+    expect(run.status).toBe(201);
+    expect(run.body.run).toMatchObject({
+      status: "completed",
+      providers: ["palmpay"],
+    });
+    expect(run.body.run.summary.providerSummaries.palmpay).toMatchObject({
+      providerPullSupported: true,
+      providerPullMode: "known_reference_query",
+      missingInSivanDetectionSupported: false,
+    });
+    expect(run.body.findings.some((finding: any) => finding.findingType === "provider_pull_unsupported")).toBe(false);
+
+    const history = await request(app)
+      .get("/admin/reconciliation/runs?limit=5")
+      .set("x-admin-key", "test-admin-key");
+    expect(history.status).toBe(200);
+    expect(history.body.runs.some((item: any) => item.runId === run.body.run.runId)).toBe(true);
+
+    const detail = await request(app)
+      .get(`/admin/reconciliation/runs/${run.body.run.runId}`)
+      .set("x-admin-key", "test-admin-key");
+    expect(detail.status).toBe(200);
+    expect(detail.body.run.summary.providerSummaries.palmpay.providerPullMode).toBe("known_reference_query");
+    expect(Array.isArray(detail.body.snapshots)).toBe(true);
+  });
+
   it("should enforce escrow-derived manual payout approval with accounting and audit proof", async () => {
     const headers = { "x-core-api-key": "test-core-secret" };
     const adminHeaders = { "x-admin-key": "test-admin-key" };

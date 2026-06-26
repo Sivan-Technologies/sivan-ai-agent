@@ -30,9 +30,10 @@ import {
   buildParticipantDeal,
   disputeHistoryForEscrow,
   notifyEscrowParticipants,
+  notifyEscrowCreatedParticipants,
   participantLifecycleMessage,
   roleForEscrowParticipant,
-  queueSellerInviteNotification,
+  sendOrQueueWhatsAppNotification,
   expectedFundingAmount,
   notifyEscrowFundedParticipants,
   recordDisputeEvidence,
@@ -40,7 +41,6 @@ import {
   containsExternalLink,
   externalDeliveryLinksAllowed,
 } from "../services/escrowService";
-import { notifyWhatsAppBot } from "../services/notificationService";
 import {
   createSandboxPaymentInstruction,
   isSandboxPaymentReference,
@@ -157,20 +157,17 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       createdByChannel: input.channel,
     });
 
-    let payment: any = null;
-    if (seller) {
-      queueSellerInviteNotification({
-        sellerWhatsapp: seller.whatsappNumber,
-        escrowId: escrow.escrowId,
-        currency: input.currency,
-        amount: input.amount,
-        purpose: input.purpose,
-        context: { channel: input.channel },
-      });
-    }
-
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
-    res.status(201).json({ escrow: updated, payment, sellerInviteSent: Boolean(seller), risk: abuseDecision });
+    if (updated && input.channel.startsWith("whatsapp")) {
+      await notifyEscrowCreatedParticipants(updated);
+    }
+    res.status(201).json({
+      escrow: updated,
+      payment: null,
+      buyerNotificationSent: Boolean(updated && input.channel.startsWith("whatsapp")),
+      sellerInviteSent: Boolean(seller && input.channel.startsWith("whatsapp")),
+      risk: abuseDecision,
+    });
   } catch (err: any) {
     captureOperationalError("Failed to create escrow", err);
     res.status(500).json({ error: err.message || "Escrow creation failed" });
@@ -311,7 +308,17 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
       const buyer = updated.buyer;
       if (buyer) {
         const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
-        await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
+        const dealCard = await buildParticipantDeal(updated, buyer.whatsappNumber);
+        await sendOrQueueWhatsAppNotification({
+          to: buyer.whatsappNumber,
+          message: instruction,
+          reason: "seller_accepted_payment_details",
+          escrowId: updated.escrow.escrowId,
+          dealCard: dealCard ? {
+            escrow: dealCard.escrow,
+            participant: dealCard.participant,
+          } : undefined,
+        });
       }
     }
     res.status(200).json({ escrow: updated, payment });

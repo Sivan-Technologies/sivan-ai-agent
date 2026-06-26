@@ -118,7 +118,7 @@ export const disputeResolutionSchema = z.object({
 });
 
 export const adminReleaseApprovalSchema = z.object({
-  manualPayoutReference: z.string().trim().min(3).max(160),
+  manualPayoutReference: z.string().trim().min(3).max(160).optional(),
   payoutNotes: z.string().trim().min(2).max(1000).optional(),
 }).strict();
 
@@ -196,7 +196,7 @@ export const abuseActionSchema = z.object({
 });
 
 export const queueJobCreateSchema = z.object({
-  jobType: z.enum(["whatsapp_notification", "paystack_recheck", "payout_review", "webhook_recovery"]),
+  jobType: z.enum(["whatsapp_notification", "paystack_recheck", "payout_review", "webhook_recovery", "daily_reconciliation"]),
   payload: z.record(z.string(), z.any()).default({}),
   maxAttempts: z.coerce.number().int().min(1).max(25).default(5),
   runAfter: z.string().datetime().optional(),
@@ -223,6 +223,13 @@ export const paystackWebhookSchema = z.object({
 
 export const limitQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(250).default(50),
+});
+
+export const reconciliationRunSchema = z.object({
+  windowStart: z.string().datetime().optional(),
+  windowEnd: z.string().datetime().optional(),
+  providers: z.array(z.enum(["paystack", "monnify", "palmpay", "flutterwave"])).min(1).max(4).optional(),
+  alertOnFindings: z.coerce.boolean().default(true),
 });
 
 export function formatZodError(error: z.ZodError) {

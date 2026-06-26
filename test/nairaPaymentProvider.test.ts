@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "crypto";
-import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PaystackPaymentProvider } from "../src/services/nairaPaymentProvider";
+import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PalmPayPaymentProvider, PaystackPaymentProvider, createNairaPaymentProvider } from "../src/services/nairaPaymentProvider";
 import { config } from "../src/config";
 import { PaystackClient } from "../src/services/paystackClient";
 import { MonnifyClient } from "../src/services/monnifyClient";
 import { FlutterwaveClient } from "../src/services/flutterwaveClient";
+import { PalmPayClient } from "../src/services/palmpayClient";
 
 describe("PaystackPaymentProvider", () => {
   it("initializes bank-transfer-only payments through Paystack", async () => {
@@ -214,6 +215,92 @@ describe("MonnifyPaymentProvider", () => {
       eventType: "SUCCESSFUL_TRANSACTION",
       paymentReference: "monnify-ref-2",
     });
+  });
+});
+
+describe("PalmPayPaymentProvider", () => {
+  it("initializes PalmPay bank-transfer payments with PalmPay-safe references", async () => {
+    const client = {
+      initializeBankTransferPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIV300MFD8A1B2C3",
+        transactionReference: "2424220903032435363613",
+        checkoutUrl: "https://openapi.transspay.net/open-api/api/v1/payment/h5/redirect",
+        accountNumber: "8792003113",
+        accountName: "Sivan Collection",
+        bankName: "PalmPay Test Bank",
+        expiresAt: "2026-06-26T10:30:00.000Z",
+        expiresInSeconds: 1800,
+        raw: { ok: true },
+      }),
+      verifyPayment: vi.fn(),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient;
+    const provider = new PalmPayPaymentProvider(client);
+
+    await expect(provider.initializeBankTransferPayment({
+      amount: 5500,
+      customerEmail: "buyer@example.com",
+      escrowId: "SIV-300682-FEB6",
+    })).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "pending",
+      paymentReference: "PPSIV300MFD8A1B2C3",
+      transactionReference: "2424220903032435363613",
+      authorizationUrl: "https://openapi.transspay.net/open-api/api/v1/payment/h5/redirect",
+      accountNumber: "8792003113",
+      bankName: "PalmPay Test Bank",
+    });
+
+    expect(client.initializeBankTransferPayment).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 5500,
+      paymentReference: expect.stringMatching(/^PPSIV300682FE[A-Z0-9]+$/),
+      metadata: expect.objectContaining({ provider: "palmpay", paymentMethod: "bank_transfer" }),
+    }));
+  });
+
+  it("normalizes successful PalmPay bank transfers as success", async () => {
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIV300682FEB6",
+        transactionReference: "2424220903032435363613",
+        status: "success",
+        amount: 5500,
+        currency: "NGN",
+        paymentMethod: "bank_transfer",
+        raw: { ok: true },
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient);
+
+    await expect(provider.verifyPayment("PPSIV300682FEB6")).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "success",
+      paymentReference: "PPSIV300682FEB6",
+      amount: 5500,
+      currency: "NGN",
+      channel: "bank_transfer",
+    });
+  });
+
+  it("normalizes PalmPay payment notifications", () => {
+    const provider = new PalmPayPaymentProvider();
+    const event = provider.normalizeWebhook({
+      orderId: "PPSIV300682FEB6",
+      orderNo: "2424220903032435363613",
+      orderStatus: 2,
+    });
+
+    expect(event).toMatchObject({
+      provider: "palmpay",
+      eventType: "order.2",
+      paymentReference: "PPSIV300682FEB6",
+      transactionReference: "2424220903032435363613",
+    });
+  });
+
+  it("selects PalmPay from the provider factory", () => {
+    expect(createNairaPaymentProvider("palmpay")).toBeInstanceOf(PalmPayPaymentProvider);
   });
 });
 

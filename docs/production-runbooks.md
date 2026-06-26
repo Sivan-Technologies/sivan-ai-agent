@@ -9,6 +9,29 @@ These runbooks keep money movement deterministic. Operators should prefer re-che
 3. If the amount is still wrong, keep the escrow in `REVIEW_REQUIRED`, create or update a support case, and ask the buyer for proof.
 4. Do not release funds until expected amount, received amount, reference, and payer intent all match.
 
+## Daily Provider Reconciliation
+
+This is the finance-control loop: compare what Sivan believes against what payment providers report.
+
+1. Keep `RECONCILIATION_WORKER_ENABLED=true` in production once provider credentials and ops alerting are configured.
+2. Inspect run history at `/admin/reconciliation/runs`.
+3. Inspect a specific run at `/admin/reconciliation/runs/:runId`; review `findings` before approving disputed releases.
+4. Trigger a manual run after a payment incident:
+
+```json
+POST /admin/reconciliation/run
+{
+  "providers": ["palmpay"],
+  "windowStart": "2026-06-25T00:00:00.000Z",
+  "windowEnd": "2026-06-26T00:00:00.000Z",
+  "alertOnFindings": true
+}
+```
+
+5. Treat `missing_in_sivan`, `amount_drift`, `currency_drift`, and success-status drift as release blockers until finance resolves them.
+6. Paystack and Flutterwave support bulk transaction pulls in code. PalmPay queries every Sivan-known PalmPay order reference through PalmPay `queryStatus`, so PalmPay amount/currency/status drift is covered for Sivan-created orders. Add a PalmPay settlement/report export before relying on PalmPay for full `missing_in_sivan` detection. Monnify currently re-verifies Sivan-created local references until its provider settlement/report endpoint is configured.
+7. High/critical findings create a support case automatically. Do not close it until the provider record, Sivan transaction row, ledger entry, and escrow status agree.
+
 ## Wrong Amount
 
 1. Confirm the Paystack reference belongs to the escrow.

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { config } from "../config";
 import { FlutterwaveClient, FlutterwaveVerifiedCharge } from "./flutterwaveClient";
 import { MonnifyClient, MonnifyVerifiedTransaction } from "./monnifyClient";
+import { PalmPayClient, PalmPayVerifiedTransaction } from "./palmpayClient";
 import { PaystackClient, PaystackTransactionStatus } from "./paystackClient";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
@@ -104,6 +105,35 @@ function mapMonnifyStatus(transaction: MonnifyVerifiedTransaction): VerifiedNair
     processorFee: transaction.processorFee,
     channel: transaction.paymentMethod,
     paidAt: transaction.paidOn,
+    raw: transaction.raw,
+  };
+}
+
+function normalizePalmPayStatus(transaction: PalmPayVerifiedTransaction): string {
+  const isSuccess = transaction.status === "success";
+  if (isSuccess && transaction.currency === "NGN" && transaction.paymentMethod === "bank_transfer") {
+    return "success";
+  }
+  if (isSuccess && transaction.paymentMethod !== "bank_transfer") {
+    return "invalid_payment_method";
+  }
+  if (isSuccess && transaction.currency !== "NGN") {
+    return "invalid_currency";
+  }
+  return transaction.status || "unknown";
+}
+
+function mapPalmPayStatus(transaction: PalmPayVerifiedTransaction): VerifiedNairaPayment {
+  return {
+    provider: "palmpay",
+    status: normalizePalmPayStatus(transaction),
+    paymentReference: transaction.paymentReference,
+    transactionReference: transaction.transactionReference,
+    amount: transaction.amount,
+    currency: transaction.currency,
+    processorFee: transaction.processorFee,
+    channel: transaction.paymentMethod,
+    paidAt: transaction.paidAt,
     raw: transaction.raw,
   };
 }
@@ -267,6 +297,76 @@ export class MonnifyPaymentProvider implements PaymentProvider {
   }
 }
 
+function palmPayOrderId(escrowId?: string) {
+  const cleanEscrowId = String(escrowId || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 12)
+    .toUpperCase();
+  return `PP${cleanEscrowId}${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(3).toString("hex").toUpperCase()}`.slice(0, 32);
+}
+
+export class PalmPayPaymentProvider implements PaymentProvider {
+  public readonly id = "palmpay";
+
+  constructor(private client = new PalmPayClient()) {}
+
+  public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
+    const paymentReference = palmPayOrderId(input.escrowId);
+    const instruction = await this.client.initializeBankTransferPayment({
+      amount: input.amount,
+      customerEmail: input.customerEmail,
+      paymentReference,
+      paymentDescription: `Sivan service agreement ${input.escrowId || paymentReference}`,
+      redirectUrl: input.callbackUrl || config.palmpay.callbackUrl || config.paystack.callbackUrl,
+      metadata: {
+        escrowId: input.escrowId,
+        provider: this.id,
+        paymentMethod: "bank_transfer",
+      },
+    });
+    return {
+      provider: this.id,
+      status: "pending",
+      paymentReference: instruction.paymentReference,
+      transactionReference: instruction.transactionReference,
+      authorizationUrl: instruction.checkoutUrl,
+      accountNumber: instruction.accountNumber,
+      accountName: instruction.accountName,
+      bankName: instruction.bankName,
+      expiresAt: instruction.expiresAt,
+      expiresInSeconds: instruction.expiresInSeconds,
+      raw: instruction.raw,
+    };
+  }
+
+  public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
+    return mapPalmPayStatus(await this.client.verifyPayment(paymentReference));
+  }
+
+  public async verifyWebhookSignature(_rawBody: string, signature: string): Promise<boolean> {
+    return Boolean(signature);
+  }
+
+  public verifyWebhookPayload(payload: Record<string, unknown>, signature: string): boolean {
+    return this.client.verifyWebhookSignature(payload, signature);
+  }
+
+  public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
+    const eventType = String(payload?.orderStatus !== undefined ? `order.${payload.orderStatus}` : payload?.eventType || "payment_result").trim();
+    const paymentReference = String(payload?.orderId || "").trim();
+    const transactionReference = String(payload?.orderNo || "").trim();
+    if (!paymentReference) throw new Error("PalmPay webhook payload is missing payment reference");
+    return {
+      provider: this.id,
+      eventId: `${this.id}:${eventType}:${paymentReference}:${transactionReference || "none"}`,
+      eventType,
+      paymentReference,
+      transactionReference: transactionReference || undefined,
+      raw: payload,
+    };
+  }
+}
+
 export class FlutterwavePaymentProvider implements PaymentProvider {
   public readonly id = "flutterwave";
 
@@ -343,6 +443,7 @@ export function createNairaPaymentProvider(provider = process.env.ACTIVE_PAYMENT
   const normalized = provider.trim().toLowerCase();
   if (!normalized || normalized === "paystack") return new PaystackPaymentProvider();
   if (normalized === "monnify") return new MonnifyPaymentProvider();
+  if (normalized === "palmpay") return new PalmPayPaymentProvider();
   if (normalized === "flutterwave") return new FlutterwavePaymentProvider();
   throw new Error(`Naira payment provider is not implemented yet: ${provider}`);
 }

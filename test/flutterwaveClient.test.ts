@@ -153,6 +153,52 @@ describe("FlutterwaveClient", () => {
     );
   });
 
+  it("pulls and normalizes Flutterwave transactions for reconciliation", async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        status: "success",
+        data: [{
+          id: 7654321,
+          tx_ref: "flutterwave-SIV-200-recon",
+          status: "successful",
+          amount: 2500,
+          currency: "NGN",
+          payment_type: "bank_transfer",
+          app_fee: 50,
+          created_at: "2026-06-26T01:00:00.000Z",
+        }],
+        meta: { total_pages: 1 },
+      },
+    });
+
+    const client = new FlutterwaveClient();
+    const transactions = await client.listTransactions({
+      from: "2026-06-25T00:00:00.000Z",
+      to: "2026-06-26T00:00:00.000Z",
+    });
+
+    expect(transactions).toEqual([expect.objectContaining({
+      paymentReference: "flutterwave-SIV-200-recon",
+      transactionReference: "7654321",
+      status: "successful",
+      amount: 2500,
+      currency: "NGN",
+      paymentMethod: "bank_transfer",
+      processorFee: 50,
+    })]);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      "https://api.flutterwave.com/v3/transactions",
+      expect.objectContaining({
+        params: expect.objectContaining({
+          from: "2026-06-25",
+          to: "2026-06-26",
+          page: 1,
+          per_page: 100,
+        }),
+      })
+    );
+  });
+
   it("fails closed instead of silently swallowing errors when the payments API fails", async () => {
     const networkErr = Object.assign(new Error("Request failed with status code 400"), {
       response: {

@@ -104,6 +104,48 @@ export class PaystackClient {
     };
   }
 
+  public async listTransactions(input: { from: string; to: string; perPage?: number }): Promise<PaystackTransactionStatus[]> {
+    log("Listing Paystack transactions for reconciliation", { from: input.from, to: input.to });
+    const transactions: PaystackTransactionStatus[] = [];
+    const perPage = input.perPage || 100;
+    let page = 1;
+
+    while (page <= 20) {
+      const response = await axios.get(`${this.baseUrl}/transaction`, {
+        headers: this.getHeaders(),
+        params: {
+          from: input.from.slice(0, 10),
+          to: input.to.slice(0, 10),
+          perPage,
+          page,
+        },
+        timeout: this.timeoutMs,
+      });
+
+      if (!response.data || !response.data.status || !Array.isArray(response.data.data)) {
+        throw new Error("Invalid Paystack transaction list response");
+      }
+
+      transactions.push(...response.data.data.map((data: any) => ({
+        status: String(data.status || "").toLowerCase(),
+        reference: String(data.reference || "").trim(),
+        amount: Number(data.amount || 0) / 100,
+        currency: String(data.currency || "").toUpperCase(),
+        processorFee: typeof data.fees === "number" ? data.fees / 100 : undefined,
+        channel: data.channel,
+        paidAt: data.paid_at || data.created_at,
+      })));
+
+      const meta = response.data.meta || {};
+      const pageCount = Number(meta.pageCount || meta.page_count || 0);
+      if (!response.data.data.length || (pageCount && page >= pageCount)) break;
+      if (response.data.data.length < perPage) break;
+      page += 1;
+    }
+
+    return transactions.filter((transaction) => transaction.reference);
+  }
+
   public async listBanks(): Promise<PaystackBank[]> {
     log("Fetching Paystack bank list");
     if (!this.secretKey) return NIGERIA_BANK_FALLBACKS;

@@ -8,6 +8,7 @@ import {
   escrowStore,
   paystackClient,
   monnifyClient,
+  palmpayClient,
   flutterwaveClient,
 } from "../context";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
@@ -20,6 +21,7 @@ export function providerConfigured(provider: string) {
   const normalized = provider.trim().toLowerCase();
   if (normalized === "paystack") return Boolean(config.paystack.secretKey);
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
+  if (normalized === "palmpay") return palmpayClient.isCollectionConfigured();
   if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
   return false;
 }
@@ -49,6 +51,14 @@ export function fundingDeadlineForEscrow(escrow: Pick<EscrowRecord, "currency" |
 
 export function uniqueProviderReference(providerId: string, escrowId: string) {
   return `${providerId}-${escrowId}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function callbackUrlForProvider(providerId: string) {
+  const normalized = providerId.trim().toLowerCase();
+  if (normalized === "palmpay") return config.palmpay.callbackUrl || config.paystack.callbackUrl;
+  if (normalized === "flutterwave") return config.flutterwave.webhookUrl || config.paystack.callbackUrl;
+  if (normalized === "monnify") return config.monnify.webhookUrl || config.paystack.callbackUrl;
+  return config.paystack.callbackUrl;
 }
 
 export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
@@ -129,7 +139,7 @@ export async function createNairaPaymentInstruction(escrow: EscrowRecord, option
   const transaction = await provider.initializeBankTransferPayment({
     amount: payoutQuote.totalWithFee,
     customerEmail: paystackEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
-    callbackUrl: config.paystack.callbackUrl,
+    callbackUrl: callbackUrlForProvider(provider.id),
     escrowId: escrow.escrowId,
     paymentReference,
   });
