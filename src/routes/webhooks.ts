@@ -23,10 +23,14 @@ import {
 } from "../services/escrowService";
 import { formatTaskSummary, notifyWhatsAppBot } from "../services/notificationService";
 import { getProviderForEscrow } from "../services/paymentService";
+import { NombaPayoutClient } from "../services/nombaPayoutClient";
+import { PalmPayPayoutClient } from "../services/palmpayPayoutClient";
 import { info, warn } from "../lib/logger";
 import express from "express";
 
 const router = Router();
+const nombaPayoutClient = new NombaPayoutClient();
+const palmPayPayoutClient = new PalmPayPayoutClient();
 
 function safeSecretEquals(a: string, b: string) {
   const left = Buffer.from(a);
@@ -424,6 +428,87 @@ router.post("/webhooks/palmpay", async (req, res) => {
   }
 });
 
+router.post("/webhooks/palmpay/payout", async (req, res) => {
+  let reference = "";
+  try {
+    const signature = String(req.body?.sign || req.headers["signature"] || "");
+    if (!signature) {
+      capturePaymentWarning("Missing PalmPay payout webhook signature", { path: req.path });
+      return res.status(400).send("missing signature");
+    }
+
+    if (!palmPayPayoutClient.verifyWebhookSignature(req.body || {}, signature)) {
+      capturePaymentWarning("Invalid PalmPay payout webhook signature", {
+        orderId: req.body?.orderId || "unknown",
+        orderNo: req.body?.orderNo || "unknown",
+      });
+      return res.status(400).send("invalid signature");
+    }
+
+    const normalizedWebhook = palmPayPayoutClient.normalizeWebhook(req.body);
+    reference = normalizedWebhook.orderNo || normalizedWebhook.orderId;
+    await workflowStore.addWebhookEvent(
+      normalizedWebhook.eventId || crypto.randomUUID(),
+      reference,
+      `palmpay:${normalizedWebhook.eventType}`,
+      JSON.stringify(req.body)
+    );
+
+    const relatedTransaction =
+      await escrowStore.getTransactionByProviderReference("palmpay", reference) ||
+      (normalizedWebhook.orderId ? await escrowStore.getTransactionByProviderReference("palmpay", normalizedWebhook.orderId) : null);
+
+    if (relatedTransaction) {
+      await escrowStore.addEvent({
+        escrowId: relatedTransaction.escrowId,
+        actor: "palmpay",
+        actorRole: "payment_provider",
+        channel: "webhook",
+        previousStatus: undefined,
+        nextStatus: undefined,
+        eventType: "payout_provider_event_received",
+        reason: normalizedWebhook.eventType,
+        metadata: {
+          provider: "palmpay",
+          reference,
+          payoutStatus: normalizedWebhook.status,
+          payload: req.body,
+        },
+      });
+      await opsStore.enqueueJob("payout_review", {
+        escrowId: relatedTransaction.escrowId,
+        provider: "palmpay",
+        reference,
+        eventType: normalizedWebhook.eventType,
+        reason: "palmpay_payout_webhook_requires_operator_or_requery_confirmation",
+      }, { maxAttempts: 3 });
+    } else {
+      capturePaymentWarning("PalmPay payout webhook did not match a Sivan payout transaction", {
+        reference,
+        orderId: normalizedWebhook.orderId || "unknown",
+        orderNo: normalizedWebhook.orderNo || "unknown",
+        eventType: normalizedWebhook.eventType,
+      });
+    }
+
+    return res.status(200).send("success");
+  } catch (err: any) {
+    if (reference) {
+      try {
+        await opsStore.enqueueJob("payout_review", {
+          provider: "palmpay",
+          reference,
+          reason: "palmpay_payout_webhook_processing_failed",
+        }, { maxAttempts: 3 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue PalmPay payout review job", enqueueErr, { reference });
+      }
+    }
+    captureOperationalError("PalmPay payout webhook processing failed", err, { reference: reference || req.body?.orderId || "unknown" });
+    return res.status(500).send("webhook processing failed");
+  }
+});
+
 router.post("/webhooks/flutterwave", async (req, res) => {
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
   let normalizedPaymentReference = "";
@@ -525,6 +610,95 @@ router.post("/webhooks/flutterwave", async (req, res) => {
       }
     }
     captureOperationalError("Flutterwave webhook processing failed", err, { paymentReference: normalizedPaymentReference || "unknown" });
+    return res.status(500).send({ error: "Webhook processing failed" });
+  }
+});
+
+router.post("/webhooks/nomba", async (req, res) => {
+  const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+  let reference = "";
+  try {
+    const signature = firstPresent(req.headers["nomba-signature"], req.headers["nomba-sig-value"]) as string | undefined;
+    const timestamp = req.headers["nomba-timestamp"] as string | undefined;
+    if (!signature) {
+      capturePaymentWarning("Missing Nomba webhook signature header", { path: req.path });
+      return res.status(400).send({ error: "Missing signature header" });
+    }
+
+    if (!nombaPayoutClient.verifyWebhookSignature(rawBody, signature, timestamp)) {
+      capturePaymentWarning("Invalid Nomba webhook signature", { path: req.path });
+      return res.status(400).send({ error: "Invalid webhook signature" });
+    }
+
+    const body = req.body || {};
+    const data = body.data && typeof body.data === "object" ? body.data : {};
+    const transaction = data.transaction && typeof data.transaction === "object" ? data.transaction : data;
+    const eventType = String(firstPresent(body.event_type, body.eventType, body.type, body.event, "unknown"));
+    reference = String(firstPresent(
+      transaction.id,
+      transaction.transactionId,
+      transaction.transactionRef,
+      transaction.transactionReference,
+      transaction.meta?.merchantTxRef,
+      transaction.merchantTxRef,
+      body.request_id,
+      body.requestId,
+      crypto.randomUUID()
+    ));
+
+    await workflowStore.addWebhookEvent(
+      `nomba:${eventType}:${reference}:${firstPresent(body.request_id, body.requestId, crypto.randomUUID())}`,
+      reference,
+      `nomba:${eventType}`,
+      JSON.stringify(body)
+    );
+
+    const relatedTransaction =
+      await escrowStore.getTransactionByProviderReference("nomba", reference) ||
+      (transaction.meta?.merchantTxRef ? await escrowStore.getTransactionByProviderReference("nomba", String(transaction.meta.merchantTxRef)) : null) ||
+      (transaction.merchantTxRef ? await escrowStore.getTransactionByProviderReference("nomba", String(transaction.merchantTxRef)) : null);
+
+    if (relatedTransaction) {
+      await escrowStore.addEvent({
+        escrowId: relatedTransaction.escrowId,
+        actor: "nomba",
+        actorRole: "payment_provider",
+        channel: "webhook",
+        previousStatus: undefined,
+        nextStatus: undefined,
+        eventType: "payout_provider_event_received",
+        reason: eventType,
+        metadata: {
+          provider: "nomba",
+          reference,
+          payload: body,
+        },
+      });
+      await opsStore.enqueueJob("payout_review", {
+        escrowId: relatedTransaction.escrowId,
+        provider: "nomba",
+        reference,
+        eventType,
+        reason: "nomba_payout_webhook_requires_operator_or_requery_confirmation",
+      }, { maxAttempts: 3 });
+    } else {
+      capturePaymentWarning("Nomba payout webhook did not match a Sivan payout transaction", { reference, eventType });
+    }
+
+    return res.status(200).send({ status: "received" });
+  } catch (err: any) {
+    if (reference) {
+      try {
+        await opsStore.enqueueJob("payout_review", {
+          provider: "nomba",
+          reference,
+          reason: "nomba_webhook_processing_failed",
+        }, { maxAttempts: 3 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue Nomba payout review job", enqueueErr, { reference });
+      }
+    }
+    captureOperationalError("Nomba webhook processing failed", err, { reference: reference || "unknown" });
     return res.status(500).send({ error: "Webhook processing failed" });
   }
 });

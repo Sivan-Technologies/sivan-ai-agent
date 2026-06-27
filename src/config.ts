@@ -116,6 +116,18 @@ export const config = {
       .filter(Boolean),
     dynamicAccountExpirySeconds: envNumber("FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS", 3600),
   },
+  nomba: {
+    clientId: envValue("NOMBA_CLIENT_ID"),
+    clientSecret: envValue("NOMBA_CLIENT_SECRET"),
+    accountId: envValue("NOMBA_ACCOUNT_ID"),
+    baseUrl: envValue("NOMBA_BASE_URL", "https://sandbox.nomba.com"),
+    webhookUrl: envValue("NOMBA_WEBHOOK_URL"),
+    webhookSecret: envValue("NOMBA_WEBHOOK_SECRET"),
+    timeoutMs: envNumber("NOMBA_TIMEOUT_MS", 8000),
+    payoutEnabled: envValue("NOMBA_PAYOUT_ENABLED", "false").toLowerCase() === "true",
+    senderName: envValue("NOMBA_SENDER_NAME", "Sivan"),
+    subAccountId: envValue("NOMBA_SUB_ACCOUNT_ID"),
+  },
   nairaPayments: {
     methods: envValue("NAIRA_PAYMENT_METHODS", "bank_transfer")
       .split(",")

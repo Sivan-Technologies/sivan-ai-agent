@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import request from "supertest";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 
@@ -20,12 +21,29 @@ process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "8102524846";
 process.env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS = "whatsapp:+2348000000902";
 process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET = "test-twilio-debugger-secret";
+process.env.NOMBA_WEBHOOK_SECRET = "test-nomba-webhook-secret";
+const palmpayPlatformKeys = crypto.generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
+process.env.PALMPAY_PLATFORM_PUBLIC_KEY = palmpayPlatformKeys.publicKey;
 
 if (fs.existsSync(TEST_DB_PATH)) {
   fs.unlinkSync(TEST_DB_PATH);
 }
 
 const app = (await import("../src/server")).default;
+
+function palmpaySign(payload: Record<string, unknown>) {
+  const canonical = Object.keys(payload)
+    .filter((key) => key !== "sign" && payload[key] !== undefined && payload[key] !== null && String(payload[key]).trim() !== "")
+    .sort()
+    .map((key) => `${key}=${String(payload[key]).trim()}`)
+    .join("&");
+  const digest = crypto.createHash("md5").update(canonical, "utf8").digest("hex").toUpperCase();
+  return crypto.createSign("RSA-SHA1").update(digest).sign(palmpayPlatformKeys.privateKey, "base64");
+}
 
 describe("Admin Settings API Integration", () => {
   afterAll(() => {
@@ -89,6 +107,109 @@ describe("Admin Settings API Integration", () => {
       .send({});
     expect(generic.status).toBe(200);
     expect(generic.body).toMatchObject({ received: true, ignored: "missing_structured_details" });
+  });
+
+  it("should verify signed Nomba payout webhooks before accepting them", async () => {
+    const payload = {
+      event_type: "payout_success",
+      requestId: "nomba-request-001",
+      data: {
+        merchant: {
+          name: "Sivan",
+          walletId: "wallet-001",
+        },
+        transaction: {
+          transactionId: "API-TRANSFER-NOMBA-001",
+          type: "transfer",
+          status: "SUCCESS",
+          amount: 100,
+          fee: 0,
+          transactionAmount: 100,
+          transactionFee: 0,
+          createdAt: "2026-06-27T10:00:00Z",
+          timeCreated: "2026-06-27T10:00:00Z",
+          terminalId: "terminal-001",
+          merchantTxRef: "NOMBA_release_SIV_TEST",
+        },
+      },
+    };
+    const timestamp = "2026-06-27T10:01:00Z";
+    const canonical =
+      "payout_success" +
+      "nomba-request-001" +
+      "Sivan" +
+      "wallet-001" +
+      "API-TRANSFER-NOMBA-001" +
+      "transfer" +
+      "SUCCESS" +
+      "100" +
+      "0" +
+      "100" +
+      "0" +
+      "2026-06-27T10:00:00Z" +
+      "2026-06-27T10:00:00Z" +
+      "terminal-001" +
+      "NOMBA_release_SIV_TEST" +
+      timestamp;
+    const signature = crypto.createHmac("sha256", "test-nomba-webhook-secret").update(canonical).digest("base64");
+
+    const rejected = await request(app)
+      .post("/webhooks/nomba")
+      .set("nomba-signature", "bad-signature")
+      .set("nomba-timestamp", timestamp)
+      .send(payload);
+    expect(rejected.status).toBe(400);
+
+    const accepted = await request(app)
+      .post("/webhooks/nomba")
+      .set("nomba-signature", signature)
+      .set("nomba-timestamp", timestamp)
+      .send(payload);
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toMatchObject({ status: "received" });
+  });
+
+  it("should verify signed PalmPay collection and payout webhooks before accepting them", async () => {
+    const collectionPayload = {
+      orderId: "PPSIVSIGNEDTEST",
+      orderNo: "2424231018025438544222",
+      appId: "LTEST",
+      currency: "NGN",
+      amount: 10000,
+      orderStatus: 2,
+      completeTime: 1782555000000,
+    };
+    const badCollection = await request(app)
+      .post("/webhooks/palmpay")
+      .send({ ...collectionPayload, sign: "bad-signature" });
+    expect(badCollection.status).toBe(400);
+
+    const goodCollection = await request(app)
+      .post("/webhooks/palmpay")
+      .send({ ...collectionPayload, sign: palmpaySign(collectionPayload) });
+    expect(goodCollection.status).toBe(202);
+    expect(goodCollection.text).toBe("success");
+
+    const payoutPayload = {
+      orderId: "PPOPROOFTEST",
+      orderNo: "41220723093001",
+      appId: "LTEST",
+      currency: "NGN",
+      amount: 10000,
+      orderStatus: 2,
+      sessionId: "100033240509135230000500932911",
+      completeTime: 1782555000000,
+    };
+    const badPayout = await request(app)
+      .post("/webhooks/palmpay/payout")
+      .send({ ...payoutPayload, sign: "bad-signature" });
+    expect(badPayout.status).toBe(400);
+
+    const goodPayout = await request(app)
+      .post("/webhooks/palmpay/payout")
+      .send({ ...payoutPayload, sign: palmpaySign(payoutPayload) });
+    expect(goodPayout.status).toBe(200);
+    expect(goodPayout.text).toBe("success");
   });
 
   it("should fetch fee settings with admin credentials", async () => {
@@ -368,7 +489,7 @@ describe("Admin Settings API Integration", () => {
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "palmpay",
+        activePaymentProvider: "boguspay",
         backupPaymentProvider: "paystack",
         emergencyPaymentProvider: "flutterwave",
         paymentProviderFallbackEnabled: false,

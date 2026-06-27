@@ -264,6 +264,7 @@ Do not enable automated payout by default. Use explicit flags:
 PALMPAY_PAYOUT_ENABLED=false
 ACTIVE_PAYOUT_PROVIDER=manual_bank_transfer
 PALMPAY_PAYOUT_NOTIFY_URL=https://<api-domain>/webhooks/palmpay/payout
+PALMPAY_PROOF_RUN_PAYOUT=false
 ```
 
 Only after proof:
@@ -273,12 +274,24 @@ PALMPAY_PAYOUT_ENABLED=true
 ACTIVE_PAYOUT_PROVIDER=palmpay
 ```
 
+## Current implementation status
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| Provider-neutral payout adapter | ✅ Done | `ACTIVE_PAYOUT_PROVIDER=palmpay` is supported |
+| PalmPay payout client | ✅ Done | Initiates merchant payout with signed RSA request |
+| PalmPay payout query | ✅ Done | Uses `/api/v2/merchant/payment/queryPayStatus` |
+| PalmPay payout webhook endpoint | ✅ Done / conservative | `/webhooks/palmpay/payout` verifies signature, stores the event, links payout transaction when possible, and queues payout review |
+| Proof script | ✅ Done | `npm run verify:palmpay` can run collection proof and optional payout proof |
+| Auto-finalize release from pending payout webhook | 🔴 Not enabled | Keep conservative until live callback/requery proof passes |
+| Live low-value payout proof | 🔴 Not started | Required before `PALMPAY_PAYOUT_ENABLED=true` in production |
+
 ## What should be added to the payout MD?
 
 Yes, this plan should live in the payout documentation, not only in the PalmPay collection doc. The payout doc should clearly say:
 
 - PalmPay collection/pay-in is implemented.
-- PalmPay automated payout is not implemented yet.
+- PalmPay automated payout code is implemented but disabled by default.
 - The current production-safe MVP is manual payout after admin approval.
 - Automated payout must be launched behind an env flag.
 - `RELEASED` must happen only after payout success, not at payout initiation.

@@ -25,6 +25,15 @@ export interface PalmPayPayoutResult {
   raw: unknown;
 }
 
+export interface PalmPayPayoutWebhook {
+  eventId: string;
+  orderId: string;
+  orderNo?: string;
+  status: PalmPayPayoutResult["status"];
+  eventType: string;
+  raw: unknown;
+}
+
 function normalizeBase64Key(key: string, type: "PRIVATE" | "PUBLIC") {
   const trimmed = key.trim().replace(/\\n/g, "\n");
   if (trimmed.includes("-----BEGIN")) return trimmed;
@@ -67,6 +76,7 @@ export class PalmPayPayoutClient {
   private baseUrl = config.palmpay.baseUrl.replace(/\/$/, "");
   private appId = config.palmpay.appId;
   private merchantPrivateKey = config.palmpay.merchantPrivateKey;
+  private platformPublicKey = config.palmpay.platformPublicKey;
   private timeoutMs = config.palmpay.timeoutMs;
 
   public isPayoutConfigured() {
@@ -91,6 +101,20 @@ export class PalmPayPayoutClient {
       .createSign("RSA-SHA1")
       .update(digest)
       .sign(normalizeBase64Key(this.merchantPrivateKey, "PRIVATE"), "base64");
+  }
+
+  public verifyWebhookSignature(payload: Record<string, unknown>, signature: string) {
+    if (!this.platformPublicKey || !signature) return false;
+    try {
+      const digest = md5Upper(canonicalString(payload));
+      const decodedSignature = decodeURIComponent(signature);
+      return crypto
+        .createVerify("RSA-SHA1")
+        .update(digest)
+        .verify(normalizeBase64Key(this.platformPublicKey, "PUBLIC"), decodedSignature, "base64");
+    } catch {
+      return false;
+    }
   }
 
   public async initiatePayout(input: PalmPayPayoutRequest): Promise<PalmPayPayoutResult> {
@@ -144,5 +168,62 @@ export class PalmPayPayoutClient {
       raw: response,
     };
   }
-}
 
+  public async queryPayoutStatus(orderIdOrNo: { orderId?: string; orderNo?: string }): Promise<PalmPayPayoutResult> {
+    if (!this.isPayoutConfigured()) {
+      throw new Error("PalmPay payout is not configured/enabled");
+    }
+    const body: Record<string, unknown> = {
+      requestTime: Date.now(),
+      version: "V1.1",
+      nonceStr: crypto.randomBytes(16).toString("hex"),
+    };
+    if (orderIdOrNo.orderId) body.orderId = orderIdOrNo.orderId;
+    if (orderIdOrNo.orderNo) body.orderNo = orderIdOrNo.orderNo;
+    if (!body.orderId && !body.orderNo) throw new Error("PalmPay payout query requires orderId or orderNo");
+
+    let response: any;
+    try {
+      const res = await axios.post(
+        `${this.baseUrl}/api/v2/merchant/payment/queryPayStatus`,
+        body,
+        { headers: this.requestHeaders(body), timeout: this.timeoutMs }
+      );
+      response = res.data;
+    } catch (err) {
+      throw new Error(`PalmPay payout query failed: ${extractAxiosMessage(err)}`);
+    }
+
+    const data = response?.data || {};
+    if (response?.respCode !== "00000000" || (!data?.orderId && !data?.orderNo)) {
+      throw new Error(response?.respMsg || data?.errorMsg || "PalmPay payout query returned no order");
+    }
+
+    return {
+      orderId: String(data.orderId || orderIdOrNo.orderId || ""),
+      orderNo: data.orderNo ? String(data.orderNo) : undefined,
+      status: payoutStatusFromOrderStatus(data.orderStatus),
+      amount: Number(data.amount || 0) / 100,
+      currency: "NAIRA",
+      fee: data.fee?.fee === undefined ? undefined : Number(data.fee.fee) / 100,
+      sessionId: data.sessionId ? String(data.sessionId) : undefined,
+      message: data.message || data.errorMsg || response?.respMsg,
+      raw: response,
+    };
+  }
+
+  public normalizeWebhook(payload: any): PalmPayPayoutWebhook {
+    const orderId = String(payload?.orderId || "").trim();
+    const orderNo = String(payload?.orderNo || "").trim();
+    if (!orderId && !orderNo) throw new Error("PalmPay payout webhook is missing orderId/orderNo");
+    const eventType = `payout.order.${payload?.orderStatus ?? "unknown"}`;
+    return {
+      eventId: `palmpay:${eventType}:${orderId || "none"}:${orderNo || "none"}`,
+      orderId,
+      orderNo: orderNo || undefined,
+      status: payoutStatusFromOrderStatus(payload?.orderStatus),
+      eventType,
+      raw: payload,
+    };
+  }
+}

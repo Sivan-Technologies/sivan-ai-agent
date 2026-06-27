@@ -268,7 +268,7 @@ Review verdict: ✅ Webhook behavior matches PalmPay retry rules and Sivan safet
 
 | Limitation | Status | Reason |
 | --- | --- | --- |
-| PalmPay payout automation | 🔴 Not implemented | MVP should keep manual payout/release control until pay-in is proven. See `docs/palmpay-payout-automation.md` |
+| PalmPay payout automation | 🟡 Implemented / disabled by default | Payout client/provider, query, and signed payout webhook ingestion exist, but MVP should keep manual payout/release control until payout proof passes. See `docs/palmpay-payout-automation.md` |
 | Settlement reconciliation from PalmPay settlement reports | 🟡 Pending | Current code records payment events; settlement reporting needs live/provider data |
 | Real sandbox callback proof | 🟡 Pending | Needs PalmPay sandbox call into deployed Render URL |
 | Production IP whitelist | 🟡 Pending | Must be confirmed/configured with PalmPay before live |
@@ -291,9 +291,18 @@ npm test -- --run
 Results:
 
 ```text
-Backend: 105/105 passed
-WhatsApp bot: 55/55 passed, 1 intentional skip
+Backend: 122/122 passed locally on 2026-06-27
+PalmPay client/provider tests passed
+PalmPay payout/webhook code builds
 ```
+
+PalmPay proof command added:
+
+```bash
+npm run verify:palmpay
+```
+
+This creates a low-value sandbox PalmPay order and immediately queries it. It does not run payout unless `PALMPAY_PROOF_RUN_PAYOUT=true` and `PALMPAY_PAYOUT_ENABLED=true` are explicitly set.
 
 ### Stage 1: Render sandbox setup
 

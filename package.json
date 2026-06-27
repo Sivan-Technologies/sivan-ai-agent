@@ -14,6 +14,8 @@
     "dr:check": "ts-node src/scripts/disaster-recovery-check.ts",
     "drill:incident": "ts-node src/scripts/incident-drill.ts",
     "verify:settlement": "ts-node src/scripts/verify-settlement.ts",
+    "verify:palmpay": "ts-node src/scripts/palmpay-proof.ts",
+    "verify:nomba-transfer": "ts-node src/scripts/nomba-transfer-proof.ts",
     "test": "vitest"
   },
   "author": "",

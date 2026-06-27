@@ -1,12 +1,14 @@
 import { config } from "../config";
 import { EscrowCurrency, EscrowRecord, PayoutAccountRecord, PayoutAccountTransferRecord } from "./escrowStore";
+import { NombaPayoutClient } from "./nombaPayoutClient";
 import { PalmPayPayoutClient } from "./palmpayPayoutClient";
 
 export type PayoutProviderId =
   | "manual_bank_transfer"
   | "palmpay"
   | "flutterwave"
-  | "monnify";
+  | "monnify"
+  | "nomba";
 
 export type PayoutProviderStatus =
   | "succeeded"
@@ -40,7 +42,7 @@ export interface PayoutProvider {
 
 function configuredActivePayoutProvider(): PayoutProviderId {
   const value = (process.env.ACTIVE_PAYOUT_PROVIDER || "manual_bank_transfer").trim().toLowerCase();
-  if (["manual_bank_transfer", "palmpay", "flutterwave", "monnify"].includes(value)) {
+  if (["manual_bank_transfer", "palmpay", "flutterwave", "monnify", "nomba"].includes(value)) {
     return value as PayoutProviderId;
   }
   return "manual_bank_transfer";
@@ -121,9 +123,53 @@ class PalmPayPayoutProvider implements PayoutProvider {
   }
 }
 
+class NombaPayoutProvider implements PayoutProvider {
+  public readonly id = "nomba" as const;
+  private readonly client = new NombaPayoutClient();
+
+  public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
+    if (!config.nomba.payoutEnabled) {
+      throw new Error("Nomba payout is disabled. Set NOMBA_PAYOUT_ENABLED=true only after sandbox transfer and webhook proof pass.");
+    }
+    const payoutAccount = input.payoutAccount as PayoutAccountTransferRecord | undefined | null;
+    if (!payoutAccount?.accountNumberRaw) throw new Error("Seller payout account number is unavailable for Nomba transfer");
+    if (!payoutAccount.bankCode) throw new Error("Seller payout bank code is required for Nomba transfer");
+    const accountName = payoutAccount.resolvedAccountName || payoutAccount.accountName;
+    if (!accountName) throw new Error("Seller payout account name is required for Nomba transfer");
+
+    const merchantTxRef = `NOMBA_${input.idempotencyKey}`
+      .replace(/[^A-Za-z0-9_-]/g, "_")
+      .slice(0, 64);
+    const result = await this.client.initiateBankTransfer({
+      merchantTxRef,
+      accountNumber: payoutAccount.accountNumberRaw,
+      accountName,
+      bankCode: payoutAccount.bankCode,
+      amount: input.amount,
+      currency: input.currency,
+      senderName: config.nomba.senderName,
+      narration: input.payoutNotes || `Sivan escrow release ${input.escrow.escrowId}`,
+    });
+
+    return {
+      provider: this.id,
+      status: result.status,
+      reference: result.transactionId || result.merchantTxRef,
+      message: result.message || `Nomba transfer ${result.status}`,
+      rawPayload: {
+        merchantTxRef: result.merchantTxRef,
+        transactionId: result.transactionId || null,
+        fee: result.fee || null,
+        status: result.status,
+      },
+    };
+  }
+}
+
 export function createPayoutProvider(provider: PayoutProviderId = configuredActivePayoutProvider()): PayoutProvider {
   if (provider === "manual_bank_transfer") return new ManualBankTransferPayoutProvider();
   if (provider === "palmpay") return new PalmPayPayoutProvider();
+  if (provider === "nomba") return new NombaPayoutProvider();
   return new DisabledAutomatedPayoutProvider(provider);
 }
 
