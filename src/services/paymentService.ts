@@ -14,7 +14,12 @@ import {
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
 
 export function createProviderForId(provider?: string) {
-  return createNairaPaymentProvider(provider || "flutterwave");
+  if (!provider) {
+    throw new Error(
+      "No payment provider specified. Set ACTIVE_PAYMENT_PROVIDER in your environment."
+    );
+  }
+  return createNairaPaymentProvider(provider);
 }
 
 export function providerConfigured(provider: string) {
@@ -35,7 +40,13 @@ export async function getActiveNairaPaymentProvider() {
 }
 
 export function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
-  return createProviderForId(escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave");
+  const resolved = escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER;
+  if (!resolved) {
+    throw new Error(
+      "Cannot determine payment provider for escrow. Set ACTIVE_PAYMENT_PROVIDER in your environment."
+    );
+  }
+  return createProviderForId(resolved);
 }
 
 export function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
