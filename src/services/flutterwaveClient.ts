@@ -124,7 +124,7 @@ export class FlutterwaveClient {
       tx_ref: input.paymentReference,
       amount: input.amount,
       currency: "NGN",
-      redirect_url: input.redirectUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl,
+      redirect_url: input.redirectUrl || config.flutterwave.callbackUrl || config.paystack.callbackUrl,
       payment_options: paymentOptions || "banktransfer",
       customer: {
         email: input.customerEmail,
