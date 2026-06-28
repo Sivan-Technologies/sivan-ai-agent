@@ -14,7 +14,7 @@ import {
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
 
 export function createProviderForId(provider?: string) {
-  return createNairaPaymentProvider(provider || "paystack");
+  return createNairaPaymentProvider(provider || "flutterwave");
 }
 
 export function providerConfigured(provider: string) {
@@ -35,7 +35,7 @@ export async function getActiveNairaPaymentProvider() {
 }
 
 export function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
-  return createProviderForId(escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack");
+  return createProviderForId(escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave");
 }
 
 export function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {

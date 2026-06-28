@@ -445,7 +445,7 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   }
 }
 
-export function createNairaPaymentProvider(provider = process.env.ACTIVE_PAYMENT_PROVIDER || "paystack"): PaymentProvider {
+export function createNairaPaymentProvider(provider = process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave"): PaymentProvider {
   const normalized = provider.trim().toLowerCase();
   if (!normalized || normalized === "paystack") return new PaystackPaymentProvider();
   if (normalized === "monnify") return new MonnifyPaymentProvider();
