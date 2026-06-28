@@ -25,13 +25,15 @@ function envNumber(key: string, fallback: number) {
 }
 
 const databaseProvider = envValue("DATABASE_PROVIDER", "sqlite");
+const databaseMode = (envValue("DATABASE_MODE", "test").toLowerCase() === "live" ? "live" : "test") as "test" | "live";
 const defaultDatabaseUrl = path.resolve(process.cwd(), "data", "sivan-escrow-agent.db");
 const databaseUrl =
-  databaseProvider === "postgres"
-    ? envValue("DATABASE_URL", envValue("POSTGRES_DATABASE_URL", defaultDatabaseUrl))
+  databaseMode === "live"
+    ? envValue("LIVE_DATABASE_URL", envValue("DATABASE_URL", defaultDatabaseUrl))
     : envValue("DATABASE_URL", defaultDatabaseUrl);
 
 export const config = {
+  databaseMode,
   synapse: {
     apiKey: envValue("SYNAPSE_API_KEY"),
     rpcUrl: envValue("SYNAPSE_RPC_URL", envValue("SAP_RPC_URL")),
@@ -40,6 +42,9 @@ export const config = {
     x402FacilitatorUrl: envValue("SYNAPSE_X402_FACILITATOR_URL", envValue("X402_RPC_URL")),
     x402Network: envValue("SYNAPSE_X402_NETWORK", "solana-devnet"),
     usdcMint: envValue("SYNAPSE_USDC_MINT"),
+    testFacilitatorUrl: envValue("SYNAPSE_X402_TEST_FACILITATOR_URL", "https://facilitator.payai.network"),
+    liveFacilitatorUrl: envValue("SYNAPSE_X402_LIVE_FACILITATOR_URL"),
+    liveNetwork: envValue("SYNAPSE_X402_LIVE_NETWORK", "solana-mainnet"),
   },
   sap: {
     rpcUrl: envValue("SAP_RPC_URL", envValue("SYNAPSE_RPC_URL")),
@@ -61,6 +66,10 @@ export const config = {
   paystack: {
     secretKey: envValue("PAYSTACK_SECRET_KEY"),
     publicKey: envValue("PAYSTACK_PUBLIC_KEY"),
+    testSecretKey: envValue("PAYSTACK_TEST_SECRET_KEY"),
+    testPublicKey: envValue("PAYSTACK_TEST_PUBLIC_KEY"),
+    liveSecretKey: envValue("PAYSTACK_LIVE_SECRET_KEY"),
+    livePublicKey: envValue("PAYSTACK_LIVE_PUBLIC_KEY"),
     baseUrl: envValue("PAYSTACK_BASE_URL", "https://api.paystack.co"),
     webhookSecret: envValue("PAYSTACK_WEBHOOK_SECRET"),
     receiverAccount: envValue("PAYSTACK_RECEIVER_ACCOUNT"),
@@ -75,7 +84,14 @@ export const config = {
     apiKey: envValue("MONNIFY_API_KEY"),
     secretKey: envValue("MONNIFY_SECRET_KEY"),
     contractCode: envValue("MONNIFY_CONTRACT_CODE"),
+    testApiKey: envValue("MONNIFY_TEST_API_KEY"),
+    testSecretKey: envValue("MONNIFY_TEST_SECRET_KEY"),
+    testContractCode: envValue("MONNIFY_TEST_CONTRACT_CODE"),
+    liveApiKey: envValue("MONNIFY_LIVE_API_KEY"),
+    liveSecretKey: envValue("MONNIFY_LIVE_SECRET_KEY"),
+    liveContractCode: envValue("MONNIFY_LIVE_CONTRACT_CODE"),
     baseUrl: envValue("MONNIFY_BASE_URL", "https://sandbox.monnify.com"),
+    liveBaseUrl: envValue("MONNIFY_LIVE_BASE_URL", "https://api.monnify.com"),
     webhookUrl: envValue("MONNIFY_WEBHOOK_URL"),
     sourceAccountNumber: envValue("MONNIFY_SOURCE_ACCOUNT_NUMBER"),
     timeoutMs: envNumber("MONNIFY_TIMEOUT_MS", 8000),
@@ -90,7 +106,18 @@ export const config = {
     merchantPrivateKey: envValue("PALMPAY_MERCHANT_PRIVATE_KEY"),
     merchantPublicKey: envValue("PALMPAY_MERCHANT_PUBLIC_KEY"),
     platformPublicKey: envValue("PALMPAY_PLATFORM_PUBLIC_KEY"),
+    testAppId: envValue("PALMPAY_TEST_APP_ID"),
+    testMerchantId: envValue("PALMPAY_TEST_MERCHANT_ID"),
+    testMerchantPrivateKey: envValue("PALMPAY_TEST_MERCHANT_PRIVATE_KEY"),
+    testMerchantPublicKey: envValue("PALMPAY_TEST_MERCHANT_PUBLIC_KEY"),
+    testPlatformPublicKey: envValue("PALMPAY_TEST_PLATFORM_PUBLIC_KEY"),
+    liveAppId: envValue("PALMPAY_LIVE_APP_ID"),
+    liveMerchantId: envValue("PALMPAY_LIVE_MERCHANT_ID"),
+    liveMerchantPrivateKey: envValue("PALMPAY_LIVE_MERCHANT_PRIVATE_KEY"),
+    liveMerchantPublicKey: envValue("PALMPAY_LIVE_MERCHANT_PUBLIC_KEY"),
+    livePlatformPublicKey: envValue("PALMPAY_LIVE_PLATFORM_PUBLIC_KEY"),
     baseUrl: envValue("PALMPAY_BASE_URL", "https://open-gw-sandbox.palmpay-inc.com"),
+    liveBaseUrl: envValue("PALMPAY_LIVE_BASE_URL", "https://open-gw.palmpay-inc.com"),
     webhookUrl: envValue("PALMPAY_WEBHOOK_URL"),
     callbackUrl: envValue("PALMPAY_CALLBACK_URL", envValue("PAYSTACK_CALLBACK_URL")),
     countryCode: envValue("PALMPAY_COUNTRY_CODE", "NG"),
@@ -125,7 +152,14 @@ export const config = {
     clientId: envValue("NOMBA_CLIENT_ID"),
     clientSecret: envValue("NOMBA_CLIENT_SECRET"),
     accountId: envValue("NOMBA_ACCOUNT_ID"),
+    testClientId: envValue("NOMBA_TEST_CLIENT_ID"),
+    testClientSecret: envValue("NOMBA_TEST_CLIENT_SECRET"),
+    testAccountId: envValue("NOMBA_TEST_ACCOUNT_ID"),
+    liveClientId: envValue("NOMBA_LIVE_CLIENT_ID"),
+    liveClientSecret: envValue("NOMBA_LIVE_CLIENT_SECRET"),
+    liveAccountId: envValue("NOMBA_LIVE_ACCOUNT_ID"),
     baseUrl: envValue("NOMBA_BASE_URL", "https://sandbox.nomba.com"),
+    liveBaseUrl: envValue("NOMBA_LIVE_BASE_URL", "https://api.nomba.com"),
     webhookUrl: envValue("NOMBA_WEBHOOK_URL"),
     webhookSecret: envValue("NOMBA_WEBHOOK_SECRET"),
     timeoutMs: envNumber("NOMBA_TIMEOUT_MS", 8000),

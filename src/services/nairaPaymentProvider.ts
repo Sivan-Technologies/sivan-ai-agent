@@ -171,7 +171,11 @@ function mapFlutterwaveStatus(transaction: FlutterwaveVerifiedCharge): VerifiedN
 export class PaystackPaymentProvider implements PaymentProvider {
   public readonly id = "paystack";
 
-  constructor(private client = new PaystackClient()) {}
+  private client: PaystackClient;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    this.client = new PaystackClient(platformMode);
+  }
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
     assertNairaBankTransferOnly(config.nairaPayments.methods);
@@ -227,7 +231,11 @@ export class PaystackPaymentProvider implements PaymentProvider {
 export class MonnifyPaymentProvider implements PaymentProvider {
   public readonly id = "monnify";
 
-  constructor(private client = new MonnifyClient()) {}
+  private client: MonnifyClient;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    this.client = new MonnifyClient(platformMode);
+  }
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
     const paymentReference = input.paymentReference || `monnify-${input.escrowId || crypto.randomUUID()}-${crypto.randomUUID().slice(0, 8)}`;
@@ -308,7 +316,11 @@ function palmPayOrderId(escrowId?: string) {
 export class PalmPayPaymentProvider implements PaymentProvider {
   public readonly id = "palmpay";
 
-  constructor(private client = new PalmPayClient()) {}
+  private client: PalmPayClient;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    this.client = new PalmPayClient(platformMode);
+  }
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
     const paymentReference = palmPayOrderId(input.escrowId);
@@ -453,9 +465,9 @@ export function createNairaPaymentProvider(
   platformMode?: "test" | "live" | "maintenance"
 ): PaymentProvider {
   const normalized = provider.trim().toLowerCase();
-  if (!normalized || normalized === "paystack") return new PaystackPaymentProvider();
-  if (normalized === "monnify") return new MonnifyPaymentProvider();
-  if (normalized === "palmpay") return new PalmPayPaymentProvider();
+  if (!normalized || normalized === "paystack") return new PaystackPaymentProvider(platformMode);
+  if (normalized === "monnify") return new MonnifyPaymentProvider(platformMode);
+  if (normalized === "palmpay") return new PalmPayPaymentProvider(platformMode);
   if (normalized === "flutterwave") return new FlutterwavePaymentProvider(platformMode);
   throw new Error(`Naira payment provider is not implemented yet: ${provider}`);
 }

@@ -34,10 +34,20 @@ export interface PaystackAccountResolution {
 
 export class PaystackClient {
   private baseUrl = config.paystack.baseUrl;
-  private secretKey = config.paystack.secretKey;
+  private secretKey: string;
   private receiverAccount = config.paystack.receiverAccount;
   private channels = config.paystack.channels;
   private timeoutMs = config.paystack.timeoutMs;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    if (platformMode === "live") {
+      this.secretKey = config.paystack.liveSecretKey || config.paystack.secretKey;
+    } else if (platformMode === "test") {
+      this.secretKey = config.paystack.testSecretKey || config.paystack.secretKey;
+    } else {
+      this.secretKey = config.paystack.secretKey;
+    }
+  }
 
   private getHeaders() {
     return {

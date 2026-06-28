@@ -23,7 +23,11 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
       "Content-Type": "application/json",
       ...(secret ? { "x-notify-secret": secret } : {}),
     },
-    body: JSON.stringify({ to, message, ...(dealCard ? { dealCard } : {}) }),
+    body: JSON.stringify({
+      to,
+      message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
+      ...(dealCard ? { dealCard } : {}),
+    }),
   });
 
   if (!response.ok) {

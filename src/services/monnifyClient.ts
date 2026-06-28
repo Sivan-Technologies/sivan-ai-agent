@@ -33,13 +33,32 @@ export interface MonnifyVerifiedTransaction {
 }
 
 export class MonnifyClient {
-  private baseUrl = config.monnify.baseUrl;
-  private apiKey = config.monnify.apiKey;
-  private secretKey = config.monnify.secretKey;
-  private contractCode = config.monnify.contractCode;
+  private baseUrl: string;
+  private apiKey: string;
+  private secretKey: string;
+  private contractCode: string;
   private timeoutMs = config.monnify.timeoutMs;
   private cachedToken = "";
   private tokenExpiresAt = 0;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    if (platformMode === "live") {
+      this.apiKey = config.monnify.liveApiKey || config.monnify.apiKey;
+      this.secretKey = config.monnify.liveSecretKey || config.monnify.secretKey;
+      this.contractCode = config.monnify.liveContractCode || config.monnify.contractCode;
+      this.baseUrl = config.monnify.liveBaseUrl;
+    } else if (platformMode === "test") {
+      this.apiKey = config.monnify.testApiKey || config.monnify.apiKey;
+      this.secretKey = config.monnify.testSecretKey || config.monnify.secretKey;
+      this.contractCode = config.monnify.testContractCode || config.monnify.contractCode;
+      this.baseUrl = config.monnify.baseUrl;
+    } else {
+      this.apiKey = config.monnify.apiKey;
+      this.secretKey = config.monnify.secretKey;
+      this.contractCode = config.monnify.contractCode;
+      this.baseUrl = config.monnify.baseUrl;
+    }
+  }
 
   public isConfigured() {
     return Boolean(this.apiKey && this.secretKey);

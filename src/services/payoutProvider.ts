@@ -51,15 +51,18 @@ function configuredActivePayoutProvider(): PayoutProviderId {
 class ManualBankTransferPayoutProvider implements PayoutProvider {
   public readonly id = "manual_bank_transfer" as const;
 
+  constructor(private platformMode?: "test" | "live" | "maintenance") {}
+
   public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
     const reference = input.manualPayoutReference?.trim();
     if (!reference) {
       throw new Error("Manual payout reference is required when ACTIVE_PAYOUT_PROVIDER=manual_bank_transfer");
     }
+    const resolvedReference = this.platformMode === "test" ? `TEST-${reference}` : reference;
     return {
       provider: this.id,
       status: "succeeded",
-      reference,
+      reference: resolvedReference,
       message: "Manual bank-transfer payout reference recorded by admin",
       rawPayload: {
         payoutNotes: input.payoutNotes || null,
@@ -87,7 +90,18 @@ class PalmPayPayoutProvider implements PayoutProvider {
   public readonly id = "palmpay" as const;
   private readonly client = new PalmPayPayoutClient();
 
+  constructor(private platformMode?: "test" | "live" | "maintenance") {}
+
   public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
+    if (this.platformMode === "test") {
+      return {
+        provider: this.id,
+        status: "succeeded",
+        reference: `TEST-PALMPAY-${Date.now()}`,
+        message: "Test mode: Simulated PalmPay payout succeeded",
+        rawPayload: { simulated: true },
+      };
+    }
     if (!config.palmpay.payoutEnabled) {
       throw new Error("PalmPay payout is disabled. Set PALMPAY_PAYOUT_ENABLED=true only after payout proof passes.");
     }
@@ -127,7 +141,18 @@ class NombaPayoutProvider implements PayoutProvider {
   public readonly id = "nomba" as const;
   private readonly client = new NombaPayoutClient();
 
+  constructor(private platformMode?: "test" | "live" | "maintenance") {}
+
   public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
+    if (this.platformMode === "test") {
+      return {
+        provider: this.id,
+        status: "succeeded",
+        reference: `TEST-NOMBA-${Date.now()}`,
+        message: "Test mode: Simulated Nomba payout succeeded",
+        rawPayload: { simulated: true },
+      };
+    }
     if (!config.nomba.payoutEnabled) {
       throw new Error("Nomba payout is disabled. Set NOMBA_PAYOUT_ENABLED=true only after sandbox transfer and webhook proof pass.");
     }
@@ -166,13 +191,18 @@ class NombaPayoutProvider implements PayoutProvider {
   }
 }
 
-export function createPayoutProvider(provider: PayoutProviderId = configuredActivePayoutProvider()): PayoutProvider {
-  if (provider === "manual_bank_transfer") return new ManualBankTransferPayoutProvider();
-  if (provider === "palmpay") return new PalmPayPayoutProvider();
-  if (provider === "nomba") return new NombaPayoutProvider();
+export function createPayoutProvider(
+  provider: PayoutProviderId = configuredActivePayoutProvider(),
+  platformMode?: "test" | "live" | "maintenance"
+): PayoutProvider {
+  if (provider === "manual_bank_transfer") return new ManualBankTransferPayoutProvider(platformMode);
+  if (provider === "palmpay") return new PalmPayPayoutProvider(platformMode);
+  if (provider === "nomba") return new NombaPayoutProvider(platformMode);
   return new DisabledAutomatedPayoutProvider(provider);
 }
 
-export function getActivePayoutProvider(): PayoutProvider {
-  return createPayoutProvider(configuredActivePayoutProvider());
+export function getActivePayoutProvider(
+  platformMode?: "test" | "live" | "maintenance"
+): PayoutProvider {
+  return createPayoutProvider(configuredActivePayoutProvider(), platformMode);
 }

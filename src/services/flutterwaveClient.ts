@@ -60,10 +60,13 @@ export class FlutterwaveClient {
   constructor(platformMode?: "test" | "live" | "maintenance") {
     if (platformMode === "live") {
       this.secretKey = config.flutterwave.liveSecretKey || config.flutterwave.secretKey;
+      this.baseUrl = "https://api.flutterwave.com";
     } else if (platformMode === "test") {
       this.secretKey = config.flutterwave.testSecretKey || config.flutterwave.secretKey;
+      this.baseUrl = "https://developersandbox-api.flutterwave.com";
     } else {
       this.secretKey = config.flutterwave.secretKey;
+      this.baseUrl = config.flutterwave.baseUrl.replace(/\/$/, "");
     }
   }
 

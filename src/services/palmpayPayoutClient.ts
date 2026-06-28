@@ -73,11 +73,30 @@ function payoutStatusFromOrderStatus(orderStatus: unknown): PalmPayPayoutResult[
 }
 
 export class PalmPayPayoutClient {
-  private baseUrl = config.palmpay.baseUrl.replace(/\/$/, "");
-  private appId = config.palmpay.appId;
-  private merchantPrivateKey = config.palmpay.merchantPrivateKey;
-  private platformPublicKey = config.palmpay.platformPublicKey;
+  private baseUrl: string;
+  private appId: string;
+  private merchantPrivateKey: string;
+  private platformPublicKey: string;
   private timeoutMs = config.palmpay.timeoutMs;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    if (platformMode === "live") {
+      this.appId = config.palmpay.liveAppId || config.palmpay.appId;
+      this.merchantPrivateKey = config.palmpay.liveMerchantPrivateKey || config.palmpay.merchantPrivateKey;
+      this.platformPublicKey = config.palmpay.livePlatformPublicKey || config.palmpay.platformPublicKey;
+      this.baseUrl = config.palmpay.liveBaseUrl.replace(/\/$/, "");
+    } else if (platformMode === "test") {
+      this.appId = config.palmpay.testAppId || config.palmpay.appId;
+      this.merchantPrivateKey = config.palmpay.testMerchantPrivateKey || config.palmpay.merchantPrivateKey;
+      this.platformPublicKey = config.palmpay.testPlatformPublicKey || config.palmpay.platformPublicKey;
+      this.baseUrl = config.palmpay.baseUrl.replace(/\/$/, "");
+    } else {
+      this.appId = config.palmpay.appId;
+      this.merchantPrivateKey = config.palmpay.merchantPrivateKey;
+      this.platformPublicKey = config.palmpay.platformPublicKey;
+      this.baseUrl = config.palmpay.baseUrl.replace(/\/$/, "");
+    }
+  }
 
   public isPayoutConfigured() {
     return Boolean(config.palmpay.payoutEnabled && this.appId && this.merchantPrivateKey && this.baseUrl);

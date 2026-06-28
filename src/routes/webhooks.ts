@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { config } from "../config";
 import crypto from "crypto";
 import { paystackWebhookSchema, formatZodError } from "../validation";
 import {
@@ -31,8 +32,21 @@ import { info, warn } from "../lib/logger";
 import express from "express";
 
 const router = Router();
-const nombaPayoutClient = new NombaPayoutClient();
-const palmPayPayoutClient = new PalmPayPayoutClient();
+const nombaPayoutClient = new NombaPayoutClient(config.databaseMode);
+const palmPayPayoutClient = new PalmPayPayoutClient(config.databaseMode);
+
+// Stamp every inbound webhook with the active database mode.
+// In Option A (separate Render services), each service only ever processes webhooks
+// for its own database. This log line makes mode visible in all webhook traces.
+router.use((req, _res, next) => {
+  req.headers["x-sivan-db-mode"] = config.databaseMode;
+  info(`Webhook received [mode=${config.databaseMode}]`, {
+    path: req.path,
+    method: req.method,
+    mode: config.databaseMode,
+  });
+  next();
+});
 
 function safeSecretEquals(a: string, b: string) {
   const left = Buffer.from(a);

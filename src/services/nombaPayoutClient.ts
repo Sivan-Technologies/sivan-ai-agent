@@ -101,17 +101,39 @@ function nombaWebhookString(payload: any, timestamp: string, missingValue: "" | 
 }
 
 export class NombaPayoutClient {
-  private baseUrl = config.nomba.baseUrl.replace(/\/$/, "");
+  private baseUrl: string;
+  private clientId?: string;
+  private clientSecret?: string;
+  private accountId?: string;
   private timeoutMs = config.nomba.timeoutMs;
   private accessToken?: string;
   private tokenExpiresAt = 0;
 
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    if (platformMode === "live") {
+      this.clientId = config.nomba.liveClientId || config.nomba.clientId;
+      this.clientSecret = config.nomba.liveClientSecret || config.nomba.clientSecret;
+      this.accountId = config.nomba.liveAccountId || config.nomba.accountId;
+      this.baseUrl = config.nomba.liveBaseUrl.replace(/\/$/, "");
+    } else if (platformMode === "test") {
+      this.clientId = config.nomba.testClientId || config.nomba.clientId;
+      this.clientSecret = config.nomba.testClientSecret || config.nomba.clientSecret;
+      this.accountId = config.nomba.testAccountId || config.nomba.accountId;
+      this.baseUrl = config.nomba.baseUrl.replace(/\/$/, "");
+    } else {
+      this.clientId = config.nomba.clientId;
+      this.clientSecret = config.nomba.clientSecret;
+      this.accountId = config.nomba.accountId;
+      this.baseUrl = config.nomba.baseUrl.replace(/\/$/, "");
+    }
+  }
+
   public isPayoutConfigured() {
     return Boolean(
       config.nomba.payoutEnabled &&
-      config.nomba.clientId &&
-      config.nomba.clientSecret &&
-      config.nomba.accountId &&
+      this.clientId &&
+      this.clientSecret &&
+      this.accountId &&
       this.baseUrl
     );
   }

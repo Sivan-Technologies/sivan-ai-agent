@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { config } from "../config";
 import { requireAdminAuth, logAdminAction } from "../middleware/adminAuth";
 import {
   limitQuerySchema,
@@ -204,7 +205,7 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
     }
     const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
-    const payoutProvider = escrow.currency === "NAIRA" ? getActivePayoutProvider() : null;
+    const payoutProvider = escrow.currency === "NAIRA" ? getActivePayoutProvider(config.databaseMode) : null;
     const payoutAccount = escrow.sellerUserId
       ? payoutProvider?.id === "manual_bank_transfer"
         ? await escrowStore.getPayoutAccount(escrow.sellerUserId)
