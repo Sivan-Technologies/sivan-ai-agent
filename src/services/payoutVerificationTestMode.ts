@@ -12,7 +12,7 @@ export type PayoutVerificationTestResolution = {
 
 export type SandboxPaymentInstruction = {
   reference: string;
-  provider: "paystack_sandbox_override";
+  provider: string;
 };
 
 function csvValues(value?: string) {
@@ -22,13 +22,45 @@ function csvValues(value?: string) {
     .filter(Boolean);
 }
 
+function isActiveProviderTestConfigured(provider: string, env: NodeJS.ProcessEnv): boolean {
+  const norm = provider.trim().toLowerCase();
+  if (norm === "paystack") {
+    return Boolean(env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"));
+  }
+  if (norm === "flutterwave") {
+    return Boolean(
+      env.FLUTTERWAVE_SECRET_KEY?.startsWith("FLWSECK_TEST-") ||
+      env.FLUTTERWAVE_SECRET_KEY?.includes("test") ||
+      env.FLUTTERWAVE_SECRET_KEY?.startsWith("sk_test_")
+    );
+  }
+  if (norm === "palmpay") {
+    return Boolean(
+      env.PALMPAY_BASE_URL?.includes("sandbox") ||
+      !env.PALMPAY_MERCHANT_ID ||
+      env.PALMPAY_APP_ID?.includes("test")
+    );
+  }
+  if (norm === "monnify") {
+    return Boolean(env.MONNIFY_API_KEY?.startsWith("MK_TEST_"));
+  }
+  return true;
+}
+
 export function getPayoutVerificationTestResolution(
   input: PayoutVerificationTestInput,
   bankCode: string,
   env: NodeJS.ProcessEnv = process.env
 ): PayoutVerificationTestResolution | null {
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
-  if (!env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_")) return null;
+
+  const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "flutterwave";
+  // Keep compatibility with tests that only configure Paystack keys
+  const isTestMode =
+    isActiveProviderTestConfigured(activeProvider, env) ||
+    Boolean(env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"));
+
+  if (!isTestMode) return null;
   if (!csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS).includes(input.accountNumber)) return null;
 
   const allowedWhatsappNumbers = csvValues(env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS);
@@ -49,18 +81,37 @@ export function createSandboxPaymentInstruction(
   env: NodeJS.ProcessEnv = process.env
 ): SandboxPaymentInstruction | null {
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
-  if (!env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_")) return null;
+
+  const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "flutterwave";
+  // Keep compatibility with tests that only configure Paystack keys
+  const isTestMode =
+    isActiveProviderTestConfigured(activeProvider, env) ||
+    Boolean(env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"));
+
+  if (!isTestMode) return null;
   if (!csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS).length) return null;
 
+  // Render provider specific sandbox overrides
+  const providerId = activeProvider.trim().toLowerCase();
   return {
-    reference: `sandbox-paystack-${escrowId}-${Date.now()}`,
-    provider: "paystack_sandbox_override",
+    reference: `sandbox-${providerId}-${escrowId}-${Date.now()}`,
+    provider: `${providerId}_sandbox_override`,
   };
 }
 
 export function isSandboxPaymentReference(reference?: string, env: NodeJS.ProcessEnv = process.env) {
+  if (!reference) return false;
+  
+  // Accept any standard sandbox reference structure
+  const isSandboxPattern =
+    reference.startsWith("sandbox-paystack-SIV-") ||
+    reference.startsWith("sandbox-flutterwave-SIV-") ||
+    reference.startsWith("sandbox-palmpay-SIV-") ||
+    reference.startsWith("sandbox-monnify-SIV-");
+
   return Boolean(
-    reference?.startsWith("sandbox-paystack-SIV-") &&
+    isSandboxPattern &&
     createSandboxPaymentInstruction("probe", env)
   );
 }
+

@@ -50,6 +50,7 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       PAYSTACK_SECRET_KEY: "sk_test_example",
+      ACTIVE_PAYMENT_PROVIDER: "paystack",
     });
     expect(payment?.provider).toBe("paystack_sandbox_override");
     expect(payment?.reference).toMatch(/^sandbox-paystack-SIV-TEST-1-/);
@@ -58,6 +59,7 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       PAYSTACK_SECRET_KEY: "sk_live_example",
+      ACTIVE_PAYMENT_PROVIDER: "paystack",
     })).toBeNull();
   });
 
@@ -66,6 +68,7 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       PAYSTACK_SECRET_KEY: "sk_test_example",
+      ACTIVE_PAYMENT_PROVIDER: "paystack",
     };
     expect(isSandboxPaymentReference("sandbox-paystack-SIV-TEST-1-123", env)).toBe(true);
     expect(isSandboxPaymentReference("paystack-live-reference", env)).toBe(false);

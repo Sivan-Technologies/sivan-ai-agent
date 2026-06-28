@@ -339,7 +339,7 @@ router.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, 
   }
   if (
     detail.escrow.status !== "PENDING_PAYMENT" ||
-    detail.escrow.paymentProvider !== "paystack_sandbox_override" ||
+    !detail.escrow.paymentProvider?.endsWith("_sandbox_override") ||
     !isSandboxPaymentReference(detail.escrow.paymentReference)
   ) {
     return res.status(409).json({ error: "Sandbox funding is available only for pending sandbox payment references" });
