@@ -205,10 +205,8 @@ function payoutAccountToken(accountNumber: string) {
   return `acct:${crypto.createHmac("sha256", secret).update(accountNumber).digest("hex").slice(0, 40)}`;
 }
 
-function highValueReviewAmount(currency: EscrowCurrency) {
-  return currency === "NAIRA"
-    ? Number(process.env.NAIRA_HIGH_VALUE_REVIEW_AMOUNT || "500000")
-    : Number(process.env.USDC_HIGH_VALUE_REVIEW_AMOUNT || "2500");
+function highValueThreshold(currency: EscrowCurrency, nairaThreshold: number, usdcThreshold: number) {
+  return currency === "NAIRA" ? nairaThreshold : usdcThreshold;
 }
 
 function payoutNameMatchAcceptable(payout: PayoutAccountRecord) {
@@ -1660,7 +1658,12 @@ export class EscrowStore {
     return result.rows[0] ? this.mapTransaction(result.rows[0]) : null;
   }
 
-  public async requestRelease(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
+  public async requestRelease(
+    escrowId: string,
+    actor: string,
+    channel: string,
+    opts: { nairaHighValueAmount?: number; usdcHighValueAmount?: number } = {},
+  ): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
     await this.assertBuyerActor(escrow, actor);
@@ -1668,8 +1671,12 @@ export class EscrowStore {
       throw new Error(`Escrow cannot be released from ${escrow.status}`);
     }
 
+    const nairaThreshold = opts.nairaHighValueAmount ?? 500000;
+    const usdcThresholdVal = opts.usdcHighValueAmount ?? 2500;
+    const threshold = highValueThreshold(escrow.currency, nairaThreshold, usdcThresholdVal);
+
     if (escrow.currency === "USDC") {
-      if (escrow.amount >= highValueReviewAmount(escrow.currency)) {
+      if (escrow.amount >= threshold) {
         throw new Error("High-value USDC release requires manual review before autonomous release");
       }
       await this.transitionEscrow(escrowId, "RELEASED", {
@@ -1692,14 +1699,14 @@ export class EscrowStore {
           throw new Error("Shared payout account requires manual compliance review before Naira release can be requested");
         }
       }
-      if (escrow.amount >= highValueReviewAmount(escrow.currency)) {
+      if (escrow.amount >= threshold) {
         await this.transitionEscrow(escrowId, "REVIEW_REQUIRED", {
           actor,
           actorRole: "buyer",
           channel,
           eventType: "high_value_release_review_required",
           reason: `Amount meets high-value review threshold for ${escrow.currency}`,
-          metadata: { threshold: highValueReviewAmount(escrow.currency), amount: escrow.amount },
+          metadata: { threshold, amount: escrow.amount },
         });
       } else {
         await this.transitionEscrow(escrowId, "PENDING_RELEASE", {

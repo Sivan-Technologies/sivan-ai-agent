@@ -362,10 +362,15 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid release payload", details: formatZodError(parsed.error) });
     }
+    const settings = await settingsStore.getSettings();
     const updated = await escrowStore.requestRelease(
       req.params.escrowId,
       parsed.data.actorWhatsapp || "unknown",
-      "whatsapp_dm"
+      "whatsapp_dm",
+      {
+        nairaHighValueAmount: settings.nairaHighValueReviewAmount,
+        usdcHighValueAmount: settings.usdcHighValueReviewAmount,
+      }
     );
     await notifyEscrowParticipants(
       updated,

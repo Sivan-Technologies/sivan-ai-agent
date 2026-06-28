@@ -144,6 +144,22 @@ export const adminSettingsSchema = z.object({
   nairaHighValueFundingWindowHours: z.coerce.number().int().positive().max(168).optional(),
   nairaHighValueFundingWindowAmount: z.coerce.number().positive().max(1_000_000_000).optional(),
   nairaFundingReminderBeforeExpiryHours: z.coerce.number().int().positive().max(168).optional(),
+  // Compliance & Risk
+  payoutSharedAccountReviewCount: z.coerce.number().int().nonnegative().optional(),
+  complianceNewSellerEscrowCount: z.coerce.number().int().nonnegative().optional(),
+  complianceHighDisputeRatio: z.coerce.number().min(0).max(1).optional(),
+  complianceHighDisputeMinEscrows: z.coerce.number().int().nonnegative().optional(),
+  nairaHighValueReviewAmount: z.coerce.number().nonnegative().optional(),
+  usdcHighValueReviewAmount: z.coerce.number().nonnegative().optional(),
+  // Worker Controls
+  paymentLifecycleWorkerEnabled: z.coerce.boolean().optional(),
+  paymentLifecycleWorkerIntervalMs: z.coerce.number().int().positive().optional(),
+  reconciliationWorkerEnabled: z.coerce.boolean().optional(),
+  queueWorkerEnabled: z.coerce.boolean().optional(),
+  stuckEscrowAlertMinutes: z.coerce.number().int().positive().optional(),
+  // Disaster Recovery
+  outageStatusPageUrl: z.string().trim().max(500).optional(),
+  outageContacts: z.string().trim().max(500).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 

@@ -30,6 +30,19 @@ export interface PlatformSettings {
   nairaHighValueFundingWindowHours: number;
   nairaHighValueFundingWindowAmount: number;
   nairaFundingReminderBeforeExpiryHours: number;
+  payoutSharedAccountReviewCount: number;
+  complianceNewSellerEscrowCount: number;
+  complianceHighDisputeRatio: number;
+  complianceHighDisputeMinEscrows: number;
+  nairaHighValueReviewAmount: number;
+  usdcHighValueReviewAmount: number;
+  paymentLifecycleWorkerEnabled: boolean;
+  paymentLifecycleWorkerIntervalMs: number;
+  reconciliationWorkerEnabled: boolean;
+  queueWorkerEnabled: boolean;
+  stuckEscrowAlertMinutes: number;
+  outageStatusPageUrl: string;
+  outageContacts: string;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -124,6 +137,19 @@ export class SettingsStore {
       nairaHighValueFundingWindowHours: Number(row.naira_high_value_funding_window_hours ?? 48),
       nairaHighValueFundingWindowAmount: Number(row.naira_high_value_funding_window_amount ?? 100000),
       nairaFundingReminderBeforeExpiryHours: Number(row.naira_funding_reminder_before_expiry_hours ?? 6),
+      payoutSharedAccountReviewCount: Number(row.payout_shared_account_review_count ?? 2),
+      complianceNewSellerEscrowCount: Number(row.compliance_new_seller_escrow_count ?? 1),
+      complianceHighDisputeRatio: Number(row.compliance_high_dispute_ratio ?? 0.3),
+      complianceHighDisputeMinEscrows: Number(row.compliance_high_dispute_min_escrows ?? 3),
+      nairaHighValueReviewAmount: Number(row.naira_high_value_review_amount ?? 500000),
+      usdcHighValueReviewAmount: Number(row.usdc_high_value_review_amount ?? 2500),
+      paymentLifecycleWorkerEnabled: Boolean(row.payment_lifecycle_worker_enabled ?? 0),
+      paymentLifecycleWorkerIntervalMs: Number(row.payment_lifecycle_worker_interval_ms ?? 300000),
+      reconciliationWorkerEnabled: Boolean(row.reconciliation_worker_enabled ?? 0),
+      queueWorkerEnabled: Boolean(row.queue_worker_enabled ?? 0),
+      stuckEscrowAlertMinutes: Number(row.stuck_escrow_alert_minutes ?? 1440),
+      outageStatusPageUrl: row.outage_status_page_url || "",
+      outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -195,6 +221,19 @@ export class SettingsStore {
       "naira_high_value_funding_window_hours INTEGER NOT NULL DEFAULT 48",
       "naira_high_value_funding_window_amount REAL NOT NULL DEFAULT 100000",
       "naira_funding_reminder_before_expiry_hours INTEGER NOT NULL DEFAULT 6",
+      "payout_shared_account_review_count INTEGER NOT NULL DEFAULT 2",
+      "compliance_new_seller_escrow_count INTEGER NOT NULL DEFAULT 1",
+      "compliance_high_dispute_ratio REAL NOT NULL DEFAULT 0.3",
+      "compliance_high_dispute_min_escrows INTEGER NOT NULL DEFAULT 3",
+      "naira_high_value_review_amount REAL NOT NULL DEFAULT 500000",
+      "usdc_high_value_review_amount REAL NOT NULL DEFAULT 2500",
+      "payment_lifecycle_worker_enabled INTEGER NOT NULL DEFAULT 0",
+      "payment_lifecycle_worker_interval_ms INTEGER NOT NULL DEFAULT 300000",
+      "reconciliation_worker_enabled INTEGER NOT NULL DEFAULT 0",
+      "queue_worker_enabled INTEGER NOT NULL DEFAULT 0",
+      "stuck_escrow_alert_minutes INTEGER NOT NULL DEFAULT 1440",
+      "outage_status_page_url TEXT NOT NULL DEFAULT ''",
+      "outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai'",
     ];
     for (const column of columns) {
       try {
@@ -217,6 +256,12 @@ export class SettingsStore {
           naira_payment_method, naira_fee_model, naira_fee_tiers,
           naira_funding_window_hours, naira_high_value_funding_window_hours,
           naira_high_value_funding_window_amount, naira_funding_reminder_before_expiry_hours,
+          payout_shared_account_review_count, compliance_new_seller_escrow_count,
+          compliance_high_dispute_ratio, compliance_high_dispute_min_escrows,
+          naira_high_value_review_amount, usdc_high_value_review_amount,
+          payment_lifecycle_worker_enabled, payment_lifecycle_worker_interval_ms,
+          reconciliation_worker_enabled, queue_worker_enabled, stuck_escrow_alert_minutes,
+          outage_status_page_url, outage_contacts,
           version, updated_at, updated_by
         )
         VALUES (
@@ -226,6 +271,12 @@ export class SettingsStore {
           'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]',
           @nairaFundingWindowHours, @nairaHighValueFundingWindowHours,
           @nairaHighValueFundingWindowAmount, @nairaFundingReminderBeforeExpiryHours,
+          @payoutSharedAccountReviewCount, @complianceNewSellerEscrowCount,
+          @complianceHighDisputeRatio, @complianceHighDisputeMinEscrows,
+          @nairaHighValueReviewAmount, @usdcHighValueReviewAmount,
+          @paymentLifecycleWorkerEnabled, @paymentLifecycleWorkerIntervalMs,
+          @reconciliationWorkerEnabled, @queueWorkerEnabled, @stuckEscrowAlertMinutes,
+          @outageStatusPageUrl, @outageContacts,
           1, @now, 'system'
         )
       `).run({
@@ -240,6 +291,19 @@ export class SettingsStore {
         nairaHighValueFundingWindowHours: Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS || 48),
         nairaHighValueFundingWindowAmount: Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT || 100000),
         nairaFundingReminderBeforeExpiryHours: Number(process.env.NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS || 6),
+        payoutSharedAccountReviewCount: Number(process.env.PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT || 2),
+        complianceNewSellerEscrowCount: Number(process.env.COMPLIANCE_NEW_SELLER_ESCROW_COUNT || 1),
+        complianceHighDisputeRatio: Number(process.env.COMPLIANCE_HIGH_DISPUTE_RATIO || 0.3),
+        complianceHighDisputeMinEscrows: Number(process.env.COMPLIANCE_HIGH_DISPUTE_MIN_ESCROWS || 3),
+        nairaHighValueReviewAmount: Number(process.env.NAIRA_HIGH_VALUE_REVIEW_AMOUNT || 500000),
+        usdcHighValueReviewAmount: Number(process.env.USDC_HIGH_VALUE_REVIEW_AMOUNT || 2500),
+        paymentLifecycleWorkerEnabled: process.env.PAYMENT_LIFECYCLE_WORKER_ENABLED === "true" ? 1 : 0,
+        paymentLifecycleWorkerIntervalMs: Number(process.env.PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS || 300000),
+        reconciliationWorkerEnabled: process.env.RECONCILIATION_WORKER_ENABLED === "true" ? 1 : 0,
+        queueWorkerEnabled: process.env.QUEUE_WORKER_ENABLED === "true" ? 1 : 0,
+        stuckEscrowAlertMinutes: Number(process.env.STUCK_ESCROW_ALERT_MINUTES || 1440),
+        outageStatusPageUrl: process.env.OUTAGE_STATUS_PAGE_URL || "",
+        outageContacts: process.env.OUTAGE_CONTACTS || "Telegram @Sivan_Ai",
       });
     }
   }
@@ -299,6 +363,19 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_high_value_funding_window_hours INTEGER NOT NULL DEFAULT 48;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_high_value_funding_window_amount DOUBLE PRECISION NOT NULL DEFAULT 100000;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_funding_reminder_before_expiry_hours INTEGER NOT NULL DEFAULT 6;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS payout_shared_account_review_count INTEGER NOT NULL DEFAULT 2;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS compliance_new_seller_escrow_count INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS compliance_high_dispute_ratio DOUBLE PRECISION NOT NULL DEFAULT 0.3;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS compliance_high_dispute_min_escrows INTEGER NOT NULL DEFAULT 3;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_high_value_review_amount DOUBLE PRECISION NOT NULL DEFAULT 500000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS usdc_high_value_review_amount DOUBLE PRECISION NOT NULL DEFAULT 2500;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS payment_lifecycle_worker_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS payment_lifecycle_worker_interval_ms INTEGER NOT NULL DEFAULT 300000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS reconciliation_worker_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS queue_worker_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS stuck_escrow_alert_minutes INTEGER NOT NULL DEFAULT 1440;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_status_page_url TEXT NOT NULL DEFAULT '';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai';
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
@@ -311,9 +388,15 @@ export class SettingsStore {
           naira_payment_method, naira_fee_model, naira_fee_tiers,
           naira_funding_window_hours, naira_high_value_funding_window_hours,
           naira_high_value_funding_window_amount, naira_funding_reminder_before_expiry_hours,
+          payout_shared_account_review_count, compliance_new_seller_escrow_count,
+          compliance_high_dispute_ratio, compliance_high_dispute_min_escrows,
+          naira_high_value_review_amount, usdc_high_value_review_amount,
+          payment_lifecycle_worker_enabled, payment_lifecycle_worker_interval_ms,
+          reconciliation_worker_enabled, queue_worker_enabled, stuck_escrow_alert_minutes,
+          outage_status_page_url, outage_contacts,
           version, updated_at, updated_by
         )
-         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, 1, $11, 'system')`,
+         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1, $24, 'system')`,
         [
           process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave",
           process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
@@ -325,6 +408,19 @@ export class SettingsStore {
           Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS || 48),
           Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT || 100000),
           Number(process.env.NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS || 6),
+          Number(process.env.PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT || 2),
+          Number(process.env.COMPLIANCE_NEW_SELLER_ESCROW_COUNT || 1),
+          Number(process.env.COMPLIANCE_HIGH_DISPUTE_RATIO || 0.3),
+          Number(process.env.COMPLIANCE_HIGH_DISPUTE_MIN_ESCROWS || 3),
+          Number(process.env.NAIRA_HIGH_VALUE_REVIEW_AMOUNT || 500000),
+          Number(process.env.USDC_HIGH_VALUE_REVIEW_AMOUNT || 2500),
+          process.env.PAYMENT_LIFECYCLE_WORKER_ENABLED === "true" ? 1 : 0,
+          Number(process.env.PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS || 300000),
+          process.env.RECONCILIATION_WORKER_ENABLED === "true" ? 1 : 0,
+          process.env.QUEUE_WORKER_ENABLED === "true" ? 1 : 0,
+          Number(process.env.STUCK_ESCROW_ALERT_MINUTES || 1440),
+          process.env.OUTAGE_STATUS_PAGE_URL || "",
+          process.env.OUTAGE_CONTACTS || "Telegram @Sivan_Ai",
           new Date().toISOString(),
         ]
       );
@@ -367,6 +463,19 @@ export class SettingsStore {
     nairaHighValueFundingWindowHours?: number;
     nairaHighValueFundingWindowAmount?: number;
     nairaFundingReminderBeforeExpiryHours?: number;
+    payoutSharedAccountReviewCount?: number;
+    complianceNewSellerEscrowCount?: number;
+    complianceHighDisputeRatio?: number;
+    complianceHighDisputeMinEscrows?: number;
+    nairaHighValueReviewAmount?: number;
+    usdcHighValueReviewAmount?: number;
+    paymentLifecycleWorkerEnabled?: boolean;
+    paymentLifecycleWorkerIntervalMs?: number;
+    reconciliationWorkerEnabled?: boolean;
+    queueWorkerEnabled?: boolean;
+    stuckEscrowAlertMinutes?: number;
+    outageStatusPageUrl?: string;
+    outageContacts?: string;
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
@@ -395,6 +504,19 @@ export class SettingsStore {
       nairaHighValueFundingWindowHours: settings.nairaHighValueFundingWindowHours ?? current.nairaHighValueFundingWindowHours,
       nairaHighValueFundingWindowAmount: settings.nairaHighValueFundingWindowAmount ?? current.nairaHighValueFundingWindowAmount,
       nairaFundingReminderBeforeExpiryHours: settings.nairaFundingReminderBeforeExpiryHours ?? current.nairaFundingReminderBeforeExpiryHours,
+      payoutSharedAccountReviewCount: settings.payoutSharedAccountReviewCount ?? current.payoutSharedAccountReviewCount,
+      complianceNewSellerEscrowCount: settings.complianceNewSellerEscrowCount ?? current.complianceNewSellerEscrowCount,
+      complianceHighDisputeRatio: settings.complianceHighDisputeRatio ?? current.complianceHighDisputeRatio,
+      complianceHighDisputeMinEscrows: settings.complianceHighDisputeMinEscrows ?? current.complianceHighDisputeMinEscrows,
+      nairaHighValueReviewAmount: settings.nairaHighValueReviewAmount ?? current.nairaHighValueReviewAmount,
+      usdcHighValueReviewAmount: settings.usdcHighValueReviewAmount ?? current.usdcHighValueReviewAmount,
+      paymentLifecycleWorkerEnabled: settings.paymentLifecycleWorkerEnabled ?? current.paymentLifecycleWorkerEnabled,
+      paymentLifecycleWorkerIntervalMs: settings.paymentLifecycleWorkerIntervalMs ?? current.paymentLifecycleWorkerIntervalMs,
+      reconciliationWorkerEnabled: settings.reconciliationWorkerEnabled ?? current.reconciliationWorkerEnabled,
+      queueWorkerEnabled: settings.queueWorkerEnabled ?? current.queueWorkerEnabled,
+      stuckEscrowAlertMinutes: settings.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
+      outageStatusPageUrl: settings.outageStatusPageUrl ?? current.outageStatusPageUrl,
+      outageContacts: settings.outageContacts ?? current.outageContacts,
     };
     if (resolved.nairaFeeModel !== "simple" && resolved.nairaFeeModel !== "tiered") {
       throw new Error("Naira fee model must be simple or tiered");
@@ -480,6 +602,19 @@ export class SettingsStore {
             naira_high_value_funding_window_hours = @nairaHighValueFundingWindowHours,
             naira_high_value_funding_window_amount = @nairaHighValueFundingWindowAmount,
             naira_funding_reminder_before_expiry_hours = @nairaFundingReminderBeforeExpiryHours,
+            payout_shared_account_review_count = @payoutSharedAccountReviewCount,
+            compliance_new_seller_escrow_count = @complianceNewSellerEscrowCount,
+            compliance_high_dispute_ratio = @complianceHighDisputeRatio,
+            compliance_high_dispute_min_escrows = @complianceHighDisputeMinEscrows,
+            naira_high_value_review_amount = @nairaHighValueReviewAmount,
+            usdc_high_value_review_amount = @usdcHighValueReviewAmount,
+            payment_lifecycle_worker_enabled = @paymentLifecycleWorkerEnabled,
+            payment_lifecycle_worker_interval_ms = @paymentLifecycleWorkerIntervalMs,
+            reconciliation_worker_enabled = @reconciliationWorkerEnabled,
+            queue_worker_enabled = @queueWorkerEnabled,
+            stuck_escrow_alert_minutes = @stuckEscrowAlertMinutes,
+            outage_status_page_url = @outageStatusPageUrl,
+            outage_contacts = @outageContacts,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
@@ -514,10 +649,23 @@ export class SettingsStore {
              naira_high_value_funding_window_hours = $23,
              naira_high_value_funding_window_amount = $24,
              naira_funding_reminder_before_expiry_hours = $25,
-             version = $26,
-             updated_at = $27,
-             updated_by = $28
-         WHERE id = 'default' AND version = $29`,
+             payout_shared_account_review_count = $26,
+             compliance_new_seller_escrow_count = $27,
+             compliance_high_dispute_ratio = $28,
+             compliance_high_dispute_min_escrows = $29,
+             naira_high_value_review_amount = $30,
+             usdc_high_value_review_amount = $31,
+             payment_lifecycle_worker_enabled = $32,
+             payment_lifecycle_worker_interval_ms = $33,
+             reconciliation_worker_enabled = $34,
+             queue_worker_enabled = $35,
+             stuck_escrow_alert_minutes = $36,
+             outage_status_page_url = $37,
+             outage_contacts = $38,
+             version = $39,
+             updated_at = $40,
+             updated_by = $41
+         WHERE id = 'default' AND version = $42`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -544,6 +692,19 @@ export class SettingsStore {
           resolved.nairaHighValueFundingWindowHours,
           resolved.nairaHighValueFundingWindowAmount,
           resolved.nairaFundingReminderBeforeExpiryHours,
+          resolved.payoutSharedAccountReviewCount,
+          resolved.complianceNewSellerEscrowCount,
+          resolved.complianceHighDisputeRatio,
+          resolved.complianceHighDisputeMinEscrows,
+          resolved.nairaHighValueReviewAmount,
+          resolved.usdcHighValueReviewAmount,
+          resolved.paymentLifecycleWorkerEnabled ? 1 : 0,
+          resolved.paymentLifecycleWorkerIntervalMs,
+          resolved.reconciliationWorkerEnabled ? 1 : 0,
+          resolved.queueWorkerEnabled ? 1 : 0,
+          resolved.stuckEscrowAlertMinutes,
+          resolved.outageStatusPageUrl,
+          resolved.outageContacts,
           newVersion,
           now,
           resolved.updatedBy,

@@ -10,6 +10,7 @@ import {
   escrowStore,
   paystackClient,
   monnifyClient,
+  settingsStore,
 } from "../context";
 import { getPayoutVerificationTestResolution } from "../services/payoutVerificationTestMode";
 import { scoreAccountName } from "../services/nameMatch";
@@ -107,7 +108,9 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
 
   const nameMatch = scoreAccountName(sellerName, resolution.accountName);
   const sharedAccountCount = (await escrowStore.countUsersWithPayoutAccountNumber(parsed.data.accountNumber, user.userId)) + 1;
-  const sharedAccountFlag = sharedAccountCount >= Number(process.env.PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT || "2");
+  const settings = await settingsStore.getSettings();
+  const sharedAccountReviewCount = settings.payoutSharedAccountReviewCount;
+  const sharedAccountFlag = sharedAccountCount >= sharedAccountReviewCount;
   const verificationStatus =
     nameMatch.level === "failed"
       ? "failed"

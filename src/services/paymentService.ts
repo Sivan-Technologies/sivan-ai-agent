@@ -232,7 +232,7 @@ export async function calculateComplianceRisk(escrow: EscrowRecord): Promise<Com
   }));
   const sellerDisputeCount = Math.max(disputedStatuses, disputedByEvent.filter(Boolean).length);
 
-  return scoreComplianceRisk({
+  return await scoreComplianceRisk({
     amount: escrow.amount,
     currency: escrow.currency,
     sellerDisputeCount,

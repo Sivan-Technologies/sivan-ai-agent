@@ -22,15 +22,7 @@ export class PaymentRouter {
     config.x402.clientSecret
   );
   constructor(private sapAgent?: SapAgent, nairaPaymentProvider?: PaymentProvider) {
-    if (nairaPaymentProvider) {
-      this.nairaPaymentProvider = nairaPaymentProvider;
-    } else {
-      const activeProvider = process.env.ACTIVE_PAYMENT_PROVIDER;
-      if (!activeProvider) {
-        throw new Error("ACTIVE_PAYMENT_PROVIDER is not set. Cannot initialise PaymentRouter.");
-      }
-      this.nairaPaymentProvider = createNairaPaymentProvider(activeProvider);
-    }
+    this.nairaPaymentProvider = nairaPaymentProvider || createNairaPaymentProvider(process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave");
   }
 
   public determinePaymentMethod(userPreference: string): PaymentMethod {

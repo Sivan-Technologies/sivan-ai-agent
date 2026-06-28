@@ -115,33 +115,40 @@ app.use((err: any, _req: any, res: any, _next: any) => {
   res.status(500).json({ error: err?.message || "internal server error", eventId: res.sentry || null });
 });
 
-// Background intervals
-if (process.env.QUEUE_WORKER_ENABLED === "true") {
-  const intervalMs = Number(process.env.QUEUE_WORKER_INTERVAL_MS || "15000");
-  setInterval(() => {
-    retryWorker.processBatch(Number(process.env.QUEUE_WORKER_BATCH_SIZE || "5"), "background-worker")
-      .catch((err) => captureOperationalError("Background retry worker failed", err));
-  }, intervalMs);
-}
+// Background intervals — started based on database settings
+settingsStore.getSettings().then((settings) => {
+  if (settings.queueWorkerEnabled) {
+    const intervalMs = Number(process.env.QUEUE_WORKER_INTERVAL_MS || "15000");
+    setInterval(() => {
+      retryWorker.processBatch(Number(process.env.QUEUE_WORKER_BATCH_SIZE || "5"), "background-worker")
+        .catch((err) => captureOperationalError("Background retry worker failed", err));
+    }, intervalMs);
+    info("Queue retry worker started", { intervalMs });
+  }
 
-if (process.env.PAYMENT_LIFECYCLE_WORKER_ENABLED === "true") {
-  const intervalMs = Number(process.env.PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS || "300000");
-  setInterval(() => {
-    runPaymentLifecycleSweep()
-      .catch((err) => captureOperationalError("Payment lifecycle sweep failed", err));
-  }, intervalMs);
-}
+  if (settings.paymentLifecycleWorkerEnabled) {
+    const intervalMs = settings.paymentLifecycleWorkerIntervalMs;
+    setInterval(() => {
+      runPaymentLifecycleSweep()
+        .catch((err) => captureOperationalError("Payment lifecycle sweep failed", err));
+    }, intervalMs);
+    info("Payment lifecycle worker started", { intervalMs });
+  }
 
-if (process.env.RECONCILIATION_WORKER_ENABLED === "true") {
-  const intervalMs = Number(process.env.RECONCILIATION_WORKER_INTERVAL_MS || String(24 * 60 * 60 * 1000));
-  const initialDelayMs = Number(process.env.RECONCILIATION_WORKER_INITIAL_DELAY_MS || "60000");
-  const run = () => {
-    runDailyReconciliation({ reason: "scheduled" })
-      .catch((err) => captureOperationalError("Daily reconciliation worker failed", err));
-  };
-  setTimeout(run, initialDelayMs);
-  setInterval(run, intervalMs);
-}
+  if (settings.reconciliationWorkerEnabled) {
+    const intervalMs = Number(process.env.RECONCILIATION_WORKER_INTERVAL_MS || String(24 * 60 * 60 * 1000));
+    const initialDelayMs = Number(process.env.RECONCILIATION_WORKER_INITIAL_DELAY_MS || "60000");
+    const run = () => {
+      runDailyReconciliation({ reason: "scheduled" })
+        .catch((err) => captureOperationalError("Daily reconciliation worker failed", err));
+    };
+    setTimeout(run, initialDelayMs);
+    setInterval(run, intervalMs);
+    info("Reconciliation worker started", { intervalMs, initialDelayMs });
+  }
+}).catch((err) => {
+  error("Failed to read settings for worker startup — workers disabled", err?.message || err);
+});
 
 const port = Number(process.env.PORT || 4000);
 

@@ -1052,11 +1052,15 @@ export async function checkInspectionExpirations() {
   let transitionedCount = 0;
   const now = new Date().toISOString();
   
+  const settings = await settingsStore.getSettings();
   for (const escrow of delivered) {
     if (escrow.inspectionExpiresAt && now >= escrow.inspectionExpiresAt) {
       try {
         await escrowStore.completeEscrow(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
-        const updated = await escrowStore.requestRelease(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
+        const updated = await escrowStore.requestRelease(escrow.escrowId, "system-sweep", "system_lifecycle_sweep", {
+          nairaHighValueAmount: settings.nairaHighValueReviewAmount,
+          usdcHighValueAmount: settings.usdcHighValueReviewAmount,
+        });
         await notifyEscrowParticipants(
           updated,
           participantLifecycleMessage(
@@ -1108,7 +1112,10 @@ export async function buildDatabaseStatus() {
 }
 
 export async function buildDisasterRecoveryStatus() {
-  const database = await buildDatabaseStatus();
+  const [database, settings] = await Promise.all([
+    buildDatabaseStatus(),
+    settingsStore.getSettings(),
+  ]);
   const provider = process.env.BACKUP_PROVIDER || (config.app.databaseProvider === "postgres" ? "managed-postgres" : "local-sqlite");
   const retentionDays = Number(process.env.BACKUP_RETENTION_DAYS || (config.app.databaseProvider === "postgres" ? "7" : "0"));
   const restoreMaxAgeDays = Number(process.env.BACKUP_RESTORE_TEST_MAX_AGE_DAYS || "30");
@@ -1118,7 +1125,7 @@ export async function buildDisasterRecoveryStatus() {
   const restoreTestFresh = Boolean(lastRestoreTime && Date.now() - lastRestoreTime <= restoreMaxAgeDays * 24 * 60 * 60 * 1000);
   const backupConfigured = config.app.databaseProvider === "postgres" && retentionDays > 0;
   const rollbackConfigured = Boolean(process.env.ROLLBACK_RELEASE_URL || process.env.RENDER_SERVICE_ID || process.env.VERCEL_PROJECT_ID);
-  const outageConfigured = Boolean(process.env.OUTAGE_STATUS_PAGE_URL || process.env.OUTAGE_CONTACTS);
+  const outageConfigured = Boolean(settings.outageStatusPageUrl || settings.outageContacts);
   const productionNeedsAttention =
     process.env.NODE_ENV === "production" &&
     (!backupConfigured || !restoreTestFresh || !rollbackConfigured || !outageConfigured);
@@ -1148,8 +1155,10 @@ export async function buildDisasterRecoveryStatus() {
     },
     outage: {
       configured: outageConfigured,
-      statusPageConfigured: Boolean(process.env.OUTAGE_STATUS_PAGE_URL),
-      contactsConfigured: Boolean(process.env.OUTAGE_CONTACTS),
+      statusPageConfigured: Boolean(settings.outageStatusPageUrl),
+      contactsConfigured: Boolean(settings.outageContacts),
+      statusPageUrl: settings.outageStatusPageUrl || null,
+      contacts: settings.outageContacts || null,
     },
     runbook: process.env.BACKUP_RESTORE_RUNBOOK_URL || "docs/disaster-recovery.md",
   };
@@ -1164,7 +1173,8 @@ export async function buildQueueStatus() {
 }
 
 export async function buildStuckEscrowStatus(limit = 250) {
-  const thresholdMinutes = Number(process.env.STUCK_ESCROW_ALERT_MINUTES || "1440");
+  const settings = await settingsStore.getSettings();
+  const thresholdMinutes = settings.stuckEscrowAlertMinutes;
   const thresholdMs = thresholdMinutes * 60 * 1000;
   const now = Date.now();
   const watchedStatuses = new Set(["PENDING_PAYMENT", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED", "DISPUTED"]);

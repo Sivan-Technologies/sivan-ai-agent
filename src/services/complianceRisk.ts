@@ -1,4 +1,5 @@
 import { EscrowCurrency } from "./escrowStore";
+import { settingsStore } from "../context";
 
 export type ComplianceRiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
@@ -25,10 +26,9 @@ export type ComplianceRiskInput = {
   checkedAt?: string;
 };
 
-export function highValueReviewAmount(currency: EscrowCurrency) {
-  return currency === "NAIRA"
-    ? Number(process.env.NAIRA_HIGH_VALUE_REVIEW_AMOUNT || "500000")
-    : Number(process.env.USDC_HIGH_VALUE_REVIEW_AMOUNT || "2500");
+export async function highValueReviewAmount(currency: EscrowCurrency) {
+  const settings = await settingsStore.getSettings();
+  return currency === "NAIRA" ? settings.nairaHighValueReviewAmount : settings.usdcHighValueReviewAmount;
 }
 
 export function complianceRiskLevel(score: number): ComplianceRiskLevel {
@@ -44,16 +44,17 @@ export function hasBlockingComplianceRisk(risk: ComplianceRisk) {
     || risk.riskReasons.includes("high_seller_dispute_ratio");
 }
 
-export function scoreComplianceRisk(input: ComplianceRiskInput): ComplianceRisk {
+export async function scoreComplianceRisk(input: ComplianceRiskInput): Promise<ComplianceRisk> {
   const riskReasons: string[] = [];
   let riskScore = 0;
   const sellerEscrowCount = Math.max(0, input.sellerEscrowCount);
   const sellerDisputeCount = Math.max(0, input.sellerDisputeCount);
   const sellerDisputeRatio = sellerEscrowCount > 0 ? sellerDisputeCount / sellerEscrowCount : 0;
-  const newSellerEscrowCount = input.newSellerEscrowCount ?? Number(process.env.COMPLIANCE_NEW_SELLER_ESCROW_COUNT || "1");
-  const highDisputeRatio = input.highDisputeRatio ?? Number(process.env.COMPLIANCE_HIGH_DISPUTE_RATIO || "0.3");
-  const highDisputeMinEscrows = input.highDisputeMinEscrows ?? Number(process.env.COMPLIANCE_HIGH_DISPUTE_MIN_ESCROWS || "3");
-  const highValueAmount = input.highValueAmount ?? highValueReviewAmount(input.currency);
+  const settings = await settingsStore.getSettings();
+  const newSellerEscrowCount = input.newSellerEscrowCount ?? settings.complianceNewSellerEscrowCount;
+  const highDisputeRatio = input.highDisputeRatio ?? settings.complianceHighDisputeRatio;
+  const highDisputeMinEscrows = input.highDisputeMinEscrows ?? settings.complianceHighDisputeMinEscrows;
+  const highValueAmount = input.highValueAmount ?? await highValueReviewAmount(input.currency);
   const sellerIsNew = sellerEscrowCount <= newSellerEscrowCount;
 
   if (sellerIsNew) {
