@@ -26,6 +26,10 @@ export interface PlatformSettings {
   nairaPaymentMethod: "bank_transfer";
   nairaFeeModel: "simple" | "tiered";
   nairaFeeTiers: string;
+  nairaFundingWindowHours: number;
+  nairaHighValueFundingWindowHours: number;
+  nairaHighValueFundingWindowAmount: number;
+  nairaFundingReminderBeforeExpiryHours: number;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -116,6 +120,10 @@ export class SettingsStore {
         { max: 100000, rate: 3.5 },
         { max: null, rate: 3.5 }
       ]),
+      nairaFundingWindowHours: Number(row.naira_funding_window_hours ?? 24),
+      nairaHighValueFundingWindowHours: Number(row.naira_high_value_funding_window_hours ?? 48),
+      nairaHighValueFundingWindowAmount: Number(row.naira_high_value_funding_window_amount ?? 100000),
+      nairaFundingReminderBeforeExpiryHours: Number(row.naira_funding_reminder_before_expiry_hours ?? 6),
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -183,6 +191,10 @@ export class SettingsStore {
       "naira_payment_method TEXT NOT NULL DEFAULT 'bank_transfer'",
       "naira_fee_model TEXT NOT NULL DEFAULT 'simple'",
       "naira_fee_tiers TEXT NOT NULL DEFAULT '[{\"max\":10000,\"fee\":500},{\"max\":20000,\"fee\":900},{\"max\":25000,\"fee\":1000},{\"max\":50000,\"rate\":3.75},{\"max\":100000,\"rate\":3.5},{\"max\":null,\"rate\":3.5}]'",
+      "naira_funding_window_hours INTEGER NOT NULL DEFAULT 24",
+      "naira_high_value_funding_window_hours INTEGER NOT NULL DEFAULT 48",
+      "naira_high_value_funding_window_amount REAL NOT NULL DEFAULT 100000",
+      "naira_funding_reminder_before_expiry_hours INTEGER NOT NULL DEFAULT 6",
     ];
     for (const column of columns) {
       try {
@@ -202,13 +214,19 @@ export class SettingsStore {
           id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed,
           active_payment_provider, backup_payment_provider, emergency_payment_provider,
           payment_provider_fallback_enabled, platform_mode, maintenance_message,
-          naira_payment_method, naira_fee_model, naira_fee_tiers, version, updated_at, updated_by
+          naira_payment_method, naira_fee_model, naira_fee_tiers,
+          naira_funding_window_hours, naira_high_value_funding_window_hours,
+          naira_high_value_funding_window_amount, naira_funding_reminder_before_expiry_hours,
+          version, updated_at, updated_by
         )
         VALUES (
           'default', 2.5, 50, 1.5, 0.5,
           @activePaymentProvider, @backupPaymentProvider, @emergencyPaymentProvider,
           @paymentProviderFallbackEnabled, @platformMode, @maintenanceMessage,
-          'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', 1, @now, 'system'
+          'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]',
+          @nairaFundingWindowHours, @nairaHighValueFundingWindowHours,
+          @nairaHighValueFundingWindowAmount, @nairaFundingReminderBeforeExpiryHours,
+          1, @now, 'system'
         )
       `).run({
         now,
@@ -218,6 +236,10 @@ export class SettingsStore {
         paymentProviderFallbackEnabled: process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
         platformMode: process.env.PLATFORM_MODE || "test",
         maintenanceMessage: process.env.MAINTENANCE_MESSAGE || "Sivan is temporarily under maintenance. Please try again soon.",
+        nairaFundingWindowHours: Number(process.env.NAIRA_FUNDING_WINDOW_HOURS || 24),
+        nairaHighValueFundingWindowHours: Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS || 48),
+        nairaHighValueFundingWindowAmount: Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT || 100000),
+        nairaFundingReminderBeforeExpiryHours: Number(process.env.NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS || 6),
       });
     }
   }
@@ -273,6 +295,10 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_payment_method TEXT NOT NULL DEFAULT 'bank_transfer';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_fee_model TEXT NOT NULL DEFAULT 'simple';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_fee_tiers TEXT NOT NULL DEFAULT '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_funding_window_hours INTEGER NOT NULL DEFAULT 24;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_high_value_funding_window_hours INTEGER NOT NULL DEFAULT 48;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_high_value_funding_window_amount DOUBLE PRECISION NOT NULL DEFAULT 100000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_funding_reminder_before_expiry_hours INTEGER NOT NULL DEFAULT 6;
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
@@ -282,9 +308,12 @@ export class SettingsStore {
           id, naira_fee_percent, naira_fee_fixed, usdc_fee_percent, usdc_fee_fixed,
           active_payment_provider, backup_payment_provider, emergency_payment_provider,
           payment_provider_fallback_enabled, platform_mode, maintenance_message,
-          naira_payment_method, naira_fee_model, naira_fee_tiers, version, updated_at, updated_by
+          naira_payment_method, naira_fee_model, naira_fee_tiers,
+          naira_funding_window_hours, naira_high_value_funding_window_hours,
+          naira_high_value_funding_window_amount, naira_funding_reminder_before_expiry_hours,
+          version, updated_at, updated_by
         )
-         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', 1, $7, 'system')`,
+         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, 1, $11, 'system')`,
         [
           process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave",
           process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
@@ -292,6 +321,10 @@ export class SettingsStore {
           process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
           process.env.PLATFORM_MODE || "test",
           process.env.MAINTENANCE_MESSAGE || "Sivan is temporarily under maintenance. Please try again soon.",
+          Number(process.env.NAIRA_FUNDING_WINDOW_HOURS || 24),
+          Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_HOURS || 48),
+          Number(process.env.NAIRA_HIGH_VALUE_FUNDING_WINDOW_AMOUNT || 100000),
+          Number(process.env.NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS || 6),
           new Date().toISOString(),
         ]
       );
@@ -330,6 +363,10 @@ export class SettingsStore {
     nairaPaymentMethod?: "bank_transfer";
     nairaFeeModel?: "simple" | "tiered";
     nairaFeeTiers?: string;
+    nairaFundingWindowHours?: number;
+    nairaHighValueFundingWindowHours?: number;
+    nairaHighValueFundingWindowAmount?: number;
+    nairaFundingReminderBeforeExpiryHours?: number;
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
@@ -354,6 +391,10 @@ export class SettingsStore {
       nairaPaymentMethod: "bank_transfer",
       nairaFeeModel: settings.nairaFeeModel ?? current.nairaFeeModel,
       nairaFeeTiers: settings.nairaFeeTiers ?? current.nairaFeeTiers,
+      nairaFundingWindowHours: settings.nairaFundingWindowHours ?? current.nairaFundingWindowHours,
+      nairaHighValueFundingWindowHours: settings.nairaHighValueFundingWindowHours ?? current.nairaHighValueFundingWindowHours,
+      nairaHighValueFundingWindowAmount: settings.nairaHighValueFundingWindowAmount ?? current.nairaHighValueFundingWindowAmount,
+      nairaFundingReminderBeforeExpiryHours: settings.nairaFundingReminderBeforeExpiryHours ?? current.nairaFundingReminderBeforeExpiryHours,
     };
     if (resolved.nairaFeeModel !== "simple" && resolved.nairaFeeModel !== "tiered") {
       throw new Error("Naira fee model must be simple or tiered");
@@ -435,6 +476,10 @@ export class SettingsStore {
             naira_payment_method = @nairaPaymentMethod,
             naira_fee_model = @nairaFeeModel,
             naira_fee_tiers = @nairaFeeTiers,
+            naira_funding_window_hours = @nairaFundingWindowHours,
+            naira_high_value_funding_window_hours = @nairaHighValueFundingWindowHours,
+            naira_high_value_funding_window_amount = @nairaHighValueFundingWindowAmount,
+            naira_funding_reminder_before_expiry_hours = @nairaFundingReminderBeforeExpiryHours,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
@@ -465,10 +510,14 @@ export class SettingsStore {
              naira_payment_method = $19,
              naira_fee_model = $20,
              naira_fee_tiers = $21,
-             version = $22,
-             updated_at = $23,
-             updated_by = $24
-         WHERE id = 'default' AND version = $25`,
+             naira_funding_window_hours = $22,
+             naira_high_value_funding_window_hours = $23,
+             naira_high_value_funding_window_amount = $24,
+             naira_funding_reminder_before_expiry_hours = $25,
+             version = $26,
+             updated_at = $27,
+             updated_by = $28
+         WHERE id = 'default' AND version = $29`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -491,6 +540,10 @@ export class SettingsStore {
           resolved.nairaPaymentMethod,
           resolved.nairaFeeModel,
           resolved.nairaFeeTiers,
+          resolved.nairaFundingWindowHours,
+          resolved.nairaHighValueFundingWindowHours,
+          resolved.nairaHighValueFundingWindowAmount,
+          resolved.nairaFundingReminderBeforeExpiryHours,
           newVersion,
           now,
           resolved.updatedBy,

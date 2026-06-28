@@ -272,7 +272,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
           provider: accepted.paymentProvider || "active_provider",
           paymentError: err?.message || String(err),
         });
-        const fundingExpiresAt = accepted.fundingExpiresAt || fundingDeadlineForEscrow(accepted);
+        const fundingExpiresAt = accepted.fundingExpiresAt || await fundingDeadlineForEscrow(accepted);
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
           paymentReference: sandboxPayment.reference,

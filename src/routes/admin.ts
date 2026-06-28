@@ -534,6 +534,10 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       nairaPaymentMethod: "bank_transfer",
       nairaFeeModel: updates.nairaFeeModel ?? current.nairaFeeModel,
       nairaFeeTiers: updates.nairaFeeTiers ?? current.nairaFeeTiers,
+      nairaFundingWindowHours: updates.nairaFundingWindowHours ?? current.nairaFundingWindowHours,
+      nairaHighValueFundingWindowHours: updates.nairaHighValueFundingWindowHours ?? current.nairaHighValueFundingWindowHours,
+      nairaHighValueFundingWindowAmount: updates.nairaHighValueFundingWindowAmount ?? current.nairaHighValueFundingWindowAmount,
+      nairaFundingReminderBeforeExpiryHours: updates.nairaFundingReminderBeforeExpiryHours ?? current.nairaFundingReminderBeforeExpiryHours,
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });

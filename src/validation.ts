@@ -140,8 +140,13 @@ export const adminSettingsSchema = z.object({
   nairaPaymentMethod: z.literal("bank_transfer").optional(),
   nairaFeeModel: z.enum(["simple", "tiered"]).optional(),
   nairaFeeTiers: z.string().optional(),
+  nairaFundingWindowHours: z.coerce.number().int().positive().max(168).optional(),
+  nairaHighValueFundingWindowHours: z.coerce.number().int().positive().max(168).optional(),
+  nairaHighValueFundingWindowAmount: z.coerce.number().positive().max(1_000_000_000).optional(),
+  nairaFundingReminderBeforeExpiryHours: z.coerce.number().int().positive().max(168).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
+
 
 export const escrowLimitReviewDecisionSchema = z.object({
   notes: z.string().trim().min(3).max(2000),

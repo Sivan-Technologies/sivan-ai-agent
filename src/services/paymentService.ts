@@ -47,15 +47,17 @@ export async function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentPr
   );
 }
 
-export function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
+export async function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
   if (escrow.currency !== "NAIRA") return 24;
-  return escrow.amount >= config.nairaPayments.highValueFundingWindowAmount
-    ? config.nairaPayments.highValueFundingWindowHours
-    : config.nairaPayments.fundingWindowHours;
+  const settings = await settingsStore.getSettings();
+  return escrow.amount >= settings.nairaHighValueFundingWindowAmount
+    ? settings.nairaHighValueFundingWindowHours
+    : settings.nairaFundingWindowHours;
 }
 
-export function fundingDeadlineForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
-  return new Date(Date.now() + fundingWindowHoursForEscrow(escrow) * 60 * 60 * 1000).toISOString();
+export async function fundingDeadlineForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
+  const hours = await fundingWindowHoursForEscrow(escrow);
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
 export function uniqueProviderReference(providerId: string, escrowId: string) {
@@ -152,7 +154,7 @@ export async function createNairaPaymentInstruction(escrow: EscrowRecord, option
     escrowId: escrow.escrowId,
     paymentReference,
   });
-  const fundingExpiresAt = escrow.fundingExpiresAt || fundingDeadlineForEscrow(escrow);
+  const fundingExpiresAt = escrow.fundingExpiresAt || await fundingDeadlineForEscrow(escrow);
   await escrowStore.attachPayment({
     escrowId: escrow.escrowId,
     paymentReference: transaction.paymentReference,
