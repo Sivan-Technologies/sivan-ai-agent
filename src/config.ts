@@ -106,6 +106,10 @@ export const config = {
   flutterwave: {
     secretKey: envValue("FLUTTERWAVE_SECRET_KEY"),
     publicKey: envValue("FLUTTERWAVE_PUBLIC_KEY"),
+    liveSecretKey: envValue("FLUTTERWAVE_LIVE_SECRET_KEY", envValue("FLUTTERWAVE_SECRET_KEY")),
+    livePublicKey: envValue("FLUTTERWAVE_LIVE_PUBLIC_KEY", envValue("FLUTTERWAVE_PUBLIC_KEY")),
+    testSecretKey: envValue("FLUTTERWAVE_TEST_SECRET_KEY"),
+    testPublicKey: envValue("FLUTTERWAVE_TEST_PUBLIC_KEY"),
     baseUrl: envValue("FLUTTERWAVE_BASE_URL", "https://api.flutterwave.com"),
     webhookSecret: envValue("FLUTTERWAVE_WEBHOOK_SECRET"),
     webhookUrl: envValue("FLUTTERWAVE_WEBHOOK_URL"),

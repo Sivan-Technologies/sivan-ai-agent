@@ -13,13 +13,13 @@ import {
 } from "../context";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
 
-export function createProviderForId(provider?: string) {
+export function createProviderForId(provider?: string, platformMode?: "test" | "live" | "maintenance") {
   if (!provider) {
     throw new Error(
       "No payment provider specified. Set ACTIVE_PAYMENT_PROVIDER in your environment."
     );
   }
-  return createNairaPaymentProvider(provider);
+  return createNairaPaymentProvider(provider, platformMode);
 }
 
 export function providerConfigured(provider: string) {
@@ -36,17 +36,15 @@ export async function getActiveNairaPaymentProvider() {
   if (!providerConfigured(settings.activePaymentProvider)) {
     throw new Error(`Active Naira payment provider is not configured: ${settings.activePaymentProvider}`);
   }
-  return createProviderForId(settings.activePaymentProvider);
+  return createProviderForId(settings.activePaymentProvider, settings.platformMode);
 }
 
-export function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
-  const resolved = escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER;
-  if (!resolved) {
-    throw new Error(
-      "Cannot determine payment provider for escrow. Set ACTIVE_PAYMENT_PROVIDER in your environment."
-    );
-  }
-  return createProviderForId(resolved);
+export async function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
+  const settings = await settingsStore.getSettings();
+  return createProviderForId(
+    escrow.paymentProvider || settings.activePaymentProvider,
+    settings.platformMode
+  );
 }
 
 export function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
@@ -144,7 +142,7 @@ export async function calculateEscrowPayoutQuote(amount: number, currency: Escro
 }
 
 export async function createNairaPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
-  const provider = escrow.paymentProvider ? getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
+  const provider = escrow.paymentProvider ? await getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
   const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
   const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
   const transaction = await provider.initializeBankTransferPayment({

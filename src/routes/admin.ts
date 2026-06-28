@@ -289,7 +289,8 @@ router.post("/admin/escrows/:escrowId/recheck-payment", requireAdminAuth, logAdm
       return res.status(400).json({ error: "Escrow has no payment reference" });
     }
 
-    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
     const updated = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
     const detail = await buildEscrowDetail(updated.escrowId);
     res.status(200).json({ escrow: updated, detail, transaction });

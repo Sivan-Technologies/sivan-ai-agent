@@ -53,9 +53,19 @@ function extractAxiosMessage(err: unknown): string {
 
 export class FlutterwaveClient {
   private baseUrl = config.flutterwave.baseUrl.replace(/\/$/, "");
-  private secretKey = config.flutterwave.secretKey;
+  private secretKey: string | undefined;
   private webhookSecret = config.flutterwave.webhookSecret;
   private timeoutMs = config.flutterwave.timeoutMs;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    if (platformMode === "live") {
+      this.secretKey = config.flutterwave.liveSecretKey || config.flutterwave.secretKey;
+    } else if (platformMode === "test") {
+      this.secretKey = config.flutterwave.testSecretKey || config.flutterwave.secretKey;
+    } else {
+      this.secretKey = config.flutterwave.secretKey;
+    }
+  }
 
   public isCollectionConfigured() {
     return Boolean(this.secretKey && this.baseUrl);

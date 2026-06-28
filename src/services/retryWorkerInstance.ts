@@ -20,7 +20,8 @@ export const retryWorker = new RetryWorker(opsStore, {
       ? await escrowStore.getEscrowById(String(payload.escrowId))
       : await escrowStore.findEscrowByPaymentReference(paymentReference);
     if (!escrow) throw new Error("No escrow found for Paystack payment reference");
-    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
+        const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
   },
   webhook_recovery: async (payload) => {
@@ -28,7 +29,8 @@ export const retryWorker = new RetryWorker(opsStore, {
     if (!paymentReference) throw new Error("webhook_recovery requires paymentReference");
     const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
     if (!escrow) throw new Error("No escrow found for webhook recovery payment reference");
-    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
   },
   payout_review: async (payload) => {

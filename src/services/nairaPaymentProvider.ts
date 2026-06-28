@@ -375,8 +375,11 @@ export class PalmPayPaymentProvider implements PaymentProvider {
 
 export class FlutterwavePaymentProvider implements PaymentProvider {
   public readonly id = "flutterwave";
+  private client: FlutterwaveClient;
 
-  constructor(private client = new FlutterwaveClient()) {}
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    this.client = new FlutterwaveClient(platformMode);
+  }
 
   public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
     const paymentReference = input.paymentReference || `flutterwave-${input.escrowId || crypto.randomUUID()}-${crypto.randomUUID().slice(0, 8)}`;
@@ -445,11 +448,14 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   }
 }
 
-export function createNairaPaymentProvider(provider: string): PaymentProvider {
+export function createNairaPaymentProvider(
+  provider: string,
+  platformMode?: "test" | "live" | "maintenance"
+): PaymentProvider {
   const normalized = provider.trim().toLowerCase();
   if (!normalized || normalized === "paystack") return new PaystackPaymentProvider();
   if (normalized === "monnify") return new MonnifyPaymentProvider();
   if (normalized === "palmpay") return new PalmPayPaymentProvider();
-  if (normalized === "flutterwave") return new FlutterwavePaymentProvider();
+  if (normalized === "flutterwave") return new FlutterwavePaymentProvider(platformMode);
   throw new Error(`Naira payment provider is not implemented yet: ${provider}`);
 }
