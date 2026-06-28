@@ -121,9 +121,10 @@ Production changes:
 
 ```env
 PALMPAY_BASE_URL=https://open-gw-prod.palmpay-inc.com
+PALMPAY_WHITELIST_IP=74.220.48.0/24,74.220.56.0/24
 ```
 
-Production may also require PalmPay IP whitelisting. Confirm this with PalmPay before live testing.
+Production requires PalmPay IP whitelisting. The current Render outbound ranges shown in the service dashboard are `74.220.48.0/24` and `74.220.56.0/24`; paste both ranges into PalmPay's whitelist field if PalmPay accepts CIDR ranges. If PalmPay requires a single unique IP, use Render Dedicated IP or another static-egress host/proxy before live testing.
 
 ## How to create PalmPay keys
 

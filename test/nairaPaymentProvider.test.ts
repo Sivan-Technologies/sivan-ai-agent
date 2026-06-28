@@ -283,6 +283,50 @@ describe("PalmPayPaymentProvider", () => {
     });
   });
 
+  it("does not normalize non-transfer PalmPay payments as success", async () => {
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIVCARDROUTE",
+        transactionReference: "2424220903032435363613",
+        status: "success",
+        amount: 5500,
+        currency: "NGN",
+        paymentMethod: "pay_wallet",
+        raw: { ok: true },
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient);
+
+    await expect(provider.verifyPayment("PPSIVCARDROUTE")).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "invalid_payment_method",
+      paymentReference: "PPSIVCARDROUTE",
+    });
+  });
+
+  it("does not normalize non-NGN PalmPay payments as success", async () => {
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIVUSDROUTE",
+        transactionReference: "2424220903032435363613",
+        status: "success",
+        amount: 5500,
+        currency: "USD",
+        paymentMethod: "bank_transfer",
+        raw: { ok: true },
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient);
+
+    await expect(provider.verifyPayment("PPSIVUSDROUTE")).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "invalid_currency",
+      paymentReference: "PPSIVUSDROUTE",
+    });
+  });
+
   it("normalizes PalmPay payment notifications", () => {
     const provider = new PalmPayPaymentProvider();
     const event = provider.normalizeWebhook({
@@ -297,6 +341,25 @@ describe("PalmPayPaymentProvider", () => {
       paymentReference: "PPSIV300682FEB6",
       transactionReference: "2424220903032435363613",
     });
+  });
+
+  it("verifies PalmPay webhook signatures through the provider interface", async () => {
+    const verifyWebhookSignature = vi.fn().mockReturnValue(true);
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn(),
+      verifyWebhookSignature,
+    } as unknown as PalmPayClient);
+    const payload = {
+      orderId: "PPSIV300682FEB6",
+      orderNo: "2424220903032435363613",
+      orderStatus: 2,
+    };
+
+    await expect(provider.verifyWebhookSignature(JSON.stringify(payload), "valid-signature")).resolves.toBe(true);
+    expect(verifyWebhookSignature).toHaveBeenCalledWith(payload, "valid-signature");
+    await expect(provider.verifyWebhookSignature("not-json", "valid-signature")).resolves.toBe(false);
+    await expect(provider.verifyWebhookSignature(JSON.stringify(payload), "")).resolves.toBe(false);
   });
 
   it("selects PalmPay from the provider factory", () => {

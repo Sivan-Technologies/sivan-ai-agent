@@ -20,9 +20,11 @@ import {
   firstPresent,
   reconcileEscrowPayment,
   notifyEscrowFundedParticipants,
+  expectedFundingAmount,
 } from "../services/escrowService";
 import { formatTaskSummary, notifyWhatsAppBot } from "../services/notificationService";
 import { getProviderForEscrow } from "../services/paymentService";
+import { normalizeSettlementEvent, normalizeVerifiedPaymentEvent } from "../services/paymentEventNormalizer";
 import { NombaPayoutClient } from "../services/nombaPayoutClient";
 import { PalmPayPayoutClient } from "../services/palmpayPayoutClient";
 import { info, warn } from "../lib/logger";
@@ -161,7 +163,15 @@ router.post("/webhooks/paystack", async (req, res) => {
         const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
         if (escrow && eventType === "charge.success") {
           const transaction = await paystackPaymentProvider.verifyPayment(paymentReference);
-          const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+          const paymentEvent = normalizeVerifiedPaymentEvent({
+            webhook: normalizedWebhook,
+            verifiedPayment: transaction,
+            escrow,
+            expectedAmount: await expectedFundingAmount(escrow),
+            signatureVerified: true,
+            raw: event,
+          });
+          const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook", paymentEvent);
           if (funded.status === "IN_PROGRESS") {
             info("Escrow funded from verified Paystack webhook", { escrowId: funded.escrowId, paymentReference });
             await notifyEscrowFundedParticipants(funded);
@@ -250,6 +260,16 @@ router.post("/webhooks/monnify", async (req, res) => {
         if (!paymentReference) continue;
         const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
         if (!escrow) continue;
+        const settlementEvent = normalizeSettlementEvent({
+          provider: "monnify",
+          eventId: normalizedWebhook.eventId,
+          escrowReference: escrow.escrowId,
+          providerReference: String(req.body?.eventData?.settlementReference || paymentReference),
+          amount: Number(req.body?.eventData?.amount || transaction.amount || 0),
+          currency: "NGN",
+          raw: req.body,
+          signatureVerified: true,
+        });
         await escrowStore.addEvent({
           escrowId: escrow.escrowId,
           actor: "monnify",
@@ -260,6 +280,7 @@ router.post("/webhooks/monnify", async (req, res) => {
           eventType: "settlement_received",
           reason: req.body?.eventData?.settlementReference || "monnify_settlement",
           metadata: {
+            normalizedEvent: settlementEvent,
             provider: "monnify",
             settlementReference: req.body?.eventData?.settlementReference,
             settlementAmount: req.body?.eventData?.amount,
@@ -300,7 +321,15 @@ router.post("/webhooks/monnify", async (req, res) => {
       return res.status(202).send({ status: "verification_reference_mismatch" });
     }
 
-    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+    const paymentEvent = normalizeVerifiedPaymentEvent({
+      webhook: normalizedWebhook,
+      verifiedPayment: transaction,
+      escrow,
+      expectedAmount: await expectedFundingAmount(escrow),
+      signatureVerified: true,
+      raw: req.body,
+    });
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook", paymentEvent);
     if (funded.status === "IN_PROGRESS") {
       info("Escrow funded from verified Monnify webhook", {
         escrowId: funded.escrowId,
@@ -366,7 +395,7 @@ router.post("/webhooks/palmpay", async (req, res) => {
       JSON.stringify(req.body)
     );
 
-    if (Number(req.body?.orderStatus) !== 2) {
+    if (normalizedWebhook.eventType !== "order.2") {
       return res.status(200).send("success");
     }
 
@@ -396,7 +425,15 @@ router.post("/webhooks/palmpay", async (req, res) => {
       return res.status(202).send("success");
     }
 
-    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+    const paymentEvent = normalizeVerifiedPaymentEvent({
+      webhook: normalizedWebhook,
+      verifiedPayment: transaction,
+      escrow,
+      expectedAmount: await expectedFundingAmount(escrow),
+      signatureVerified: true,
+      raw: req.body,
+    });
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook", paymentEvent);
     if (funded.status === "IN_PROGRESS") {
       info("Escrow funded from verified PalmPay webhook", {
         escrowId: funded.escrowId,
@@ -582,7 +619,15 @@ router.post("/webhooks/flutterwave", async (req, res) => {
       return res.status(202).send({ status: "verification_reference_mismatch" });
     }
 
-    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+    const paymentEvent = normalizeVerifiedPaymentEvent({
+      webhook: normalizedWebhook,
+      verifiedPayment: transaction,
+      escrow,
+      expectedAmount: await expectedFundingAmount(escrow),
+      signatureVerified: true,
+      raw: req.body,
+    });
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook", paymentEvent);
     if (funded.status === "IN_PROGRESS") {
       info("Escrow funded from verified Flutterwave webhook", {
         escrowId: funded.escrowId,

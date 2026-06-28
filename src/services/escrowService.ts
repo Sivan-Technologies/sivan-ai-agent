@@ -26,6 +26,7 @@ import {
   getProviderForEscrow,
   fundingDeadlineForEscrow,
 } from "./paymentService";
+import type { NormalizedPaymentEvent } from "./paymentEventNormalizer";
 
 let lastAbuseTrendAlertAt = 0;
 
@@ -954,11 +955,13 @@ export async function expectedFundingAmount(escrow: EscrowRecord) {
 export async function reconcileEscrowPayment(
   escrowId: string,
   transaction: any,
-  source: "webhook" | "admin_recheck"
+  source: "webhook" | "admin_recheck",
+  normalizedEvent?: NormalizedPaymentEvent
 ): Promise<EscrowRecord> {
   const escrow = await refreshEscrowPaymentLifecycle(escrowId);
   if (!escrow) throw new Error("Escrow not found");
   const storedTransaction = await escrowStore.getTransactionByReference(transaction.paymentReference);
+  const reconciliationMetadata = normalizedEvent ? { ...transaction, normalizedEvent } : transaction;
 
   if (storedTransaction?.status === "expired" || (escrow.paymentReference && escrow.paymentReference !== transaction.paymentReference)) {
     capturePaymentWarning("Naira escrow payment arrived for an expired or inactive payment instruction", {
@@ -975,7 +978,7 @@ export async function reconcileEscrowPayment(
       flags: ["late_payment_after_expired_instruction"],
       reason: "Payment arrived for an expired or inactive payment instruction",
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source, activePaymentReference: escrow.paymentReference || null },
+      metadata: { ...reconciliationMetadata, source, activePaymentReference: escrow.paymentReference || null },
     });
   }
 
@@ -993,7 +996,7 @@ export async function reconcileEscrowPayment(
       flags: ["late_payment_after_expiry"],
       reason: "Payment arrived after the payment instruction expired",
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source, expiredStatus: escrow.status },
+      metadata: { ...reconciliationMetadata, source, expiredStatus: escrow.status },
     });
   }
 
@@ -1011,7 +1014,7 @@ export async function reconcileEscrowPayment(
       flags: [`${transaction.provider}_verification_not_success`],
       reason: `${transaction.provider} verification returned ${transaction.status}`,
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source },
+      metadata: { ...reconciliationMetadata, source },
     });
   }
 
@@ -1032,11 +1035,11 @@ export async function reconcileEscrowPayment(
       flags: ["payment_amount_mismatch"],
       reason: `Expected ${expectedAmount} ${escrow.currency}, received ${transaction.amount} ${transaction.currency}`,
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source, expectedAmount, escrowAmount: escrow.amount },
+      metadata: { ...reconciliationMetadata, source, expectedAmount, escrowAmount: escrow.amount },
     });
   }
 
-  const funded = await escrowStore.markFundedByPaymentReference(transaction.paymentReference, { ...transaction, source });
+  const funded = await escrowStore.markFundedByPaymentReference(transaction.paymentReference, { ...reconciliationMetadata, source });
   if (!funded) {
     throw new Error(`Verified ${transaction.provider} transaction did not match an escrow payment reference`);
   }

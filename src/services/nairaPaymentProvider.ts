@@ -343,8 +343,14 @@ export class PalmPayPaymentProvider implements PaymentProvider {
     return mapPalmPayStatus(await this.client.verifyPayment(paymentReference));
   }
 
-  public async verifyWebhookSignature(_rawBody: string, signature: string): Promise<boolean> {
-    return Boolean(signature);
+  public async verifyWebhookSignature(rawBody: string, signature: string): Promise<boolean> {
+    if (!signature) return false;
+    try {
+      const payload = JSON.parse(rawBody || "{}");
+      return this.client.verifyWebhookSignature(payload, signature);
+    } catch {
+      return false;
+    }
   }
 
   public verifyWebhookPayload(payload: Record<string, unknown>, signature: string): boolean {

@@ -40,6 +40,34 @@ The escrow engine should not branch on provider-specific concepts. Provider clie
 | `PAYOUT_SUCCEEDED` | Payout/disbursement has succeeded |
 | `PAYOUT_FAILED` | Payout/disbursement failed or reversed and needs operator review |
 
+## Canonical Payment Event Layer
+
+All verified pay-in webhooks now pass through `src/services/paymentEventNormalizer.ts` before mutating escrow state. This gives Sivan one canonical event shape for Paystack, Monnify, PalmPay, and Flutterwave:
+
+```ts
+type NormalizedPaymentEvent = {
+  eventId: string;
+  provider: "paystack" | "monnify" | "palmpay" | "flutterwave";
+  type: "PAYMENT_PENDING" | "PAYMENT_VERIFIED" | "PAYMENT_REJECTED" | "SETTLEMENT_RECEIVED";
+  escrowReference: string;
+  amount: { expected: number; paid: number; currency: "NGN" | "USDC" };
+  status: "success" | "failed" | "pending";
+  providerReference: string;
+  raw: unknown;
+  signatureVerified: boolean;
+  occurredAt: string;
+  idempotencyKey: string;
+};
+```
+
+Production rule:
+
+```text
+Provider webhook → signature verification → provider re-query → canonical event → escrow state machine → ledger/audit/notifications
+```
+
+Raw provider payloads are still stored for audit, but escrow funding decisions use the verified provider transaction plus the canonical event metadata.
+
 ## Bank Transfer Only
 
 Sivan's Naira MVP should accept bank transfer only. Provider payloads must restrict payment methods to transfer rails where supported:
@@ -88,12 +116,13 @@ Flutterwave is implemented as an emergency backup collection adapter using dynam
 ## Progress
 
 ```text
-Provider-neutral Naira interface: 82%
+Provider-neutral Naira interface: 92%
+Canonical payment event normalizer: 100%
 Paystack behind provider interface: 100%
 Monnify collection transport: 92%
 Payment-provider admin switching: 90%
 Flutterwave backup transport: 70%
-PalmPay collection transport: 78%
+PalmPay collection transport: 93%
 PalmPay payout automation: 78%
 Nomba transfer-only payout rail: 45%
 Provider live-test readiness: 75%
@@ -105,12 +134,13 @@ Flutterwave live backup proof: 0%
 Nomba sandbox transfer proof: 0% - paused until KYC/API keys
 Nomba signed payout webhook proof: 0% - paused until KYC/API keys
 Nomba live low-value payout proof: 0% - paused until KYC/API keys
-Overall production readiness: 78%
+Overall production readiness: 82%
 ```
 
 | Area | Status | Notes |
 | --- | --- | --- |
 | Provider-neutral interface | ✅ Done | `PaymentProvider`, `initializeBankTransferPayment`, `verifyPayment`, `verifyWebhookSignature`, and `normalizeWebhook` exist |
+| Canonical payment event normalizer | ✅ Done | `paymentEventNormalizer` converts verified provider events into one Sivan event shape before escrow mutation |
 | Paystack adapter | ✅ Done | Paystack now runs behind the provider interface and remains bank-transfer only |
 | Provider ID on escrow/transactions | ✅ Done | Escrows already store `payment_provider`; transactions/ledger now use the active provider name |
 | Bank-transfer-only guard | ✅ Done | Global `NAIRA_PAYMENT_METHODS=bank_transfer` policy is enforced across implemented Naira providers; provider-specific aliases must also resolve to bank transfer |
@@ -151,14 +181,15 @@ Overall production readiness: 78%
 | 🔴 Live low-value Nomba payout proof | Not started | Nomba must not be enabled for automated payout until this passes |
 | 🔴 Automated payout finalization from provider webhook | Not enabled | Provider webhook currently queues review for safety; final auto-release after pending payout needs live-proof policy |
 
-Current honest production percentage: **78%**.
+Current honest production percentage: **82%**.
 
-Latest local verification on 2026-06-27:
+Latest local verification on 2026-06-28:
 
 - ✅ `npm run build` passed.
-- ✅ Full local E2E/unit suite passed: 21 test files, 122 tests.
+- ✅ Full local E2E/unit suite passed: 22 test files, 133 tests.
 - ✅ Provider-focused tests passed for Paystack, Monnify provider adapter, PalmPay collection/payout, Flutterwave, Nomba payout client, reconciliation/admin routes, escrow lifecycle, and notification delivery.
 - ✅ `/webhooks/palmpay` and `/webhooks/palmpay/payout` are covered by E2E tests for invalid signature rejection and valid signed webhook acceptance.
+- ✅ Canonical payment event tests prove Paystack, Monnify, PalmPay, and Flutterwave normalize into the same internal event shape.
 - ⏸️ Nomba remains paused because KYC/API keys are not available yet.
 
 Why not higher: the architecture and adapters are strong, but production fintech readiness is not just code. The remaining gap is external PalmPay proof: Render env, sandbox order proof, signed callback delivery, live low-value payment/payout proof, and settlement/reconciliation evidence. Nomba is intentionally paused until KYC/API keys exist.

@@ -1,8 +1,15 @@
+import fs from "fs";
+import path from "path";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 
 dotenv.config();
-dotenv.config({ path: "frontend/.env" });
+
+// Load from legacy frontend config if it exists, otherwise rely on root env
+const legacyFrontendEnv = path.join(__dirname, "../../../frontend/.env");
+if (fs.existsSync(legacyFrontendEnv)) {
+  dotenv.config({ path: legacyFrontendEnv });
+}
 
 type CheckResult = {
   name: string;

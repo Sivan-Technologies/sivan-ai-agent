@@ -92,7 +92,7 @@ PalmPay is implemented as a primary bank-transfer collection transport. Add thes
 - `PALMPAY_MERCHANT_PRIVATE_KEY` - Merchant private RSA key used to sign outbound PalmPay API requests. Keep secret.
 - `PALMPAY_MERCHANT_PUBLIC_KEY` - Merchant public RSA key uploaded to PalmPay.
 - `PALMPAY_PLATFORM_PUBLIC_KEY` - PalmPay platform public key used to verify signed PalmPay callbacks.
-- `PALMPAY_WHITELIST_IP` - Static outbound server IP submitted to PalmPay for API access. For Render, use the service/static outbound IP, not your laptop IP.
+- `PALMPAY_WHITELIST_IP` - Outbound server IP/CIDR ranges submitted to PalmPay for API access. For the current Render service, use `74.220.48.0/24,74.220.56.0/24` unless Render changes the service outbound ranges. Do not use the Render URL or your laptop IP.
 - `PALMPAY_BASE_URL` - PalmPay API base URL. Use `https://open-gw-sandbox.palmpay-inc.com` for sandbox and `https://open-gw-prod.palmpay-inc.com` for production.
 - `PALMPAY_WEBHOOK_URL` - Webhook callback URL, expected to be `/webhooks/palmpay`.
 - `PALMPAY_CALLBACK_URL` - Browser/H5 return URL after PalmPay checkout.

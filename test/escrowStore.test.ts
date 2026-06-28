@@ -251,6 +251,48 @@ describe("EscrowStore", () => {
     expect(events.some((event) => event.eventType === "payment_instruction_regenerated")).toBe(true);
   });
 
+  it("does not double-fund or duplicate ledger entries when a provider webhook is replayed", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000201", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000202", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 18000,
+      currency: "NAIRA",
+      purpose: "PalmPay replay safety test",
+      createdByChannel: "whatsapp_dm",
+    });
+    await escrowStore.acceptEscrow(escrow.escrowId, seller.whatsappNumber);
+    await escrowStore.attachPayment({
+      escrowId: escrow.escrowId,
+      paymentReference: "PPSIVREPLAYSAFE",
+      paymentProvider: "palmpay",
+      status: "PENDING_PAYMENT",
+    });
+
+    const first = await escrowStore.markFundedByPaymentReference("PPSIVREPLAYSAFE", {
+      provider: "palmpay",
+      status: "success",
+      amount: 18000,
+    });
+    const second = await escrowStore.markFundedByPaymentReference("PPSIVREPLAYSAFE", {
+      provider: "palmpay",
+      status: "success",
+      amount: 18000,
+    });
+    const ledgerEntries = await escrowStore.listLedgerEntries(escrow.escrowId);
+    const fundingEntries = ledgerEntries.filter((entry) => entry.entryType === "funding");
+    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+    const fundingTransactions = transactions.filter((transaction) => transaction.transactionType === "funding");
+
+    expect(first?.status).toBe("IN_PROGRESS");
+    expect(second?.status).toBe("IN_PROGRESS");
+    expect(fundingEntries).toHaveLength(1);
+    expect(fundingTransactions).toHaveLength(1);
+  });
+
   it("blocks non-buyers from completing or requesting release", async () => {
     const escrowStore = freshStore();
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000007", "buyer");
