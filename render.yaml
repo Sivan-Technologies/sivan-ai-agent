@@ -47,6 +47,10 @@ services:
         sync: false
       - key: FLUTTERWAVE_PUBLIC_KEY
         sync: false
+      - key: FLUTTERWAVE_TEST_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_TEST_PUBLIC_KEY
+        sync: false
       - key: FLUTTERWAVE_WEBHOOK_SECRET
         sync: false
       - key: FLUTTERWAVE_BASE_URL
@@ -112,6 +116,10 @@ services:
       - key: FLUTTERWAVE_SECRET_KEY
         sync: false
       - key: FLUTTERWAVE_PUBLIC_KEY
+        sync: false
+      - key: FLUTTERWAVE_LIVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_LIVE_PUBLIC_KEY
         sync: false
       - key: FLUTTERWAVE_WEBHOOK_SECRET
         sync: false

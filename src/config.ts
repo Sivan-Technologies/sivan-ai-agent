@@ -136,8 +136,12 @@ export const config = {
     payoutNotifyUrl: envValue("PALMPAY_PAYOUT_NOTIFY_URL"),
   },
   flutterwave: {
-    secretKey: envValue("FLUTTERWAVE_SECRET_KEY"),
-    publicKey: envValue("FLUTTERWAVE_PUBLIC_KEY"),
+    secretKey: databaseMode === "live"
+      ? envValue("FLUTTERWAVE_LIVE_SECRET_KEY", envValue("FLUTTERWAVE_SECRET_KEY"))
+      : envValue("FLUTTERWAVE_TEST_SECRET_KEY", envValue("FLUTTERWAVE_SECRET_KEY")),
+    publicKey: databaseMode === "live"
+      ? envValue("FLUTTERWAVE_LIVE_PUBLIC_KEY", envValue("FLUTTERWAVE_PUBLIC_KEY"))
+      : envValue("FLUTTERWAVE_TEST_PUBLIC_KEY", envValue("FLUTTERWAVE_PUBLIC_KEY")),
     liveSecretKey: envValue("FLUTTERWAVE_LIVE_SECRET_KEY", envValue("FLUTTERWAVE_SECRET_KEY")),
     livePublicKey: envValue("FLUTTERWAVE_LIVE_PUBLIC_KEY", envValue("FLUTTERWAVE_PUBLIC_KEY")),
     testSecretKey: envValue("FLUTTERWAVE_TEST_SECRET_KEY"),
