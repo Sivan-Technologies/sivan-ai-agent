@@ -11,7 +11,12 @@ export const retryWorker = new RetryWorker(opsStore, {
     if (!payload.to || !payload.message) {
       throw new Error("whatsapp_notification requires payload.to and payload.message");
     }
-    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message), payload.dealCard);
+    await notifyWhatsAppBotStrict(
+      String(payload.to),
+      String(payload.message),
+      payload.dealCard,
+      Array.isArray(payload.media) ? (payload.media as string[]) : undefined
+    );
   },
   paystack_recheck: async (payload) => {
     const paymentReference = String(payload.paymentReference || "").trim();

@@ -65,6 +65,7 @@ export function queueWhatsAppNotification(params: {
   escrowId?: string;
   dealCard?: any;
   context?: Record<string, any>;
+  media?: string[];
 }) {
   void sendOrQueueWhatsAppNotification(params);
 }
@@ -76,9 +77,10 @@ export async function sendOrQueueWhatsAppNotification(params: {
   escrowId?: string;
   dealCard?: any;
   context?: Record<string, any>;
+  media?: string[];
 }) {
   try {
-    await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard);
+    await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard, params.media);
   } catch (err) {
     const context = {
       escrowId: params.escrowId,
@@ -99,6 +101,7 @@ export async function sendOrQueueWhatsAppNotification(params: {
         escrowId: params.escrowId,
         reason: params.reason,
         ...(params.dealCard ? { dealCard: params.dealCard } : {}),
+        ...(params.media ? { media: params.media } : {}),
       }, {
         maxAttempts: 5,
         runAfter: new Date(Date.now() + (isRateLimited ? 60_000 : 15_000)).toISOString(),
@@ -589,11 +592,16 @@ export function containsExternalLink(value: string) {
   return /\bhttps?:\/\/|\bwww\./i.test(value);
 }
 
-export async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary: string) {
+export async function notifyBuyerDeliverySubmitted(
+  escrow: EscrowRecord,
+  summary: string,
+  media: Array<{ url: string }> = []
+) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   const buyerWhatsapp = detail?.buyer?.whatsappNumber;
   if (!detail || !buyerWhatsapp) return;
   const dealCard = await buildParticipantDeal(detail, buyerWhatsapp);
+  const mediaUrls = media.map((m) => m.url).filter(Boolean);
   queueWhatsAppNotification({
     to: buyerWhatsapp,
     message: participantLifecycleMessage(
@@ -608,6 +616,7 @@ export async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary
       participant: dealCard.participant,
     } : undefined,
     context: { summary: summary || "Seller submitted delivery proof" },
+    media: mediaUrls,
   });
 }
 
