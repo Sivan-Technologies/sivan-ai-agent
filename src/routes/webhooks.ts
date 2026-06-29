@@ -392,6 +392,9 @@ router.post("/webhooks/palmpay", async (req, res) => {
       return res.status(400).send("invalid signature");
     }
 
+    info("PalmPay signature verification PASSED", { orderId: req.body?.orderId });
+    info("PalmPay raw webhook payload", { body: req.body });
+
     let normalizedWebhook;
     try {
       normalizedWebhook = palmpayPaymentProvider.normalizeWebhook(req.body);
@@ -580,6 +583,9 @@ router.post("/webhooks/flutterwave", async (req, res) => {
       capturePaymentWarning("Invalid Flutterwave webhook signature", { paymentReference: req.body?.data?.reference || "unknown" });
       return res.status(400).send({ error: "Invalid webhook signature" });
     }
+
+    info("Flutterwave signature verification PASSED", { reference: req.body?.data?.reference });
+    info("Flutterwave raw webhook payload", { body: req.body });
 
     let normalizedWebhook;
     try {
