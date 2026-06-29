@@ -17,7 +17,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: FRONTEND_URL
-        value: https://sivan-admin-hub.vercel.app
+        value: https://sivan-admin-hub-test.vercel.app
       - key: SYNAPSE_API_KEY
         sync: false
       - key: SYNAPSE_RPC_URL
