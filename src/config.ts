@@ -200,6 +200,7 @@ export const config = {
     logLevel: envValue("LOG_LEVEL", "info"),
     databaseProvider,
     databaseUrl,
+    frontendUrl: envValue("FRONTEND_URL"),
     webhookUrl: envValue("WEBHOOK_URL"),
     notificationUrl: envValue("NOTIFICATION_URL"),
     notificationSecret: envValue("NOTIFICATION_SECRET"),
