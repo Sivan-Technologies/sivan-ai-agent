@@ -1,0 +1,132 @@
+services:
+  - type: web
+    name: sivan-escrow-agent-test
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_MODE
+        value: test
+      - key: DATABASE_PROVIDER
+        value: postgres
+      - key: DATABASE_URL
+        sync: false
+      - key: SYNAPSE_API_KEY
+        sync: false
+      - key: SYNAPSE_RPC_URL
+        sync: false
+      - key: SAP_AGENT_PRIVATE_KEY
+        sync: false
+      - key: SAP_AGENT_PUBLIC_KEY
+        sync: false
+      - key: ACE_DATA_API_KEY
+        sync: false
+      - key: SYNAPSE_X402_FACILITATOR_URL
+        sync: false
+      - key: CORE_API_SECRET
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: PAYOUT_ENCRYPTION_KEY
+        sync: false
+      - key: PAYOUT_TOKEN_SECRET
+        sync: false
+      - key: NOTIFICATION_SECRET
+        sync: false
+      - key: ACTIVE_PAYMENT_PROVIDER
+        value: flutterwave
+      - key: FLUTTERWAVE_TEST_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_TEST_PUBLIC_KEY
+        sync: false
+      - key: PAYSTACK_TEST_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_TEST_PUBLIC_KEY
+        sync: false
+      - key: MONNIFY_TEST_API_KEY
+        sync: false
+      - key: MONNIFY_TEST_SECRET_KEY
+        sync: false
+      - key: MONNIFY_TEST_CONTRACT_CODE
+        sync: false
+      - key: NOMBA_TEST_CLIENT_ID
+        sync: false
+      - key: NOMBA_TEST_CLIENT_SECRET
+        sync: false
+      - key: NOMBA_TEST_ACCOUNT_ID
+        sync: false
+      - key: NOMBA_BASE_URL
+        value: https://sandbox.nomba.com
+      - key: PALMPAY_BASE_URL
+        value: https://open-gw-sandbox.palmpay-inc.com
+
+  - type: web
+    name: sivan-escrow-agent-live
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_MODE
+        value: live
+      - key: DATABASE_PROVIDER
+        value: postgres
+      - key: LIVE_DATABASE_URL
+        sync: false
+      - key: SYNAPSE_API_KEY
+        sync: false
+      - key: SYNAPSE_RPC_URL
+        sync: false
+      - key: SAP_AGENT_PRIVATE_KEY
+        sync: false
+      - key: SAP_AGENT_PUBLIC_KEY
+        sync: false
+      - key: ACE_DATA_API_KEY
+        sync: false
+      - key: SYNAPSE_X402_FACILITATOR_URL
+        sync: false
+      - key: CORE_API_SECRET
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: PAYOUT_ENCRYPTION_KEY
+        sync: false
+      - key: PAYOUT_TOKEN_SECRET
+        sync: false
+      - key: NOTIFICATION_SECRET
+        sync: false
+      - key: ACTIVE_PAYMENT_PROVIDER
+        value: flutterwave
+      - key: FLUTTERWAVE_LIVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_LIVE_PUBLIC_KEY
+        sync: false
+      - key: PAYSTACK_LIVE_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_LIVE_PUBLIC_KEY
+        sync: false
+      - key: MONNIFY_LIVE_API_KEY
+        sync: false
+      - key: MONNIFY_LIVE_SECRET_KEY
+        sync: false
+      - key: MONNIFY_LIVE_CONTRACT_CODE
+        sync: false
+      - key: NOMBA_LIVE_CLIENT_ID
+        sync: false
+      - key: NOMBA_LIVE_CLIENT_SECRET
+        sync: false
+      - key: NOMBA_LIVE_ACCOUNT_ID
+        sync: false
+      - key: NOMBA_LIVE_BASE_URL
+        value: https://api.nomba.com
+      - key: PALMPAY_LIVE_BASE_URL
+        value: https://open-gw-prod.palmpay-inc.com
