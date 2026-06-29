@@ -222,15 +222,33 @@ export function validateConfig() {
     console.warn("[WARN] Controlled payout verification test mode is enabled for explicitly allowlisted accounts");
   }
 
-  // Hard required — service cannot function without these
+  // Hard required — service cannot start without these
   const required = [
     { key: "SYNAPSE_API_KEY", value: config.synapse.apiKey },
     { key: "SYNAPSE_RPC_URL or SAP_RPC_URL", value: config.synapse.rpcUrl },
     { key: "ACE_DATA_API_KEY", value: config.aceData.apiKey },
     { key: "SYNAPSE_X402_FACILITATOR_URL or X402_RPC_URL", value: config.x402.rpcUrl },
-    // Paystack secret key resolves from mode-specific TEST/LIVE key automatically
-    { key: "PAYSTACK_TEST_SECRET_KEY (test) or PAYSTACK_LIVE_SECRET_KEY (live)", value: config.paystack.secretKey },
   ];
+
+  // Validate the ACTIVE payment provider has its key configured
+  const activeProvider = envValue("ACTIVE_PAYMENT_PROVIDER", "flutterwave").toLowerCase();
+  if (activeProvider === "flutterwave") {
+    const flwKey = config.flutterwave.secretKey;
+    if (!flwKey) {
+      required.push({ key: "FLUTTERWAVE_SECRET_KEY (active provider is flutterwave)", value: flwKey });
+    }
+  } else if (activeProvider === "palmpay") {
+    const palmKey = config.palmpay.appId;
+    if (!palmKey) {
+      required.push({ key: "PALMPAY_APP_ID (active provider is palmpay)", value: palmKey });
+    }
+  } else if (activeProvider === "paystack") {
+    const psKey = config.paystack.secretKey;
+    if (!psKey) {
+      required.push({ key: "PAYSTACK_TEST_SECRET_KEY or PAYSTACK_LIVE_SECRET_KEY (active provider is paystack)", value: psKey });
+    }
+  }
+
   const missing = required.filter((entry) => !entry.value);
   if (missing.length > 0) {
     const message = `Missing required environment variables: ${missing.map((entry) => entry.key).join(", ")}`;
@@ -240,13 +258,14 @@ export function validateConfig() {
     console.warn(`[WARN] ${message}`);
   }
 
-  // Soft required — warn only; SAP keys are only needed for x402 USDC settlement
-  const softRequired = [
-    { key: "SAP_AGENT_PRIVATE_KEY", value: config.sap.agentPrivateKey },
-    { key: "SAP_AGENT_PUBLIC_KEY", value: config.sap.agentPublicKey },
+  // Soft warnings — present in config but not currently required to start
+  const softChecks: Array<{ key: string; value: string; reason: string }> = [
+    { key: "SAP_AGENT_PRIVATE_KEY", value: config.sap.agentPrivateKey, reason: "x402 USDC settlement unavailable" },
+    { key: "SAP_AGENT_PUBLIC_KEY", value: config.sap.agentPublicKey, reason: "x402 USDC settlement unavailable" },
+    { key: "PAYSTACK_TEST_SECRET_KEY / PAYSTACK_LIVE_SECRET_KEY", value: config.paystack.secretKey, reason: "Paystack disabled pending account approval" },
   ];
-  const missingSoft = softRequired.filter((entry) => !entry.value);
-  if (missingSoft.length > 0) {
-    console.warn(`[WARN] Optional SAP/x402 keys not set: ${missingSoft.map((e) => e.key).join(", ")}. x402 USDC settlement will be unavailable until these are configured.`);
-  }
+  softChecks
+    .filter((c) => !c.value)
+    .forEach((c) => console.warn(`[WARN] ${c.key} not set — ${c.reason}`));
 }
+
