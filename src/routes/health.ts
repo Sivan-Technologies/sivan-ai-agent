@@ -175,9 +175,9 @@ router.get("/payment/success", (req, res) => {
         <h1>Payment Received!</h1>
         <div class="badge">
           <span class="badge-dot"></span>
-          Escrow Status: Funded
+          Deal Status: Funded
         </div>
-        <p>Your payment has been securely verified and locked in the escrow contract.<br><br>You can safely close this window now and return to your WhatsApp chat to track the delivery.</p>
+        <p>Your payment has been securely verified.<br><br>You can safely close this window now and return to your WhatsApp chat to track the delivery.</p>
         <a href="https://wa.me/14155238886" class="btn">Return to WhatsApp</a>
       </div>
     </body>
