@@ -63,7 +63,7 @@ export class FlutterwaveClient {
       this.baseUrl = "https://api.flutterwave.com";
     } else if (platformMode === "test") {
       this.secretKey = config.flutterwave.testSecretKey || config.flutterwave.secretKey;
-      this.baseUrl = "https://developersandbox-api.flutterwave.com";
+      this.baseUrl = "https://api.flutterwave.com";
     } else {
       this.secretKey = config.flutterwave.secretKey;
       this.baseUrl = config.flutterwave.baseUrl.replace(/\/$/, "");
