@@ -400,7 +400,7 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
       customerEmail: input.customerEmail,
       paymentReference,
       paymentDescription: `Sivan service agreement ${input.escrowId || paymentReference}`,
-      redirectUrl: input.callbackUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl,
+      redirectUrl: input.callbackUrl || config.flutterwave.callbackUrl || config.paystack.callbackUrl,
       metadata: {
         escrowId: input.escrowId,
         provider: this.id,
