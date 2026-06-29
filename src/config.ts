@@ -64,8 +64,13 @@ export const config = {
     usdcMint: envValue("SYNAPSE_USDC_MINT"),
   },
   paystack: {
-    secretKey: envValue("PAYSTACK_SECRET_KEY"),
-    publicKey: envValue("PAYSTACK_PUBLIC_KEY"),
+    // Resolve secretKey from mode-specific key first, then fall back to generic PAYSTACK_SECRET_KEY
+    secretKey: databaseMode === "live"
+      ? envValue("PAYSTACK_LIVE_SECRET_KEY", envValue("PAYSTACK_SECRET_KEY"))
+      : envValue("PAYSTACK_TEST_SECRET_KEY", envValue("PAYSTACK_SECRET_KEY")),
+    publicKey: databaseMode === "live"
+      ? envValue("PAYSTACK_LIVE_PUBLIC_KEY", envValue("PAYSTACK_PUBLIC_KEY"))
+      : envValue("PAYSTACK_TEST_PUBLIC_KEY", envValue("PAYSTACK_PUBLIC_KEY")),
     testSecretKey: envValue("PAYSTACK_TEST_SECRET_KEY"),
     testPublicKey: envValue("PAYSTACK_TEST_PUBLIC_KEY"),
     liveSecretKey: envValue("PAYSTACK_LIVE_SECRET_KEY"),
@@ -217,14 +222,14 @@ export function validateConfig() {
     console.warn("[WARN] Controlled payout verification test mode is enabled for explicitly allowlisted accounts");
   }
 
+  // Hard required — service cannot function without these
   const required = [
     { key: "SYNAPSE_API_KEY", value: config.synapse.apiKey },
     { key: "SYNAPSE_RPC_URL or SAP_RPC_URL", value: config.synapse.rpcUrl },
-    { key: "SAP_AGENT_PRIVATE_KEY", value: config.sap.agentPrivateKey },
-    { key: "SAP_AGENT_PUBLIC_KEY", value: config.sap.agentPublicKey },
     { key: "ACE_DATA_API_KEY", value: config.aceData.apiKey },
     { key: "SYNAPSE_X402_FACILITATOR_URL or X402_RPC_URL", value: config.x402.rpcUrl },
-    { key: "PAYSTACK_SECRET_KEY", value: config.paystack.secretKey },
+    // Paystack secret key resolves from mode-specific TEST/LIVE key automatically
+    { key: "PAYSTACK_TEST_SECRET_KEY (test) or PAYSTACK_LIVE_SECRET_KEY (live)", value: config.paystack.secretKey },
   ];
   const missing = required.filter((entry) => !entry.value);
   if (missing.length > 0) {
@@ -233,5 +238,15 @@ export function validateConfig() {
       throw new Error(message);
     }
     console.warn(`[WARN] ${message}`);
+  }
+
+  // Soft required — warn only; SAP keys are only needed for x402 USDC settlement
+  const softRequired = [
+    { key: "SAP_AGENT_PRIVATE_KEY", value: config.sap.agentPrivateKey },
+    { key: "SAP_AGENT_PUBLIC_KEY", value: config.sap.agentPublicKey },
+  ];
+  const missingSoft = softRequired.filter((entry) => !entry.value);
+  if (missingSoft.length > 0) {
+    console.warn(`[WARN] Optional SAP/x402 keys not set: ${missingSoft.map((e) => e.key).join(", ")}. x402 USDC settlement will be unavailable until these are configured.`);
   }
 }
