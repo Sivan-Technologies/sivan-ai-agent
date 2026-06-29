@@ -59,6 +59,12 @@ services:
         sync: false
       - key: FLUTTERWAVE_BASE_URL
         value: https://api.flutterwave.com
+      - key: FLUTTERWAVE_CALLBACK_URL
+        value: https://sivan-admin-hub-test.vercel.app
+      - key: FLUTTERWAVE_PAYMENT_METHODS
+        value: bank_transfer
+      - key: PAYSTACK_CALLBACK_URL
+        value: https://sivan-admin-hub-test.vercel.app
       # PalmPay — backup provider (sandbox)
       - key: PALMPAY_APP_ID
         sync: false
@@ -133,6 +139,12 @@ services:
         sync: false
       - key: FLUTTERWAVE_BASE_URL
         value: https://api.flutterwave.com
+      - key: FLUTTERWAVE_CALLBACK_URL
+        value: https://admin.sivan.online
+      - key: FLUTTERWAVE_PAYMENT_METHODS
+        value: bank_transfer
+      - key: PAYSTACK_CALLBACK_URL
+        value: https://admin.sivan.online
       # PalmPay — backup provider (live/production)
       - key: PALMPAY_APP_ID
         sync: false
