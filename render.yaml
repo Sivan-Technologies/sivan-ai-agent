@@ -2,7 +2,7 @@ services:
   - type: web
     name: sivan-escrow-agent-test
     env: node
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
@@ -68,7 +68,7 @@ services:
   - type: web
     name: sivan-escrow-agent-live
     env: node
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
