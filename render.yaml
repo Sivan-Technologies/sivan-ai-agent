@@ -78,6 +78,15 @@ services:
         sync: false
       - key: PALMPAY_BASE_URL
         value: https://open-gw-sandbox.palmpay-inc.com
+      # Cloudflare R2 Credentials
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: sivan-delivery-proofs-test
 
   - type: web
     name: sivan-escrow-agent-live
@@ -158,3 +167,12 @@ services:
         sync: false
       - key: PALMPAY_LIVE_BASE_URL
         value: https://open-gw-prod.palmpay-inc.com
+      # Cloudflare R2 Credentials
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: sivan-delivery-proofs-live
