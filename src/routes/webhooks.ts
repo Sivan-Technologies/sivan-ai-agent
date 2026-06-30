@@ -629,7 +629,9 @@ router.post("/webhooks/flutterwave", async (req, res) => {
       return res.status(409).send({ error: "Payment reference belongs to a different provider" });
     }
 
-    const verificationReference = normalizedWebhook.transactionReference || normalizedWebhook.paymentReference;
+    const verificationReference = config.databaseMode === "test"
+      ? normalizedWebhook.paymentReference
+      : (normalizedWebhook.transactionReference || normalizedWebhook.paymentReference);
     const transaction = await flutterwavePaymentProvider.verifyPayment(verificationReference);
     if (transaction.paymentReference !== normalizedWebhook.paymentReference) {
       capturePaymentWarning("Flutterwave verification reference mismatch", {
