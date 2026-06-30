@@ -351,6 +351,7 @@ export async function buildDisputeRows(limit = 100) {
       escrowStore.listTransactions(escrow.escrowId),
       opsStore.searchSupportCases(escrow.escrowId, 10),
     ]);
+    const resolvedEvents = await resolveR2MediaUrls(events);
     const evidenceCount = events.filter((event) => event.eventType === "dispute_evidence_recorded").length;
     const openedAt = events.find((event) => event.eventType === "dispute_opened")?.createdAt || escrow.updatedAt;
     return {
@@ -360,7 +361,7 @@ export async function buildDisputeRows(limit = 100) {
       latestEventAt: events[0]?.createdAt || escrow.updatedAt,
       supportCases,
       transactions,
-      events,
+      events: resolvedEvents,
     };
   }));
 }
