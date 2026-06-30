@@ -771,6 +771,7 @@ export async function recordDeliveryProof(input: {
       return {
         ...m,
         url: `r2://${r2Key}`,
+        originalUrl: m.url,
       };
     })
   );
