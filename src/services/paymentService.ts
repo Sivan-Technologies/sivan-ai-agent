@@ -111,7 +111,7 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
 
 export function nairaCustomerEmailForWhatsapp(whatsappNumber: string) {
   const digits = whatsappNumber.replace(/\D/g, "");
-  return `whatsapp_${digits || "user"}@sivan.local`;
+  return `whatsapp_${digits || "user"}@sivan.com`;
 }
 
 export type PayoutQuote = FeeCalculation & {
