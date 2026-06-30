@@ -28,10 +28,15 @@ router.get("/temp-query", async (req, res) => {
 
     if (pool) {
       const r = await pool.query("SELECT * FROM payout_accounts LIMIT 50");
-      const rows = r.rows.map((row: any) => ({
-        ...row,
-        decrypted_account_number: decrypt(row.account_number_encrypted || row.account_number),
-      }));
+      const rows = r.rows.map((row: any) => {
+        const val = row.account_number_encrypted || row.account_number;
+        return {
+          ...row,
+          debug_val: val || null,
+          debug_prefix_match: val ? val.startsWith("enc:v1:") : false,
+          decrypted_account_number: decrypt(val),
+        };
+      });
       return res.status(200).json(rows);
     }
     const sqlite = (escrowStore as any).sqlite;
