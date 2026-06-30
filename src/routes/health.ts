@@ -3,56 +3,8 @@ import * as Sentry from "@sentry/node";
 import { config } from "../config";
 import { buildDatabaseStatus } from "../services/escrowService";
 import { buildOperationalVisibility } from "../services/monitoring";
-import crypto from "crypto";
 
 const router = Router();
-
-import { escrowStore } from "../context";
-
-router.get("/temp-query", async (req, res) => {
-  try {
-    const pool = (escrowStore as any).pool;
-    const configured = process.env.PAYOUT_ENCRYPTION_KEY || "";
-    const key = crypto.createHash("sha256").update(configured || "sivan-local-dev-payout-key").digest();
-
-    const decrypt = (value?: string | null) => {
-      if (!value?.startsWith("enc:v1:")) return null;
-      try {
-        const [, , iv, tag, encrypted] = value.split(":");
-        const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
-        decipher.setAuthTag(Buffer.from(tag, "base64url"));
-        return Buffer.concat([decipher.update(Buffer.from(encrypted, "base64url")), decipher.final()]).toString("utf8");
-      } catch (err: any) {
-        return "error_decrypting: " + err.message;
-      }
-    };
-
-    if (pool) {
-      const r = await pool.query("SELECT * FROM payout_accounts LIMIT 50");
-      const rows = r.rows.map((row: any) => {
-        const val = row.account_number_encrypted || row.account_number;
-        return {
-          ...row,
-          debug_val: val || null,
-          debug_prefix_match: val ? val.startsWith("enc:v1:") : false,
-          decrypted_account_number: decrypt(val),
-        };
-      });
-      return res.status(200).json(rows);
-    }
-    const sqlite = (escrowStore as any).sqlite;
-    if (sqlite) {
-      const r = sqlite.prepare("SELECT * FROM payout_accounts LIMIT 50").all().map((row: any) => ({
-        ...row,
-        decrypted_account_number: decrypt(row.account_number_encrypted || row.account_number),
-      }));
-      return res.status(200).json(r);
-    }
-    res.status(500).json({ error: "no db pool or sqlite" });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 router.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok", uptime: process.uptime() });
