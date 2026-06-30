@@ -628,6 +628,7 @@ export async function validateDeliveryProofMedia(
     "application/pdf",
     "image/jpeg",
     "image/jpg",
+    "image/png",
     "video/mp4",
   ];
 
