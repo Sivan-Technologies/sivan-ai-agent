@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { config } from "../config";
+import axios from "axios";
 import { EscrowCurrency, EscrowRecord, EscrowStore } from "./escrowStore";
 import {
   notifyWhatsAppBot,
@@ -620,6 +621,81 @@ export async function notifyBuyerDeliverySubmitted(
   });
 }
 
+export async function validateDeliveryProofMedia(
+  media: Array<{ url: string; contentType?: string; filename?: string }>
+): Promise<void> {
+  const allowedMimeTypes = [
+    "application/pdf",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "video/mp4",
+  ];
+
+  for (const item of media) {
+    const url = item.url;
+    if (!url) {
+      throw new Error("Evidence file URL is required");
+    }
+
+    // 1. Storage Isolation Validation
+    const sivanBucketPattern = /sivan-(test|live)-bucket/i;
+    const match = url.match(sivanBucketPattern);
+    if (match) {
+      const mode = match[1];
+      if (mode !== config.databaseMode) {
+        throw new Error(`Evidence storage mismatch: Cannot use a ${mode} storage URL in ${config.databaseMode} mode`);
+      }
+    }
+
+    // 2. Anti-reuse validation (Immutable evidence check)
+    const isLinked = await escrowStore.isMediaUrlLinked(url);
+    if (isLinked) {
+      throw new Error(`Evidence URL has already been submitted in a different transaction: ${url}`);
+    }
+
+    // 3. HTTP HEAD/GET range checks to verify size and content-type
+    try {
+      const res = await axios.head(url, { timeout: 8000, headers: { "User-Agent": "SivanEvidenceValidator/1.0" } });
+      const serverType = String(res.headers["content-type"] || "").toLowerCase();
+      const serverLength = Number(res.headers["content-length"] || 0);
+
+      const matchesMimetype = allowedMimeTypes.some((mime) => serverType.startsWith(mime));
+      if (!matchesMimetype) {
+        throw new Error(`Unsupported evidence file type: ${serverType || "unknown"}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+      }
+
+      const isVideo = serverType.startsWith("video/");
+      const limit = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+      if (serverLength > limit) {
+        throw new Error(`Evidence file size exceeds the limit of ${isVideo ? "50MB" : "10MB"}: ${(serverLength / (1024 * 1024)).toFixed(1)}MB`);
+      }
+    } catch (err: any) {
+      try {
+        const res = await axios.get(url, {
+          headers: { Range: "bytes=0-10", "User-Agent": "SivanEvidenceValidator/1.0" },
+          timeout: 8000,
+        });
+        const serverType = String(res.headers["content-type"] || "").toLowerCase();
+        const serverLength = Number(res.headers["content-range"]?.split("/")?.[1] || res.headers["content-length"] || 0);
+
+        const matchesMimetype = allowedMimeTypes.some((mime) => serverType.startsWith(mime));
+        if (!matchesMimetype) {
+          throw new Error(`Unsupported evidence file type: ${serverType || "unknown"}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+        }
+
+        const isVideo = serverType.startsWith("video/");
+        const limit = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (serverLength > limit) {
+          throw new Error(`Evidence file size exceeds the limit of ${isVideo ? "50MB" : "10MB"}: ${(serverLength / (1024 * 1024)).toFixed(1)}MB`);
+        }
+      } catch (getErr: any) {
+        throw new Error(`Invalid or unreachable evidence upload link: ${err.message || String(err)}`);
+      }
+    }
+  }
+}
+
 export async function recordDeliveryProof(input: {
   escrow: EscrowRecord;
   actorWhatsapp: string;
@@ -629,6 +705,23 @@ export async function recordDeliveryProof(input: {
 }) {
   const { escrow, actorWhatsapp, summary, media, notifyBuyer } = input;
   const safeSummary = summary.trim() || "Seller submitted delivery proof";
+
+  // Validate the evidence files first
+  await validateDeliveryProofMedia(media);
+
+  // Storage tagging and immutable linking
+  const storageMode = config.databaseMode;
+  const paymentReference = escrow.paymentReference || "unfunded_or_test";
+
+  // Audit trail logging payload
+  const auditTrail = {
+    uploadedBy: actorWhatsapp,
+    uploadedAt: new Date().toISOString(),
+    escrowStage: escrow.status,
+    paymentReference,
+    storageMode,
+  };
+
   const updated = await escrowStore.markDelivered(
     escrow.escrowId,
     actorWhatsapp,
@@ -639,10 +732,11 @@ export async function recordDeliveryProof(input: {
       media,
       mediaCount: media.length,
       externalLinksAllowed: externalDeliveryLinksAllowed(),
+      auditTrail,
     })
   );
 
-  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary);
+  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary, media);
   return buildEscrowDetail(escrow.escrowId);
 }
 

@@ -459,14 +459,18 @@ router.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (
   if (!parsed.data.summary.trim() && !parsed.data.media.length) {
     return res.status(400).json({ error: "Delivery proof must include a message or media" });
   }
-  const detail = await recordDeliveryProof({
-    escrow,
-    actorWhatsapp: parsed.data.actorWhatsapp,
-    summary: parsed.data.summary,
-    media: parsed.data.media,
-    notifyBuyer: parsed.data.notifyBuyer,
-  });
-  res.status(201).json(detail);
+  try {
+    const detail = await recordDeliveryProof({
+      escrow,
+      actorWhatsapp: parsed.data.actorWhatsapp,
+      summary: parsed.data.summary,
+      media: parsed.data.media,
+      notifyBuyer: parsed.data.notifyBuyer,
+    });
+    res.status(201).json(detail);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Delivery proof could not be recorded" });
+  }
 });
 
 router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res) => {

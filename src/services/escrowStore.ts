@@ -2347,6 +2347,27 @@ export class EscrowStore {
     return result.rows.map((row) => this.mapEvent(row));
   }
 
+  public async isMediaUrlLinked(url: string): Promise<boolean> {
+    await this.initializeSchema();
+    const pattern = `%${url}%`;
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`
+        SELECT 1 FROM escrow_events
+        WHERE event_type = 'seller_delivery_proof_recorded'
+          AND metadata LIKE @pattern
+        LIMIT 1
+      `).get({ pattern });
+      return Boolean(row);
+    }
+    const result = await this.pool!.query(`
+      SELECT 1 FROM escrow_events
+      WHERE event_type = 'seller_delivery_proof_recorded'
+        AND metadata LIKE $1
+      LIMIT 1
+    `, [pattern]);
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
   public async close(): Promise<void> {
     if (this.sqlite) this.sqlite.close();
     if (this.pool) await this.pool.end();
