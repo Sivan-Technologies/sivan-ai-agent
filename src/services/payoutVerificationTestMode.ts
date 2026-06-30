@@ -25,10 +25,11 @@ function csvValues(value?: string) {
 function isActiveProviderTestConfigured(provider: string, env: NodeJS.ProcessEnv): boolean {
   const norm = provider.trim().toLowerCase();
   if (norm === "flutterwave") {
+    const key = env.FLUTTERWAVE_TEST_SECRET_KEY || env.FLUTTERWAVE_SECRET_KEY;
     return Boolean(
-      env.FLUTTERWAVE_SECRET_KEY?.startsWith("FLWSECK_TEST-") ||
-      env.FLUTTERWAVE_SECRET_KEY?.includes("test") ||
-      env.FLUTTERWAVE_SECRET_KEY?.startsWith("sk_test_")
+      key?.startsWith("FLWSECK_TEST-") ||
+      key?.includes("test") ||
+      key?.startsWith("sk_test_")
     );
   }
   if (norm === "palmpay") {
@@ -39,7 +40,10 @@ function isActiveProviderTestConfigured(provider: string, env: NodeJS.ProcessEnv
     );
   }
   if (norm === "monnify") {
-    return Boolean(env.MONNIFY_API_KEY?.startsWith("MK_TEST_"));
+    return Boolean(
+      env.MONNIFY_TEST_API_KEY?.startsWith("MK_TEST_") ||
+      env.MONNIFY_API_KEY?.startsWith("MK_TEST_")
+    );
   }
   return true;
 }

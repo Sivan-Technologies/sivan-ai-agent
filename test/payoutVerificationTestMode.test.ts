@@ -22,6 +22,20 @@ describe("payout verification test mode", () => {
     });
   });
 
+  it("allows an explicitly listed account when using FLUTTERWAVE_TEST_SECRET_KEY", () => {
+    const result = getPayoutVerificationTestResolution(input, "999992", {
+      PAYOUT_VERIFICATION_TEST_MODE: "true",
+      PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
+      FLUTTERWAVE_TEST_SECRET_KEY: "FLWSECK_TEST-example",
+    });
+
+    expect(result).toEqual({
+      accountNumber: input.accountNumber,
+      accountName: input.sellerName,
+      bankCode: "999992",
+    });
+  });
+
   it("fails closed for live Flutterwave credentials or an account outside the allowlist", () => {
     expect(getPayoutVerificationTestResolution(input, "999992", {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
