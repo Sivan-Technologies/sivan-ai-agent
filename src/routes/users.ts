@@ -97,17 +97,7 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
       accountName: parsed.data.accountName,
       verificationStatus: "failed",
     });
-    return res.status(422).json({
-      error: "Bank account verification failed",
-      payout,
-      debug: {
-        testMode: process.env.PAYOUT_VERIFICATION_TEST_MODE,
-        testAccounts: process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS,
-        activeProvider: process.env.ACTIVE_PAYMENT_PROVIDER,
-        hasFlwKey: Boolean(process.env.FLUTTERWAVE_SECRET_KEY || process.env.FLUTTERWAVE_TEST_SECRET_KEY),
-        hasMonnifyKey: Boolean(process.env.MONNIFY_API_KEY || process.env.MONNIFY_TEST_API_KEY),
-      }
-    });
+    return res.status(422).json({ error: "Bank account verification failed", payout });
   }
 
   const nameMatch = scoreAccountName(sellerName, resolution.accountName);
