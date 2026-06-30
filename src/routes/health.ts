@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/node";
 import { config } from "../config";
 import { buildDatabaseStatus } from "../services/escrowService";
 import { buildOperationalVisibility } from "../services/monitoring";
+import crypto from "crypto";
 
 const router = Router();
 
