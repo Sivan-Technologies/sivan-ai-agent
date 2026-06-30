@@ -1,6 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
 import { config } from "../config";
+import { NairaAccountResolution } from "./monnifyClient";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
 // ---------------------------------------------------------------------------
@@ -303,5 +304,32 @@ export class FlutterwaveClient {
       customerId: tx.customer?.id ? String(tx.customer.id) : undefined,
       raw,
     };
+  }
+
+  public async resolveBankAccount(accountNumber: string, bankCode: string): Promise<NairaAccountResolution> {
+    if (!this.isCollectionConfigured()) {
+      throw new Error("Flutterwave credentials are not configured");
+    }
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/v3/accounts/resolve`,
+        {
+          account_number: accountNumber,
+          account_bank: bankCode,
+        },
+        { headers: this.authHeaders(), timeout: this.timeoutMs }
+      );
+      const data = response.data?.data;
+      if (response.data?.status !== "success" || !data?.account_name) {
+        throw new Error(response.data?.message || "Unable to resolve bank account with Flutterwave");
+      }
+      return {
+        accountNumber: data.account_number || accountNumber,
+        accountName: data.account_name,
+        bankCode,
+      };
+    } catch (err) {
+      throw new Error(`Flutterwave bank account resolution failed: ${extractAxiosMessage(err)}`);
+    }
   }
 }

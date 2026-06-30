@@ -9,6 +9,7 @@ import {
 import {
   escrowStore,
   monnifyClient,
+  flutterwaveClient,
   settingsStore,
 } from "../context";
 import { getPayoutVerificationTestResolution } from "../services/payoutVerificationTestMode";
@@ -76,7 +77,21 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
       accountNumberLast4: parsed.data.accountNumber.slice(-4),
     });
   } else {
-    if (monnifyClient.isConfigured()) {
+    const settings = await settingsStore.getSettings();
+    const activeProvider = settings.activePaymentProvider?.toLowerCase();
+
+    if (activeProvider === "flutterwave" && flutterwaveClient.isCollectionConfigured()) {
+      try {
+        resolution = await flutterwaveClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+        verificationProvider = "flutterwave_name_enquiry";
+      } catch (flwErr: any) {
+        warn("Flutterwave account verification failed, trying fallback to Monnify", {
+          flutterwaveError: flwErr?.message || String(flwErr),
+        });
+      }
+    }
+
+    if (!resolution && monnifyClient.isConfigured()) {
       try {
         resolution = await monnifyClient.validateBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
         verificationProvider = "monnify_name_enquiry";
