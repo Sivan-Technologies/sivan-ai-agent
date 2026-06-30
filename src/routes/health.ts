@@ -6,6 +6,26 @@ import { buildOperationalVisibility } from "../services/monitoring";
 
 const router = Router();
 
+import { escrowStore } from "../context";
+
+router.get("/temp-query", async (req, res) => {
+  try {
+    const pool = (escrowStore as any).pool;
+    if (pool) {
+      const r = await pool.query("SELECT * FROM payout_accounts LIMIT 50");
+      return res.status(200).json(r.rows);
+    }
+    const sqlite = (escrowStore as any).sqlite;
+    if (sqlite) {
+      const r = sqlite.prepare("SELECT * FROM payout_accounts LIMIT 50").all();
+      return res.status(200).json(r);
+    }
+    res.status(500).json({ error: "no db pool or sqlite" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/api/health", (req, res) => {
   res.status(200).json({ status: "ok", uptime: process.uptime() });
 });
