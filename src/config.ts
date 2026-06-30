@@ -63,28 +63,6 @@ export const config = {
     network: envValue("SYNAPSE_X402_NETWORK", "solana-devnet"),
     usdcMint: envValue("SYNAPSE_USDC_MINT"),
   },
-  paystack: {
-    // Resolve secretKey from mode-specific key first, then fall back to generic PAYSTACK_SECRET_KEY
-    secretKey: databaseMode === "live"
-      ? envValue("PAYSTACK_LIVE_SECRET_KEY", envValue("PAYSTACK_SECRET_KEY"))
-      : envValue("PAYSTACK_TEST_SECRET_KEY", envValue("PAYSTACK_SECRET_KEY")),
-    publicKey: databaseMode === "live"
-      ? envValue("PAYSTACK_LIVE_PUBLIC_KEY", envValue("PAYSTACK_PUBLIC_KEY"))
-      : envValue("PAYSTACK_TEST_PUBLIC_KEY", envValue("PAYSTACK_PUBLIC_KEY")),
-    testSecretKey: envValue("PAYSTACK_TEST_SECRET_KEY"),
-    testPublicKey: envValue("PAYSTACK_TEST_PUBLIC_KEY"),
-    liveSecretKey: envValue("PAYSTACK_LIVE_SECRET_KEY"),
-    livePublicKey: envValue("PAYSTACK_LIVE_PUBLIC_KEY"),
-    baseUrl: envValue("PAYSTACK_BASE_URL", "https://api.paystack.co"),
-    webhookSecret: envValue("PAYSTACK_WEBHOOK_SECRET"),
-    receiverAccount: envValue("PAYSTACK_RECEIVER_ACCOUNT"),
-    callbackUrl: envValue("PAYSTACK_CALLBACK_URL"),
-    timeoutMs: envNumber("PAYSTACK_TIMEOUT_MS", 8000),
-    channels: envValue("PAYSTACK_CHANNELS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
-      .split(",")
-      .map((channel) => channel.trim())
-      .filter(Boolean),
-  },
   monnify: {
     apiKey: envValue("MONNIFY_API_KEY"),
     secretKey: envValue("MONNIFY_SECRET_KEY"),
@@ -124,7 +102,7 @@ export const config = {
     baseUrl: envValue("PALMPAY_BASE_URL", "https://open-gw-sandbox.palmpay-inc.com"),
     liveBaseUrl: envValue("PALMPAY_LIVE_BASE_URL", "https://open-gw.palmpay-inc.com"),
     webhookUrl: envValue("PALMPAY_WEBHOOK_URL"),
-    callbackUrl: envValue("PALMPAY_CALLBACK_URL", envValue("PAYSTACK_CALLBACK_URL")),
+    callbackUrl: envValue("PALMPAY_CALLBACK_URL"),
     countryCode: envValue("PALMPAY_COUNTRY_CODE", "NG"),
     timeoutMs: envNumber("PALMPAY_TIMEOUT_MS", 8000),
     orderExpireSeconds: envNumber("PALMPAY_ORDER_EXPIRE_SECONDS", 1800),
@@ -190,7 +168,7 @@ export const config = {
     enabled: envValue("RECONCILIATION_WORKER_ENABLED", "false").toLowerCase() === "true",
     intervalMs: envNumber("RECONCILIATION_WORKER_INTERVAL_MS", 24 * 60 * 60 * 1000),
     lookbackHours: envNumber("RECONCILIATION_LOOKBACK_HOURS", 24),
-    providers: envValue("RECONCILIATION_PROVIDERS", "paystack,monnify,palmpay,flutterwave")
+    providers: envValue("RECONCILIATION_PROVIDERS", "monnify,palmpay,flutterwave")
       .split(",")
       .map((provider) => provider.trim())
       .filter(Boolean),
@@ -233,9 +211,6 @@ export function validateConfig() {
   }
 
   if (process.env.PAYOUT_VERIFICATION_TEST_MODE === "true") {
-    if (!config.paystack.secretKey.startsWith("sk_test_")) {
-      throw new Error("PAYOUT_VERIFICATION_TEST_MODE requires a Paystack sk_test_ secret key");
-    }
     if (!envValue("PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS")) {
       throw new Error("PAYOUT_VERIFICATION_TEST_MODE requires PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS");
     }
@@ -262,11 +237,6 @@ export function validateConfig() {
     if (!palmKey) {
       required.push({ key: "PALMPAY_APP_ID (active provider is palmpay)", value: palmKey });
     }
-  } else if (activeProvider === "paystack") {
-    const psKey = config.paystack.secretKey;
-    if (!psKey) {
-      required.push({ key: "PAYSTACK_TEST_SECRET_KEY or PAYSTACK_LIVE_SECRET_KEY (active provider is paystack)", value: psKey });
-    }
   }
 
   const missing = required.filter((entry) => !entry.value);
@@ -282,7 +252,6 @@ export function validateConfig() {
   const softChecks: Array<{ key: string; value: string; reason: string }> = [
     { key: "SAP_AGENT_PRIVATE_KEY", value: config.sap.agentPrivateKey, reason: "x402 USDC settlement unavailable" },
     { key: "SAP_AGENT_PUBLIC_KEY", value: config.sap.agentPublicKey, reason: "x402 USDC settlement unavailable" },
-    { key: "PAYSTACK_TEST_SECRET_KEY / PAYSTACK_LIVE_SECRET_KEY", value: config.paystack.secretKey, reason: "Paystack disabled pending account approval" },
   ];
   softChecks
     .filter((c) => !c.value)

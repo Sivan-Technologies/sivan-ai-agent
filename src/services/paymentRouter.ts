@@ -37,7 +37,7 @@ export class PaymentRouter {
     const transaction = await this.nairaPaymentProvider.initializeBankTransferPayment({
       amount,
       customerEmail: email,
-      callbackUrl: config.paystack.callbackUrl,
+      callbackUrl: config.flutterwave.callbackUrl,
     });
 
     return {

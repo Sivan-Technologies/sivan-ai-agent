@@ -7,6 +7,8 @@ import { beforeAll, afterAll, describe, it, expect } from "vitest";
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-admin-settings.db");
 process.env.ADMIN_API_KEY = "test-admin-key";
 process.env.CORE_API_SECRET = "test-core-secret";
+process.env.ADMIN_IP_ALLOWLIST = "";
+process.env.ADMIN_ALLOWED_IPS = "";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
@@ -14,9 +16,7 @@ process.env.ACTIVE_PAYMENT_PROVIDER = "flutterwave";
 process.env.BACKUP_PAYMENT_PROVIDER = "palmpay";
 process.env.EMERGENCY_PAYMENT_PROVIDER = "flutterwave";
 process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED = "false";
-process.env.PAYSTACK_SECRET_KEY = "sk_test_admin_endpoint";
-process.env.PAYSTACK_BASE_URL = "http://127.0.0.1:9";
-process.env.PAYSTACK_TIMEOUT_MS = "50";
+process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "8102524846";
 process.env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS = "whatsapp:+2348000000902";
@@ -482,7 +482,7 @@ describe("Admin Settings API Integration", () => {
       .get("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key");
     expect(status.status).toBe(200);
-    expect(status.body.activePaymentProvider).toBe("paystack");
+    expect(status.body.activePaymentProvider).toBe("flutterwave");
     expect(status.body.providers.some((provider: any) => provider.provider === "monnify")).toBe(true);
 
     const invalid = await request(app)
@@ -490,7 +490,7 @@ describe("Admin Settings API Integration", () => {
       .set("x-admin-key", "test-admin-key")
       .send({
         activePaymentProvider: "boguspay",
-        backupPaymentProvider: "paystack",
+        backupPaymentProvider: "flutterwave",
         emergencyPaymentProvider: "flutterwave",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
@@ -501,7 +501,7 @@ describe("Admin Settings API Integration", () => {
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "paystack",
+        activePaymentProvider: "flutterwave",
         backupPaymentProvider: "monnify",
         emergencyPaymentProvider: "flutterwave",
         paymentProviderFallbackEnabled: false,
@@ -509,7 +509,7 @@ describe("Admin Settings API Integration", () => {
       });
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({
-      activePaymentProvider: "paystack",
+      activePaymentProvider: "flutterwave",
       backupPaymentProvider: "monnify",
       emergencyPaymentProvider: "flutterwave",
       paymentProviderFallbackEnabled: false,
@@ -866,7 +866,7 @@ describe("Admin Settings API Integration", () => {
       paymentsNeedingReview: expect.any(Number),
       releasesAwaitingPayout: expect.any(Number),
       releasedMissingPayoutReference: expect.any(Number),
-      paystackAmountMismatches: expect.any(Number),
+      paymentAmountMismatches: expect.any(Number),
     });
 
     const csv = await request(app)
@@ -876,7 +876,7 @@ describe("Admin Settings API Integration", () => {
     expect(csv.status).toBe(200);
     expect(csv.headers["content-type"]).toContain("text/csv");
     expect(csv.text).toContain("escrow ID");
-    expect(csv.text).toContain("Paystack reference");
+    expect(csv.text).toContain("payment reference");
   });
 
   it("should run and expose daily provider reconciliation history", async () => {
@@ -978,7 +978,7 @@ describe("Admin Settings API Integration", () => {
       .send({ actorWhatsapp: sellerWhatsapp });
     expect(accepted.status).toBe(200);
     expect(accepted.body.escrow.escrow.status).toBe("PENDING_PAYMENT");
-    expect(accepted.body.escrow.escrow.paymentProvider).toBe("paystack_sandbox_override");
+    expect(accepted.body.escrow.escrow.paymentProvider).toBe("flutterwave_sandbox_override");
 
     const funded = await request(app)
       .post(`/api/escrows/${escrowId}/test-fund`)
@@ -1051,7 +1051,7 @@ describe("Admin Settings API Integration", () => {
     expect(approved.body.escrow).toMatchObject({
       escrowId,
       status: "RELEASED",
-      manualPayoutReference: "paystack-transfer-ref-001",
+      manualPayoutReference: "TEST-paystack-transfer-ref-001",
       releasedBy: "unknown",
     });
     expect(approved.body.payoutQuote).toMatchObject({
@@ -1069,7 +1069,7 @@ describe("Admin Settings API Integration", () => {
     expect(events.body.transactions.some((transaction: any) => (
       transaction.transactionType === "release" &&
       transaction.amount === payoutRow.sellerNetAmount &&
-      transaction.reference === "paystack-transfer-ref-001"
+      transaction.reference === "TEST-paystack-transfer-ref-001"
     ))).toBe(true);
 
     const detail = await request(app)
@@ -1089,7 +1089,7 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("resolved account name");
     expect(csv.text).toContain("compliance risk score");
     expect(csv.text).toContain("reconciliation risk level");
-    expect(csv.text).toContain("paystack-transfer-ref-001");
+    expect(csv.text).toContain("TEST-paystack-transfer-ref-001");
   });
 
   it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {

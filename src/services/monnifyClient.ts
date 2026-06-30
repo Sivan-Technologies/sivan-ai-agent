@@ -2,7 +2,12 @@ import axios from "axios";
 import crypto from "crypto";
 import { config } from "../config";
 import { log } from "../lib/logger";
-import { PaystackAccountResolution } from "./paystackClient";
+export interface NairaAccountResolution {
+  accountNumber: string;
+  accountName: string;
+  bankCode: string;
+  bankId?: number;
+}
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
 export interface MonnifyBankTransferInstruction {
@@ -124,7 +129,7 @@ export class MonnifyClient {
         paymentDescription: input.paymentDescription,
         currencyCode: "NGN",
         contractCode: this.contractCode,
-        redirectUrl: input.redirectUrl || config.monnify.webhookUrl || config.paystack.callbackUrl,
+        redirectUrl: input.redirectUrl || config.monnify.webhookUrl || config.flutterwave.callbackUrl,
         paymentMethods: ["ACCOUNT_TRANSFER"],
         metadata: input.metadata || {},
       },
@@ -186,7 +191,7 @@ export class MonnifyClient {
     };
   }
 
-  public async validateBankAccount(accountNumber: string, bankCode: string): Promise<PaystackAccountResolution> {
+  public async validateBankAccount(accountNumber: string, bankCode: string): Promise<NairaAccountResolution> {
     log("Resolving bank account with Monnify name enquiry", { accountNumber, bankCode });
     const response = await axios.get(`${this.baseUrl}/api/v1/disbursements/account/validate`, {
       headers: await this.authorizedHeaders(),

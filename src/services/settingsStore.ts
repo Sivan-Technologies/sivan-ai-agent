@@ -561,7 +561,7 @@ export class SettingsStore {
       ["backup payment provider", resolved.backupPaymentProvider],
       ["emergency payment provider", resolved.emergencyPaymentProvider],
     ] as const) {
-      if (!["paystack", "monnify", "palmpay", "flutterwave"].includes(provider)) {
+      if (!["monnify", "palmpay", "flutterwave"].includes(provider)) {
         throw new Error(`Unsupported ${label}: ${provider}`);
       }
     }
@@ -620,7 +620,15 @@ export class SettingsStore {
             updated_at = @now,
             updated_by = @updatedBy
         WHERE id = 'default' AND version = @expectedVersion
-      `).run({ ...resolved, paymentProviderFallbackEnabled: resolved.paymentProviderFallbackEnabled ? 1 : 0, newVersion, now });
+      `).run({
+        ...resolved,
+        paymentProviderFallbackEnabled: resolved.paymentProviderFallbackEnabled ? 1 : 0,
+        paymentLifecycleWorkerEnabled: resolved.paymentLifecycleWorkerEnabled ? 1 : 0,
+        reconciliationWorkerEnabled: resolved.reconciliationWorkerEnabled ? 1 : 0,
+        queueWorkerEnabled: resolved.queueWorkerEnabled ? 1 : 0,
+        newVersion,
+        now,
+      });
       changes = result.changes;
     } else {
       const result = await this.pool!.query(

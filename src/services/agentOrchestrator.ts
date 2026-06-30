@@ -68,13 +68,13 @@ export class AgentOrchestrator {
     if (paymentMethod === "NAIRA") {
       paymentResult = await this.paymentRouter.processNairaPayment(request.amount, request.userEmail);
       await this.workflowStore.updateTaskPayment(taskId, paymentResult.reference, null, "payment_pending");
-      await this.workflowStore.updateTaskStatus(taskId, "payment_pending", "Waiting for Paystack webhook confirmation.");
+      await this.workflowStore.updateTaskStatus(taskId, "payment_pending", "Waiting for Naira payment confirmation.");
       const task = await this.workflowStore.getTaskById(taskId);
       if (task) {
         const paymentLink = paymentResult.authorizationUrl || paymentResult.reference;
         await notifyWhatsAppBot(
           request.userEmail,
-          `✅ Your task ${taskId} is created and awaiting Paystack confirmation.\nPlease pay here: ${paymentLink}`
+          `✅ Your task ${taskId} is created and awaiting Naira payment confirmation.\nPlease pay here: ${paymentLink}`
         );
       }
 

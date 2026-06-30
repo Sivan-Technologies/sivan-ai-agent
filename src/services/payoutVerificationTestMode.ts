@@ -24,9 +24,6 @@ function csvValues(value?: string) {
 
 function isActiveProviderTestConfigured(provider: string, env: NodeJS.ProcessEnv): boolean {
   const norm = provider.trim().toLowerCase();
-  if (norm === "paystack") {
-    return Boolean(env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"));
-  }
   if (norm === "flutterwave") {
     return Boolean(
       env.FLUTTERWAVE_SECRET_KEY?.startsWith("FLWSECK_TEST-") ||
@@ -55,13 +52,11 @@ export function getPayoutVerificationTestResolution(
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
 
   const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "flutterwave";
-  // Keep compatibility with tests that only configure Paystack keys
-  const isTestMode =
-    isActiveProviderTestConfigured(activeProvider, env) ||
-    Boolean(env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"));
+  const isTestMode = isActiveProviderTestConfigured(activeProvider, env);
 
   if (!isTestMode) return null;
-  if (!csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS).includes(input.accountNumber)) return null;
+  const testAccounts = csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS);
+  if (!testAccounts.includes("*") && !testAccounts.includes("any") && !testAccounts.includes(input.accountNumber)) return null;
 
   const allowedWhatsappNumbers = csvValues(env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS);
   if (allowedWhatsappNumbers.length > 0 && !allowedWhatsappNumbers.includes(input.whatsappNumber)) return null;
@@ -83,10 +78,7 @@ export function createSandboxPaymentInstruction(
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
 
   const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "flutterwave";
-  // Keep compatibility with tests that only configure Paystack keys
-  const isTestMode =
-    isActiveProviderTestConfigured(activeProvider, env) ||
-    Boolean(env.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"));
+  const isTestMode = isActiveProviderTestConfigured(activeProvider, env);
 
   if (!isTestMode) return null;
   if (!csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS).length) return null;
@@ -104,7 +96,6 @@ export function isSandboxPaymentReference(reference?: string, env: NodeJS.Proces
   
   // Accept any standard sandbox reference structure
   const isSandboxPattern =
-    reference.startsWith("sandbox-paystack-SIV-") ||
     reference.startsWith("sandbox-flutterwave-SIV-") ||
     reference.startsWith("sandbox-palmpay-SIV-") ||
     reference.startsWith("sandbox-monnify-SIV-");

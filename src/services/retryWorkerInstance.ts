@@ -18,14 +18,25 @@ export const retryWorker = new RetryWorker(opsStore, {
       Array.isArray(payload.media) ? (payload.media as string[]) : undefined
     );
   },
+  payment_recheck: async (payload) => {
+    const paymentReference = String(payload.paymentReference || "").trim();
+    if (!paymentReference) throw new Error("payment_recheck requires paymentReference");
+    const escrow = payload.escrowId
+      ? await escrowStore.getEscrowById(String(payload.escrowId))
+      : await escrowStore.findEscrowByPaymentReference(paymentReference);
+    if (!escrow) throw new Error("No escrow found for payment reference");
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
+    await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
+  },
   paystack_recheck: async (payload) => {
     const paymentReference = String(payload.paymentReference || "").trim();
     if (!paymentReference) throw new Error("paystack_recheck requires paymentReference");
     const escrow = payload.escrowId
       ? await escrowStore.getEscrowById(String(payload.escrowId))
       : await escrowStore.findEscrowByPaymentReference(paymentReference);
-    if (!escrow) throw new Error("No escrow found for Paystack payment reference");
-        const provider = await getProviderForEscrow(escrow);
+    if (!escrow) throw new Error("No escrow found for payment reference");
+    const provider = await getProviderForEscrow(escrow);
     const transaction = await provider.verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
   },

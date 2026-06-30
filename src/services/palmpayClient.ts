@@ -158,7 +158,7 @@ export class PalmPayClient {
       amount: amountInKobo,
       currency: "NGN",
       notifyUrl: config.palmpay.webhookUrl,
-      callBackUrl: input.redirectUrl || config.palmpay.callbackUrl || config.paystack.callbackUrl,
+      callBackUrl: input.redirectUrl || config.palmpay.callbackUrl || config.flutterwave.callbackUrl,
       orderId: input.paymentReference,
       title: "Sivan service agreement",
       description: input.paymentDescription,

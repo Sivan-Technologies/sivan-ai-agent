@@ -8,9 +8,7 @@ process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.CORE_API_SECRET = "test-core-secret";
 process.env.NOTIFICATION_URL = "";
-process.env.PAYSTACK_SECRET_KEY = "sk_test_server";
-process.env.PAYSTACK_BASE_URL = "http://127.0.0.1:9";
-process.env.PAYSTACK_TIMEOUT_MS = "50";
+process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "1234567890";
 

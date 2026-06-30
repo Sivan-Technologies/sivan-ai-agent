@@ -1,7 +1,7 @@
 {
   "name": "sivan-escrow-agent",
   "version": "0.1.0",
-  "description": "Sivan Escrow Agent: autonomous SAP + Ace Data Cloud escrow orchestration with Paystack Naira and x402 USDC settlement.",
+  "description": "Sivan Escrow Agent: autonomous SAP + Ace Data Cloud escrow orchestration with Naira and x402 USDC settlement.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

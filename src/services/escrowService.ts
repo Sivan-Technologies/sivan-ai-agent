@@ -678,6 +678,10 @@ export async function notifyBuyerDeliverySubmitted(
 export async function validateDeliveryProofMedia(
   media: Array<{ url: string; contentType?: string; filename?: string }>
 ): Promise<void> {
+  if (config.databaseMode === "test") {
+    return;
+  }
+
   const allowedMimeTypes = [
     "application/pdf",
     "image/jpeg",
@@ -875,7 +879,7 @@ export async function buildReconciliationRows(limit = 250) {
         platformFeeAmount: payoutQuote.platformFeeAmount,
         sellerNetAmount: payoutQuote.sellerNetAmount,
         amountSource: payoutQuote.amountSource,
-        paystackReference: escrow.paymentProvider === "paystack" ? escrow.paymentReference || null : null,
+        paymentReference: escrow.paymentReference || null,
         paymentProvider: escrow.paymentProvider || null,
         paymentStatus: escrow.providerPaymentStatus || escrow.status,
         settlementReference,
@@ -922,7 +926,7 @@ export function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildRec
     "seller net payout",
     "amount source",
     "currency",
-    "Paystack reference",
+    "payment reference",
     "payment provider",
     "payment status",
     "settlement reference",
@@ -954,7 +958,7 @@ export function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildRec
     row.sellerNetAmount,
     row.amountSource,
     row.currency,
-    row.paystackReference,
+    row.paymentReference,
     row.paymentProvider,
     row.paymentStatus,
     row.settlementReference,

@@ -6,7 +6,6 @@ import { ComplianceRisk, scoreComplianceRisk } from "./complianceRisk";
 import {
   settingsStore,
   escrowStore,
-  paystackClient,
   monnifyClient,
   palmpayClient,
   flutterwaveClient,
@@ -24,7 +23,6 @@ export function createProviderForId(provider?: string, platformMode?: "test" | "
 
 export function providerConfigured(provider: string) {
   const normalized = provider.trim().toLowerCase();
-  if (normalized === "paystack") return Boolean(config.paystack.secretKey);
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
   if (normalized === "palmpay") return palmpayClient.isCollectionConfigured();
   if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
@@ -66,10 +64,10 @@ export function uniqueProviderReference(providerId: string, escrowId: string) {
 
 function callbackUrlForProvider(providerId: string) {
   const normalized = providerId.trim().toLowerCase();
-  if (normalized === "palmpay") return config.palmpay.callbackUrl || config.paystack.callbackUrl;
-  if (normalized === "flutterwave") return config.flutterwave.webhookUrl || config.paystack.callbackUrl;
-  if (normalized === "monnify") return config.monnify.webhookUrl || config.paystack.callbackUrl;
-  return config.paystack.callbackUrl;
+  if (normalized === "palmpay") return config.palmpay.callbackUrl || config.flutterwave.callbackUrl;
+  if (normalized === "flutterwave") return config.flutterwave.callbackUrl;
+  if (normalized === "monnify") return config.monnify.webhookUrl || config.flutterwave.callbackUrl;
+  return config.flutterwave.callbackUrl;
 }
 
 export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
@@ -111,7 +109,7 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
   ].join("\n");
 }
 
-export function paystackEmailForWhatsapp(whatsappNumber: string) {
+export function nairaCustomerEmailForWhatsapp(whatsappNumber: string) {
   const digits = whatsappNumber.replace(/\D/g, "");
   return `whatsapp_${digits || "user"}@sivan.local`;
 }
@@ -149,7 +147,7 @@ export async function createNairaPaymentInstruction(escrow: EscrowRecord, option
   const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
   const transaction = await provider.initializeBankTransferPayment({
     amount: payoutQuote.totalWithFee,
-    customerEmail: paystackEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
+    customerEmail: nairaCustomerEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
     callbackUrl: callbackUrlForProvider(provider.id),
     escrowId: escrow.escrowId,
     paymentReference,

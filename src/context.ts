@@ -9,7 +9,6 @@ import { ProductionOpsStore } from "./services/productionOpsStore";
 import { ReconciliationStore } from "./services/reconciliationStore";
 import { AbusePreventionService } from "./services/abusePrevention";
 import { AgentOrchestrator } from "./services/agentOrchestrator";
-import { PaystackClient } from "./services/paystackClient";
 import { createNairaPaymentProvider } from "./services/nairaPaymentProvider";
 import { MonnifyClient } from "./services/monnifyClient";
 import { FlutterwaveClient } from "./services/flutterwaveClient";
@@ -26,8 +25,6 @@ export const reconciliationStore = new ReconciliationStore(config.app.databaseUr
 export const abusePrevention = new AbusePreventionService(escrowStore, opsStore);
 
 export const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
-export const paystackClient = new PaystackClient();
-export const paystackPaymentProvider = createNairaPaymentProvider("paystack");
 export const monnifyPaymentProvider = createNairaPaymentProvider("monnify");
 export const palmpayPaymentProvider = createNairaPaymentProvider("palmpay");
 export const flutterwavePaymentProvider = createNairaPaymentProvider("flutterwave");

@@ -63,8 +63,6 @@ services:
         value: https://sivan-escrow-agent-test.onrender.com/payment/success
       - key: FLUTTERWAVE_PAYMENT_METHODS
         value: bank_transfer
-      - key: PAYSTACK_CALLBACK_URL
-        value: https://sivan-escrow-agent-test.onrender.com/payment/success
       # PalmPay — backup provider (sandbox)
       - key: PALMPAY_APP_ID
         sync: false
@@ -152,8 +150,6 @@ services:
         value: https://sivan-escrow-agent-live.onrender.com/payment/success
       - key: FLUTTERWAVE_PAYMENT_METHODS
         value: bank_transfer
-      - key: PAYSTACK_CALLBACK_URL
-        value: https://sivan-escrow-agent-live.onrender.com/payment/success
       # PalmPay — backup provider (live/production)
       - key: PALMPAY_APP_ID
         sync: false

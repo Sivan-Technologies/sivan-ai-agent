@@ -122,7 +122,7 @@ router.get("/admin/reconciliation", requireAdminAuth, async (req, res) => {
     paymentsNeedingReview: rows.filter((row) => row.status === "REVIEW_REQUIRED").length,
     releasesAwaitingPayout: rows.filter((row) => row.status === "PENDING_RELEASE").length,
     releasedMissingPayoutReference: rows.filter((row) => row.status === "RELEASED" && !row.payoutReference).length,
-    paystackAmountMismatches: rows.filter((row) => row.flags.includes("payment_amount_mismatch")).length,
+    paymentAmountMismatches: rows.filter((row) => row.flags.includes("payment_amount_mismatch")).length,
   };
   res.status(200).json({ rows, needsAttention });
 });
@@ -574,13 +574,6 @@ function providerConfigured(provider: string) {
 
 function providerStatus() {
   return [
-    {
-      provider: "paystack",
-      label: "Paystack",
-      implemented: true,
-      configured: providerConfigured("paystack"),
-      methods: ["bank_transfer"],
-    },
     {
       provider: "monnify",
       label: "Monnify",

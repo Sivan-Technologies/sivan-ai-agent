@@ -1,6 +1,10 @@
-import { PaystackBank } from "./paystackClient";
+export interface NairaBank {
+  name: string;
+  code: string;
+  slug?: string;
+}
 
-export const NIGERIA_BANK_FALLBACKS: PaystackBank[] = [
+export const NIGERIA_BANK_FALLBACKS: NairaBank[] = [
   { name: "Access Bank", code: "044", slug: "access-bank" },
   { name: "Citibank Nigeria", code: "023", slug: "citibank-nigeria" },
   { name: "Ecobank Nigeria", code: "050", slug: "ecobank-nigeria" },
@@ -28,7 +32,7 @@ export const NIGERIA_BANK_FALLBACKS: PaystackBank[] = [
   { name: "Zenith Bank", code: "057", slug: "zenith-bank" },
 ];
 
-export function filterBanks(banks: PaystackBank[], query: string, limit = 8) {
+export function filterBanks(banks: NairaBank[], query: string, limit = 8) {
   const normalized = query.trim().toLowerCase();
   const filtered = normalized
     ? banks.filter((bank) =>

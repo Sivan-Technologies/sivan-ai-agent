@@ -35,6 +35,11 @@ function getS3Client(): S3Client {
  * Returns the unique storage key (e.g. "test/proofs/178280_evidence.pdf").
  */
 export async function uploadEvidenceUrlToR2(sourceUrl: string, filename: string): Promise<string> {
+  if (config.databaseMode === "test") {
+    info("Test database mode: returning mock R2 storage key directly", { sourceUrl, filename });
+    return `test/proofs/mock_${Date.now()}_${filename.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+  }
+
   const client = getS3Client();
   const bucketName = config.storage.r2BucketName;
   
@@ -84,6 +89,10 @@ export async function uploadEvidenceUrlToR2(sourceUrl: string, filename: string)
  * Generates a secure, expiring presigned URL to download a file from R2.
  */
 export async function getPresignedDownloadUrl(key: string): Promise<string> {
+  if (config.databaseMode === "test") {
+    return `https://sivan-mock-presigned-url.test/${key}`;
+  }
+
   const client = getS3Client();
   const bucketName = config.storage.r2BucketName;
 

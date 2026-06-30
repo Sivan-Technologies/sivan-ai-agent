@@ -1977,7 +1977,7 @@ export class EscrowStore {
       await this.recordPayoutReconciliation(escrowId, adminUser, reference, `Dispute resolution: ${options.reason}`);
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
+        provider: escrow.currency === "NAIRA" ? "flutterwave" : "x402",
         transactionType: "release",
         status: "manual_dispute_release",
         amount: escrow.amount,
@@ -1990,7 +1990,7 @@ export class EscrowStore {
         transactionId,
         entryType: "release",
         debitAccount: "escrow_liability",
-        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_naira" : "seller_payable_x402",
         amount: escrow.amount,
         currency: escrow.currency,
         providerReference: reference,
@@ -2000,7 +2000,7 @@ export class EscrowStore {
     if (options.outcome === "refund_buyer") {
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "paystack" : "x402"),
+        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "flutterwave" : "x402"),
         transactionType: "refund",
         status: "manual_refund_recorded",
         amount: escrow.receivedAmount || escrow.amount,
@@ -2013,7 +2013,7 @@ export class EscrowStore {
         transactionId,
         entryType: "refund",
         debitAccount: "escrow_liability",
-        creditAccount: escrow.currency === "NAIRA" ? "buyer_refund_paystack" : "buyer_refund_x402",
+        creditAccount: escrow.currency === "NAIRA" ? "buyer_refund_naira" : "buyer_refund_x402",
         amount: escrow.receivedAmount || escrow.amount,
         currency: escrow.currency,
         providerReference: options.reference,

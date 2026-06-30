@@ -1,5 +1,5 @@
 import { config } from "../config";
-import { escrowStore, flutterwaveClient, opsStore, palmpayClient, paystackClient, reconciliationStore } from "../context";
+import { escrowStore, flutterwaveClient, opsStore, palmpayClient, reconciliationStore } from "../context";
 import { captureOperationalError, capturePaymentWarning } from "./monitoring";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
 import type { EscrowTransactionRecord } from "./escrowStore";
@@ -85,22 +85,6 @@ async function pullProviderTransactions(
   windowEnd: string,
   localTransactions: EscrowTransactionRecord[] = []
 ): Promise<ProviderTransactionForReconciliation[] | null> {
-  if (provider === "paystack") {
-    const transactions = await paystackClient.listTransactions({ from: windowStart, to: windowEnd });
-    return transactions.map((transaction) => ({
-      provider,
-      paymentReference: transaction.reference,
-      transactionReference: transaction.reference,
-      status: transaction.status,
-      amount: transaction.amount,
-      currency: transaction.currency,
-      processorFee: transaction.processorFee,
-      paidAt: transaction.paidAt,
-      raw: transaction,
-      source: "provider_pull",
-    }));
-  }
-
   if (provider === "flutterwave") {
     const transactions = await flutterwaveClient.listTransactions({ from: windowStart, to: windowEnd });
     return transactions.map((transaction) => ({
@@ -231,9 +215,9 @@ export async function runDailyReconciliation(input: ReconciliationRunInput = {})
     for (const provider of providers) {
       providerSummaries[provider] = {
         provider,
-        providerPullSupported: ["paystack", "flutterwave", "palmpay"].includes(provider),
-        providerPullMode: provider === "palmpay" ? "known_reference_query" : ["paystack", "flutterwave"].includes(provider) ? "bulk_date_range" : "unsupported",
-        missingInSivanDetectionSupported: ["paystack", "flutterwave"].includes(provider),
+        providerPullSupported: ["flutterwave", "palmpay"].includes(provider),
+        providerPullMode: provider === "palmpay" ? "known_reference_query" : provider === "flutterwave" ? "bulk_date_range" : "unsupported",
+        missingInSivanDetectionSupported: ["flutterwave"].includes(provider),
         providerPullCount: 0,
         localReverifyCount: 0,
         findingCount: 0,

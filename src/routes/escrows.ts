@@ -262,16 +262,8 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
-      try {
-        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
-      } catch (err: any) {
-        const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
-        if (!sandboxPayment) throw err;
-        warn("Using sandbox payment instruction after Naira payment initialization failure", {
-          escrowId: accepted.escrowId,
-          provider: accepted.paymentProvider || "active_provider",
-          paymentError: err?.message || String(err),
-        });
+      const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
+      if (sandboxPayment) {
         const fundingExpiresAt = accepted.fundingExpiresAt || await fundingDeadlineForEscrow(accepted);
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
@@ -292,6 +284,8 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
           fundingExpiresAt,
           testOnly: true,
         };
+      } else {
+        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
       }
     } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
       const reference = `x402-${accepted.escrowId}`;

@@ -1,9 +1,8 @@
 import { Router } from "express";
 import { config } from "../config";
 import crypto from "crypto";
-import { paystackWebhookSchema, formatZodError } from "../validation";
+import { formatZodError } from "../validation";
 import {
-  paystackPaymentProvider,
   monnifyPaymentProvider,
   palmpayPaymentProvider,
   flutterwavePaymentProvider,
@@ -109,125 +108,6 @@ router.post("/webhooks/twilio-debugger", async (req, res) => {
   });
 
   res.status(200).json({ received: true });
-});
-
-router.post("/webhooks/paystack", async (req, res) => {
-  try {
-    const signature = req.headers["x-paystack-signature"] as string;
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-
-    if (!signature) {
-      capturePaymentWarning("Missing Paystack webhook signature header", { path: req.path });
-      return res.status(400).send({ error: "Missing signature header" });
-    }
-
-    const verified = await paystackPaymentProvider.verifyWebhookSignature(rawBody, signature);
-    if (!verified) {
-      capturePaymentWarning("Invalid Paystack webhook signature", { paymentReference: req.body?.data?.reference || "unknown" });
-      return res.status(400).send({ error: "Invalid webhook signature" });
-    }
-
-    const parsedEvent = paystackWebhookSchema.safeParse(req.body);
-    if (!parsedEvent.success) {
-      capturePaymentWarning("Invalid Paystack webhook payload", { details: formatZodError(parsedEvent.error) });
-      return res.status(400).send({ error: "Invalid webhook payload", details: formatZodError(parsedEvent.error) });
-    }
-
-    const event = parsedEvent.data;
-    const normalizedWebhook = paystackPaymentProvider.normalizeWebhook(event);
-    if (normalizedWebhook.paymentReference === "ping") {
-      return res.status(200).send({ status: "ping_received" });
-    }
-    info("Paystack webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
-
-    const paymentReference = normalizedWebhook.paymentReference;
-    const eventType = normalizedWebhook.eventType;
-    if (paymentReference) {
-      await workflowStore.addWebhookEvent(normalizedWebhook.eventId || crypto.randomUUID(), paymentReference, eventType, JSON.stringify(event));
-      const task = await workflowStore.findTaskByPaymentReference(paymentReference);
-      if (task) {
-        if (eventType === "charge.success") {
-          const transaction = await paystackPaymentProvider.verifyPayment(paymentReference);
-          if (transaction.status !== "success") {
-            capturePaymentWarning("Paystack webhook was charge.success but transaction verification did not confirm success", {
-              taskId: task.taskId,
-              paymentReference,
-              status: transaction.status,
-            });
-            return res.status(202).send({ status: "verification_pending" });
-          }
-
-          await workflowStore.updateTaskStatus(task.taskId, "payment_confirmed", `Paystack event verified: ${eventType}`);
-          info("Updated workflow task status from verified Paystack webhook", { taskId: task.taskId, paymentReference });
-          const execution = await orchestrator.executeConfirmedNairaTask(task.taskId);
-          if ((execution as any).skipped) {
-            info("Paystack webhook execution skipped", execution);
-          }
-        } else {
-          const shouldKeepCurrentStatus = ["executing", "completed", "settled"].includes(task.paymentStatus);
-          if (!shouldKeepCurrentStatus) {
-            await workflowStore.updateTaskStatus(task.taskId, "payment_event_received", `Paystack event: ${eventType}`);
-          }
-          const updatedTask = await workflowStore.getTaskById(task.taskId);
-          if (updatedTask) {
-            await notifyWhatsAppBot(updatedTask.userEmail, formatTaskSummary(updatedTask));
-          }
-        }
-      } else {
-        const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
-        if (escrow && eventType === "charge.success") {
-          const transaction = await paystackPaymentProvider.verifyPayment(paymentReference);
-          const paymentEvent = normalizeVerifiedPaymentEvent({
-            webhook: normalizedWebhook,
-            verifiedPayment: transaction,
-            escrow,
-            expectedAmount: await expectedFundingAmount(escrow),
-            signatureVerified: true,
-            raw: event,
-          });
-          const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook", paymentEvent);
-          if (funded.status === "IN_PROGRESS") {
-            info("Escrow funded from verified Paystack webhook", { escrowId: funded.escrowId, paymentReference });
-            await notifyEscrowFundedParticipants(funded);
-          } else if (funded.status === "REVIEW_REQUIRED") {
-            info("Escrow payment moved to review from Paystack webhook", { escrowId: funded.escrowId, paymentReference });
-          }
-        } else if (escrow) {
-          await escrowStore.addEvent({
-            escrowId: escrow.escrowId,
-            actor: "paystack",
-            actorRole: "payment_provider",
-            channel: "webhook",
-            previousStatus: escrow.status,
-            nextStatus: escrow.status,
-            eventType: "payment_event_received",
-            reason: eventType,
-            metadata: JSON.stringify(event),
-          });
-        } else {
-          capturePaymentWarning("Paystack webhook did not match any workflow task or escrow", { paymentReference, eventType });
-        }
-      }
-    }
-
-    return res.status(200).send({ status: "received" });
-  } catch (err: any) {
-    const reference = typeof req.body?.data?.reference === "string" ? req.body.data.reference : "";
-    if (reference) {
-      try {
-        await opsStore.enqueueJob("webhook_recovery", {
-          paymentReference: reference,
-          provider: "paystack",
-          eventType: req.body?.event || "unknown",
-          reason: "paystack_webhook_processing_failed",
-        }, { maxAttempts: 8 });
-      } catch (enqueueErr: any) {
-        captureOperationalError("Failed to enqueue Paystack webhook recovery job", enqueueErr, { paymentReference: reference });
-      }
-    }
-    captureOperationalError("Paystack webhook processing failed", err, { paymentReference: reference || "unknown" });
-    return res.status(500).send({ error: "Webhook processing failed" });
-  }
 });
 
 router.post("/webhooks/monnify", async (req, res) => {

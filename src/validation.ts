@@ -172,7 +172,7 @@ export const whatsappProviderSwitchSchema = z.object({
   provider: z.enum(["twilio", "meta"]),
 });
 
-export const nairaPaymentProviderIdSchema = z.enum(["paystack", "monnify", "palmpay", "flutterwave"]);
+export const nairaPaymentProviderIdSchema = z.enum(["monnify", "palmpay", "flutterwave"]);
 
 export const paymentProviderSettingsSchema = z.object({
   activePaymentProvider: nairaPaymentProviderIdSchema,
@@ -217,7 +217,7 @@ export const abuseActionSchema = z.object({
 });
 
 export const queueJobCreateSchema = z.object({
-  jobType: z.enum(["whatsapp_notification", "paystack_recheck", "payout_review", "webhook_recovery", "daily_reconciliation"]),
+  jobType: z.enum(["whatsapp_notification", "payment_recheck", "paystack_recheck", "payout_review", "webhook_recovery", "daily_reconciliation"]),
   payload: z.record(z.string(), z.any()).default({}),
   maxAttempts: z.coerce.number().int().min(1).max(25).default(5),
   runAfter: z.string().datetime().optional(),
@@ -231,16 +231,7 @@ export const queueRetrySchema = z.object({
   resetAttempts: z.coerce.boolean().default(false),
 });
 
-export const paystackWebhookSchema = z.object({
-  id: z.union([z.string(), z.number()]).optional(),
-  event: z.string().trim().min(1).max(120),
-  data: z.object({
-    reference: z.string().trim().min(3).max(160),
-    status: z.string().trim().max(80).optional(),
-    amount: z.number().optional(),
-    currency: z.string().trim().max(16).optional(),
-  }),
-});
+
 
 export const limitQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(250).default(50),
@@ -249,7 +240,7 @@ export const limitQuerySchema = z.object({
 export const reconciliationRunSchema = z.object({
   windowStart: z.string().datetime().optional(),
   windowEnd: z.string().datetime().optional(),
-  providers: z.array(z.enum(["paystack", "monnify", "palmpay", "flutterwave"])).min(1).max(4).optional(),
+  providers: z.array(z.enum(["monnify", "palmpay", "flutterwave"])).min(1).max(3).optional(),
   alertOnFindings: z.coerce.boolean().default(true),
 });
 
