@@ -310,12 +310,21 @@ export class FlutterwaveClient {
     if (!this.isCollectionConfigured()) {
       throw new Error("Flutterwave credentials are not configured");
     }
+    // Translate standard Monnify/CBN codes to Flutterwave-specific codes
+    const codeMapping: Record<string, string> = {
+      "999992": "100004", // Opay
+      "999991": "100033", // Palmpay
+      "50211": "090267",  // Kuda
+      "50515": "090405",  // Moniepoint
+    };
+    const translatedCode = codeMapping[bankCode] || bankCode;
+
     try {
       const response = await axios.post(
         `${this.baseUrl}/v3/accounts/resolve`,
         {
           account_number: accountNumber,
-          account_bank: bankCode,
+          account_bank: translatedCode,
         },
         { headers: this.authHeaders(), timeout: this.timeoutMs }
       );

@@ -222,4 +222,49 @@ describe("FlutterwaveClient", () => {
 
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
+
+  describe("resolveBankAccount", () => {
+    it("successfully resolves bank account names and translates CBN/Monnify bank codes to Flutterwave-specific codes", async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: {
+          status: "success",
+          message: "Account details fetched",
+          data: {
+            account_number: "8079604214",
+            account_name: "SAMSON MICHEAL OLALEYE",
+          },
+        },
+      });
+
+      const client = new FlutterwaveClient();
+      // "999992" is the standard/Monnify bank code for Opay
+      const result = await client.resolveBankAccount("8079604214", "999992");
+
+      expect(result).toEqual({
+        accountNumber: "8079604214",
+        accountName: "SAMSON MICHEAL OLALEYE",
+        bankCode: "999992", // retains the original requested bank code for compatibility
+      });
+
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        "https://api.flutterwave.com/v3/accounts/resolve",
+        {
+          account_number: "8079604214",
+          account_bank: "100004", // translated code for Flutterwave
+        },
+        expect.any(Object)
+      );
+    });
+
+    it("bubbles errors if the resolve endpoint fails", async () => {
+      mockedAxios.post.mockRejectedValueOnce(new Error("Unknown Bank Code"));
+
+      const client = new FlutterwaveClient();
+      await expect(
+        client.resolveBankAccount("8079604214", "999992")
+      ).rejects.toThrow(/bank account resolution failed/i);
+    });
+  });
 });
+
