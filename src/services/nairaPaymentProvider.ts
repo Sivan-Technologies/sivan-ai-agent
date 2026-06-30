@@ -352,7 +352,7 @@ export class PalmPayPaymentProvider implements PaymentProvider {
   }
 
   public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
-    if (paymentReference.startsWith("sandbox-")) {
+    if (paymentReference.startsWith("sandbox-") || (config.databaseMode === "test" && paymentReference.includes("-SIV-"))) {
       const parts = paymentReference.split("-");
       const amount = Number(parts[parts.length - 1]) || 102;
       return {
@@ -436,7 +436,7 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   }
 
   public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
-    if (paymentReference.startsWith("sandbox-")) {
+    if (paymentReference.startsWith("sandbox-") || (config.databaseMode === "test" && paymentReference.includes("-SIV-"))) {
       const parts = paymentReference.split("-");
       const amount = Number(parts[parts.length - 1]) || 102;
       return {
