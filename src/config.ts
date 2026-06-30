@@ -205,6 +205,12 @@ export const config = {
     notificationUrl: envValue("NOTIFICATION_URL"),
     notificationSecret: envValue("NOTIFICATION_SECRET"),
   },
+  storage: {
+    r2AccessKeyId: envValue("R2_ACCESS_KEY_ID"),
+    r2SecretAccessKey: envValue("R2_SECRET_ACCESS_KEY"),
+    r2Endpoint: envValue("R2_ENDPOINT"),
+    r2BucketName: envValue("R2_BUCKET_NAME", "sivan-delivery-proofs-test"),
+  },
 };
 
 export function validateConfig() {
@@ -214,6 +220,15 @@ export function validateConfig() {
     }
     if (config.app.databaseUrl.includes("/tmp/") || config.app.databaseUrl.includes("/temp/")) {
       throw new Error("Database URL cannot point to temporary/ephemeral storage (/tmp) in production to prevent data loss.");
+    }
+    if (!config.storage.r2AccessKeyId) {
+      throw new Error("Cloudflare R2 Access Key ID (R2_ACCESS_KEY_ID) is required in production.");
+    }
+    if (!config.storage.r2SecretAccessKey) {
+      throw new Error("Cloudflare R2 Secret Access Key (R2_SECRET_ACCESS_KEY) is required in production.");
+    }
+    if (!config.storage.r2Endpoint) {
+      throw new Error("Cloudflare R2 Endpoint URL (R2_ENDPOINT) is required in production.");
     }
   }
 

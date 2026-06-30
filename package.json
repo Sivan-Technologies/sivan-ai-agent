@@ -21,6 +21,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1076.0",
+    "@aws-sdk/s3-request-presigner": "^3.1076.0",
     "@oobe-protocol-labs/synapse-client-sdk": "^2.0.6",
     "@sentry/node": "^10.55.0",
     "@sentry/profiling-node": "^10.55.0",

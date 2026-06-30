@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { config } from "../config";
 import axios from "axios";
 import { EscrowCurrency, EscrowRecord, EscrowStore } from "./escrowStore";
+import { uploadEvidenceUrlToR2, getPresignedDownloadUrl } from "./storageService";
 import {
   notifyWhatsAppBot,
   notifyWhatsAppBotStrict,
@@ -233,6 +234,42 @@ export async function refreshEscrowPaymentLifecycleForRead(escrowId: string, con
   }
 }
 
+export async function resolveR2MediaUrls(events: any[]): Promise<any[]> {
+  const resolved = [];
+  for (const event of events) {
+    if (event.metadata && typeof event.metadata === "string" && event.metadata.includes("r2://")) {
+      try {
+        const meta = JSON.parse(event.metadata);
+        if (meta.media && Array.isArray(meta.media)) {
+          meta.media = await Promise.all(
+            meta.media.map(async (m: any) => {
+              if (m.url && m.url.startsWith("r2://")) {
+                const key = m.url.substring(5);
+                try {
+                  const presignedUrl = await getPresignedDownloadUrl(key);
+                  return { ...m, url: presignedUrl };
+                } catch (err) {
+                  return m;
+                }
+              }
+              return m;
+            })
+          );
+          resolved.push({
+            ...event,
+            metadata: JSON.stringify(meta),
+          });
+          continue;
+        }
+      } catch {
+        // fail-safe fallback
+      }
+    }
+    resolved.push(event);
+  }
+  return resolved;
+}
+
 export async function buildEscrowDetail(escrowId: string) {
   const escrow = await refreshEscrowPaymentLifecycleForRead(escrowId, "escrow_detail");
   if (!escrow) return null;
@@ -244,6 +281,7 @@ export async function buildEscrowDetail(escrowId: string) {
     escrowStore.listEvents(escrow.escrowId, 100),
     escrowStore.listLedgerEntries(escrow.escrowId),
   ]);
+  const resolvedEvents = await resolveR2MediaUrls(events);
   const payout = escrow.sellerUserId ? await escrowStore.getPayoutAccount(escrow.sellerUserId) : null;
   const buyerProfileComplete = Boolean(buyer?.firstName && buyer?.lastName);
   const sellerProfileComplete = Boolean(seller?.firstName && seller?.lastName);
@@ -261,7 +299,7 @@ export async function buildEscrowDetail(escrowId: string) {
     payout,
     payoutQuote,
     transactions,
-    events,
+    events: resolvedEvents,
     ledgerEntries,
     complianceRisk,
     readiness: {
@@ -602,7 +640,22 @@ export async function notifyBuyerDeliverySubmitted(
   const buyerWhatsapp = detail?.buyer?.whatsappNumber;
   if (!detail || !buyerWhatsapp) return;
   const dealCard = await buildParticipantDeal(detail, buyerWhatsapp);
-  const mediaUrls = media.map((m) => m.url).filter(Boolean);
+
+  const resolvedMedia = await Promise.all(
+    media.map(async (m) => {
+      if (m.url && m.url.startsWith("r2://")) {
+        try {
+          const url = await getPresignedDownloadUrl(m.url.substring(5));
+          return { ...m, url };
+        } catch {
+          return m;
+        }
+      }
+      return m;
+    })
+  );
+
+  const mediaUrls = resolvedMedia.map((m) => m.url).filter(Boolean);
   queueWhatsAppNotification({
     to: buyerWhatsapp,
     message: participantLifecycleMessage(
@@ -709,6 +762,18 @@ export async function recordDeliveryProof(input: {
   // Validate the evidence files first
   await validateDeliveryProofMedia(media);
 
+  // Upload whitelisted media files to Cloudflare R2
+  const uploadedMedia = await Promise.all(
+    media.map(async (m) => {
+      const filename = m.filename || `evidence_${Date.now()}.${m.contentType?.split("/")?.[1] || "pdf"}`;
+      const r2Key = await uploadEvidenceUrlToR2(m.url, filename);
+      return {
+        ...m,
+        url: `r2://${r2Key}`,
+      };
+    })
+  );
+
   // Storage tagging and immutable linking
   const storageMode = config.databaseMode;
   const paymentReference = escrow.paymentReference || "unfunded_or_test";
@@ -729,14 +794,14 @@ export async function recordDeliveryProof(input: {
     safeSummary,
     JSON.stringify({
       summary: safeSummary,
-      media,
-      mediaCount: media.length,
+      media: uploadedMedia,
+      mediaCount: uploadedMedia.length,
       externalLinksAllowed: externalDeliveryLinksAllowed(),
       auditTrail,
     })
   );
 
-  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary, media);
+  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary, uploadedMedia);
   return buildEscrowDetail(escrow.escrowId);
 }
 
