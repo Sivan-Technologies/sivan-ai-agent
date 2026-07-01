@@ -60,7 +60,11 @@ export function getPayoutVerificationTestResolution(
 
   if (!isTestMode) return null;
   const testAccounts = csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS);
-  if (!testAccounts.includes("*") && !testAccounts.includes("any") && !testAccounts.includes(input.accountNumber)) return null;
+  // Default to "*" (allow all) if no specific test accounts are listed
+  const hasAllowlist = testAccounts.length > 0;
+  if (hasAllowlist && !testAccounts.includes("*") && !testAccounts.includes("any") && !testAccounts.includes(input.accountNumber)) {
+    return null;
+  }
 
   const allowedWhatsappNumbers = csvValues(env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS);
   if (allowedWhatsappNumbers.length > 0 && !allowedWhatsappNumbers.includes(input.whatsappNumber)) return null;
@@ -85,7 +89,6 @@ export function createSandboxPaymentInstruction(
   const isTestMode = isActiveProviderTestConfigured(activeProvider, env);
 
   if (!isTestMode) return null;
-  if (!csvValues(env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS).length) return null;
 
   // Render provider specific sandbox overrides
   const providerId = activeProvider.trim().toLowerCase();

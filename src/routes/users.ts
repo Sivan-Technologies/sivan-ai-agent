@@ -80,7 +80,7 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
     const settings = await settingsStore.getSettings();
     const activeProvider = settings.activePaymentProvider?.toLowerCase();
 
-    if (activeProvider === "flutterwave" && flutterwaveClient.isCollectionConfigured()) {
+    if (flutterwaveClient.isCollectionConfigured()) {
       try {
         resolution = await flutterwaveClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
         verificationProvider = "flutterwave_name_enquiry";

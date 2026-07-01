@@ -105,5 +105,18 @@ describe("payout verification test mode", () => {
       bankCode: "999992",
     });
   });
+
+  it("defaults to allowing any account when PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS is omitted or empty", () => {
+    const result = getPayoutVerificationTestResolution(input, "999992", {
+      PAYOUT_VERIFICATION_TEST_MODE: "true",
+      FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-example",
+    });
+
+    expect(result).toEqual({
+      accountNumber: input.accountNumber,
+      accountName: input.sellerName,
+      bankCode: "999992",
+    });
+  });
 });
 
