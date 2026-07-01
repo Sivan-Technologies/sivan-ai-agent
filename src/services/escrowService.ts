@@ -189,8 +189,28 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord) {
 }
 
 export async function refreshEscrowPaymentLifecycle(escrowId: string) {
+  let escrow = await escrowStore.expirePendingPaymentIfDue(escrowId);
+
+  if (escrow?.status === "PENDING_PAYMENT" && escrow.paymentReference) {
+    try {
+      const provider = await getProviderForEscrow(escrow);
+      const transaction = await provider.verifyPayment(escrow.paymentReference);
+      if (transaction && (transaction.status === "success" || transaction.status === "successful")) {
+        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "read_sync");
+        if (funded.status === "IN_PROGRESS") {
+          await notifyEscrowFundedParticipants(funded);
+          escrow = funded;
+        }
+      }
+    } catch (err: any) {
+      console.warn("Failed to check provider payment status during read sync", {
+        escrowId: escrow.escrowId,
+        error: err?.message || err,
+      });
+    }
+  }
+
   const before = await escrowStore.getEscrowById(escrowId);
-  const escrow = await escrowStore.expirePendingPaymentIfDue(escrowId);
   if (before && escrow && before.status !== "EXPIRED" && escrow.status === "EXPIRED") {
     await notifyEscrowParticipants(
       escrow,
