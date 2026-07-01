@@ -196,7 +196,7 @@ export async function refreshEscrowPaymentLifecycle(escrowId: string) {
       const provider = await getProviderForEscrow(escrow);
       const transaction = await provider.verifyPayment(escrow.paymentReference);
       if (transaction && (transaction.status === "success" || transaction.status === "successful")) {
-        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "read_sync");
+        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
         if (funded.status === "IN_PROGRESS") {
           await notifyEscrowFundedParticipants(funded);
           escrow = funded;
