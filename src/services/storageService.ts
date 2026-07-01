@@ -48,11 +48,20 @@ export async function uploadEvidenceUrlToR2(sourceUrl: string, filename: string)
   // 1. Download file content as a Buffer
   let buffer: Buffer;
   let contentType = "application/octet-stream";
+
+  const isTwilioUrl = sourceUrl.includes("api.twilio.com");
+  const hasTwilioCreds = Boolean(config.twilio?.accountSid && config.twilio?.authToken);
+  const requestHeaders: Record<string, string> = { "User-Agent": "SivanEvidenceDownloader/1.0" };
+  if (isTwilioUrl && hasTwilioCreds) {
+    const auth = Buffer.from(`${config.twilio.accountSid}:${config.twilio.authToken}`).toString("base64");
+    requestHeaders["Authorization"] = `Basic ${auth}`;
+  }
+
   try {
     const res = await axios.get(sourceUrl, {
       responseType: "arraybuffer",
       timeout: 15000,
-      headers: { "User-Agent": "SivanEvidenceDownloader/1.0" },
+      headers: requestHeaders,
     });
     buffer = Buffer.from(res.data);
     contentType = String(res.headers["content-type"] || contentType);

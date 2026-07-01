@@ -739,8 +739,27 @@ export async function validateDeliveryProofMedia(
     }
 
     // 3. HTTP HEAD/GET range checks to verify size and content-type
+    const isTwilioUrl = url.includes("api.twilio.com");
+    const hasTwilioCreds = Boolean(config.twilio?.accountSid && config.twilio?.authToken);
+
+    if (isTwilioUrl && !hasTwilioCreds) {
+      if (item.contentType) {
+        const matchesMimetype = allowedMimeTypes.some((mime) => item.contentType?.toLowerCase().startsWith(mime));
+        if (!matchesMimetype) {
+          throw new Error(`Unsupported evidence file type: ${item.contentType}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+        }
+      }
+      continue;
+    }
+
+    const requestHeaders: Record<string, string> = { "User-Agent": "SivanEvidenceValidator/1.0" };
+    if (isTwilioUrl && hasTwilioCreds) {
+      const auth = Buffer.from(`${config.twilio.accountSid}:${config.twilio.authToken}`).toString("base64");
+      requestHeaders["Authorization"] = `Basic ${auth}`;
+    }
+
     try {
-      const res = await axios.head(url, { timeout: 8000, headers: { "User-Agent": "SivanEvidenceValidator/1.0" } });
+      const res = await axios.head(url, { timeout: 8000, headers: requestHeaders });
       const serverType = String(res.headers["content-type"] || "").toLowerCase();
       const serverLength = Number(res.headers["content-length"] || 0);
 
@@ -756,8 +775,9 @@ export async function validateDeliveryProofMedia(
       }
     } catch (err: any) {
       try {
+        const getHeaders = { ...requestHeaders, Range: "bytes=0-10" };
         const res = await axios.get(url, {
-          headers: { Range: "bytes=0-10", "User-Agent": "SivanEvidenceValidator/1.0" },
+          headers: getHeaders,
           timeout: 8000,
         });
         const serverType = String(res.headers["content-type"] || "").toLowerCase();

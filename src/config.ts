@@ -189,6 +189,10 @@ export const config = {
     r2Endpoint: envValue("R2_ENDPOINT"),
     r2BucketName: envValue("R2_BUCKET_NAME", "sivan-delivery-proofs-test"),
   },
+  twilio: {
+    accountSid: envValue("TWILIO_ACCOUNT_SID"),
+    authToken: envValue("TWILIO_AUTH_TOKEN"),
+  },
 };
 
 export function validateConfig() {
