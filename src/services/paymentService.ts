@@ -12,6 +12,24 @@ import {
 } from "../context";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
 
+/**
+ * Derives the base host URL for the current escrow agent instance.
+ * Used to reconstruct sandbox payment simulation links.
+ */
+function deriveAgentBaseUrl(): string {
+  const callbackUrl = config.flutterwave.callbackUrl || "";
+  if (callbackUrl) {
+    try {
+      return new URL(callbackUrl).origin;
+    } catch {
+      // fall through
+    }
+  }
+  return config.databaseMode === "live"
+    ? "https://sivan-escrow-agent-live.onrender.com"
+    : "https://sivan-escrow-agent-test.onrender.com";
+}
+
 export function createProviderForId(provider?: string, platformMode?: "test" | "live" | "maintenance") {
   if (!provider) {
     throw new Error(
@@ -199,11 +217,21 @@ export async function activeNairaPaymentInstructionForEscrow(detail: any) {
   } catch {
     rawPayload = {};
   }
+
+  // Resolve authorization URL — for sandbox references created before the URL
+  // was stored, reconstruct it on the fly so Pay Now always has a clickable link.
+  const paymentRef = detail.escrow.paymentReference as string;
+  let authorizationUrl: string | undefined =
+    detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl;
+  if (!authorizationUrl && /^sandbox-/i.test(paymentRef)) {
+    authorizationUrl = `${deriveAgentBaseUrl()}/sandbox-pay?reference=${encodeURIComponent(paymentRef)}`;
+  }
+
   return {
     provider: detail.escrow.paymentProvider,
-    reference: detail.escrow.paymentReference,
+    reference: paymentRef,
     transactionReference: rawPayload.transactionReference || null,
-    authorizationUrl: detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl,
+    authorizationUrl,
     accountNumber: rawPayload.accountNumber,
     accountName: rawPayload.accountName,
     bankName: rawPayload.bankName,

@@ -44,6 +44,10 @@ services:
         sync: false
       - key: NOTIFICATION_URL
         value: https://sivan-whatsapp-bot-test.onrender.com
+      - key: PAYOUT_VERIFICATION_TEST_MODE
+        value: "true"
+      - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
+        value: "*"
       - key: ACTIVE_PAYMENT_PROVIDER
         value: flutterwave
       - key: BACKUP_PAYMENT_PROVIDER
