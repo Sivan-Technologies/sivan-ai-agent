@@ -196,11 +196,15 @@ export async function refreshEscrowPaymentLifecycle(escrowId: string) {
       const provider = await getProviderForEscrow(escrow);
       const transaction = await provider.verifyPayment(escrow.paymentReference);
       if (transaction && (transaction.status === "success" || transaction.status === "successful")) {
+        // Snapshot the status directly from DB before reconciling so concurrent
+        // read calls cannot each trigger a duplicate funded notification.
+        const preReconcileSnapshot = await escrowStore.getEscrowById(escrowId);
+        const alreadyFunded = preReconcileSnapshot && preReconcileSnapshot.status !== "PENDING_PAYMENT";
         const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
-        if (funded.status === "IN_PROGRESS") {
+        if (funded.status === "IN_PROGRESS" && !alreadyFunded) {
           await notifyEscrowFundedParticipants(funded);
-          escrow = funded;
         }
+        escrow = funded;
       }
     } catch (err: any) {
       console.warn("Failed to check provider payment status during read sync", {
