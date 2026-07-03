@@ -42,6 +42,8 @@ services:
         sync: false
       - key: NOTIFICATION_SECRET
         sync: false
+      - key: NOTIFICATION_URL
+        value: https://sivan-whatsapp-bot-test.onrender.com
       - key: ACTIVE_PAYMENT_PROVIDER
         value: flutterwave
       - key: BACKUP_PAYMENT_PROVIDER
@@ -129,6 +131,8 @@ services:
         sync: false
       - key: NOTIFICATION_SECRET
         sync: false
+      - key: NOTIFICATION_URL
+        value: https://sivan-whatsapp-bot-live.onrender.com
       - key: ACTIVE_PAYMENT_PROVIDER
         value: flutterwave
       - key: BACKUP_PAYMENT_PROVIDER
