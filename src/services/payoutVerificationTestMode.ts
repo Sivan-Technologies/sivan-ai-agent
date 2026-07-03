@@ -13,6 +13,7 @@ export type PayoutVerificationTestResolution = {
 export type SandboxPaymentInstruction = {
   reference: string;
   provider: string;
+  authorizationUrl: string;
 };
 
 function csvValues(value?: string) {
@@ -90,11 +91,24 @@ export function createSandboxPaymentInstruction(
 
   if (!isTestMode) return null;
 
-  // Render provider specific sandbox overrides
   const providerId = activeProvider.trim().toLowerCase();
+  const reference = `sandbox-${providerId}-${escrowId}-${Date.now()}`;
+
+  const callbackUrl = env.FLUTTERWAVE_CALLBACK_URL || "";
+  let host = "https://sivan-escrow-agent-test.onrender.com";
+  if (callbackUrl) {
+    try {
+      host = new URL(callbackUrl).origin;
+    } catch {
+      // keep default
+    }
+  }
+  const authorizationUrl = `${host}/sandbox-pay?reference=${reference}`;
+
   return {
-    reference: `sandbox-${providerId}-${escrowId}-${Date.now()}`,
+    reference,
     provider: `${providerId}_sandbox_override`,
+    authorizationUrl,
   };
 }
 

@@ -268,6 +268,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
           paymentReference: sandboxPayment.reference,
+          paymentAuthorizationUrl: sandboxPayment.authorizationUrl,
           paymentProvider: sandboxPayment.provider,
           paymentMetadata: {
             provider: sandboxPayment.provider,
@@ -281,6 +282,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         payment = {
           provider: sandboxPayment.provider,
           reference: sandboxPayment.reference,
+          authorizationUrl: sandboxPayment.authorizationUrl,
           fundingExpiresAt,
           testOnly: true,
         };

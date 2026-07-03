@@ -20,6 +20,7 @@ import escrowsRouter from "./routes/escrows";
 import webhooksRouter from "./routes/webhooks";
 import adminRouter from "./routes/admin";
 import opsRouter from "./routes/ops";
+import sandboxRouter from "./routes/sandbox";
 
 validateConfig();
 initializeDatabaseSchemas();
@@ -106,6 +107,7 @@ app.use(escrowsRouter);
 app.use(webhooksRouter);
 app.use(adminRouter);
 app.use(opsRouter);
+app.use(sandboxRouter);
 
 // Sentry Error Handler
 Sentry.setupExpressErrorHandler(app);
