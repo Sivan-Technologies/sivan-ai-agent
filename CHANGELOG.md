@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-06
+
+- Implemented interactive sandbox payment simulation page `/sandbox-pay` to facilitate full end-to-end testing of Naira checkout flows without real gateway charges.
+- Fixed duplicate WhatsApp notification loops that were exhausting daily Twilio message limits on status checks.
+- Enabled real Cloudflare R2 uploads for the test environment when credentials are configured, fixing the delivery proof image forwarding issue.
+- Standardized missing `NOTIFICATION_URL` environment variables in `render.yaml` for both test and live environments.
+
 ## 2026-06-30
 
 - Deployed production-grade Cloudflare R2 storage Client with secure 1-hour presigned HTTPS URL resolver.
