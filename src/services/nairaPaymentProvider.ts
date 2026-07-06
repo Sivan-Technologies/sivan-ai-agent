@@ -3,9 +3,10 @@ import { config } from "../config";
 import { FlutterwaveClient, FlutterwaveVerifiedCharge } from "./flutterwaveClient";
 import { MonnifyClient, MonnifyVerifiedTransaction } from "./monnifyClient";
 import { PalmPayClient, PalmPayVerifiedTransaction } from "./palmpayClient";
+import { NombaPayoutClient } from "./nombaPayoutClient";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
-export type NairaPaymentProviderId = "monnify" | "palmpay" | "flutterwave";
+export type NairaPaymentProviderId = "monnify" | "palmpay" | "flutterwave" | "nomba";
 
 export interface BankTransferPaymentRequest {
   amount: number;
@@ -460,13 +461,106 @@ export class FlutterwavePaymentProvider implements PaymentProvider {
   }
 }
 
+export class NombaPaymentProvider implements PaymentProvider {
+  public readonly id = "nomba" as const;
+  private readonly client: NombaPayoutClient;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    this.client = new NombaPayoutClient(platformMode);
+  }
+
+  public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
+    assertNairaBankTransferOnly(config.nairaPayments.methods);
+    if (!input.paymentReference) {
+      throw new Error("Payment reference is required for Nomba checkout order");
+    }
+    if (!input.customerEmail) {
+      throw new Error("Customer email is required for Nomba checkout order");
+    }
+
+    const result = await this.client.createCheckoutOrder({
+      amount: input.amount,
+      customerEmail: input.customerEmail,
+      paymentReference: input.paymentReference,
+      redirectUrl: input.callbackUrl,
+    });
+
+    return {
+      provider: this.id,
+      status: "pending",
+      paymentReference: input.paymentReference,
+      authorizationUrl: result.checkoutLink,
+      transactionReference: result.orderReference,
+      raw: result.raw,
+    };
+  }
+
+  public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
+    const result = await this.client.requeryTransfer(paymentReference);
+    const status = result.status === "succeeded" ? "success" : result.status;
+    return {
+      provider: this.id,
+      status,
+      paymentReference: result.merchantTxRef || paymentReference,
+      transactionReference: result.transactionId,
+      amount: result.amount,
+      currency: "NGN",
+      processorFee: result.fee,
+      raw: result.raw,
+    };
+  }
+
+  public async verifyWebhookSignature(rawBody: string, signature: string): Promise<boolean> {
+    return this.client.verifyWebhookSignature(rawBody, signature);
+  }
+
+  public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
+    const body = payload || {};
+    const data = body.data && typeof body.data === "object" ? body.data : {};
+    const transaction = data.transaction && typeof data.transaction === "object" ? data.transaction : data;
+    const eventType = String(body.event_type || body.eventType || body.type || body.event || "unknown");
+    const paymentReference = String(
+      transaction.merchantTxRef ||
+      transaction.meta?.merchantTxRef ||
+      transaction.id ||
+      transaction.transactionId ||
+      transaction.transactionRef ||
+      body.request_id ||
+      body.requestId ||
+      ""
+    ).trim();
+
+    const transactionReference = String(
+      transaction.id ||
+      transaction.transactionId ||
+      transaction.transactionRef ||
+      ""
+    ).trim();
+
+    const eventId = String(body.requestId || body.request_id || `${this.id}:${eventType}:${paymentReference}`);
+
+    return {
+      provider: this.id,
+      eventId,
+      eventType,
+      paymentReference,
+      transactionReference: transactionReference || undefined,
+      raw: body,
+    };
+  }
+}
+
 export function createNairaPaymentProvider(
   provider: string,
   platformMode?: "test" | "live" | "maintenance"
 ): PaymentProvider {
-  const normalized = provider.trim().toLowerCase();
+  let normalized = provider.trim().toLowerCase();
+  if (normalized.endsWith("_sandbox_override")) {
+    normalized = normalized.replace("_sandbox_override", "");
+  }
   if (!normalized || normalized === "flutterwave") return new FlutterwavePaymentProvider(platformMode);
   if (normalized === "monnify") return new MonnifyPaymentProvider(platformMode);
   if (normalized === "palmpay") return new PalmPayPaymentProvider(platformMode);
+  if (normalized === "nomba") return new NombaPaymentProvider(platformMode);
   throw new Error(`Naira payment provider is not implemented yet: ${provider}`);
 }

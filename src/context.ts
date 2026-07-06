@@ -28,6 +28,7 @@ export const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRout
 export const monnifyPaymentProvider = createNairaPaymentProvider("monnify");
 export const palmpayPaymentProvider = createNairaPaymentProvider("palmpay");
 export const flutterwavePaymentProvider = createNairaPaymentProvider("flutterwave");
+export const nombaPaymentProvider = createNairaPaymentProvider("nomba");
 export const monnifyClient = new MonnifyClient();
 export const palmpayClient = new PalmPayClient();
 export const flutterwaveClient = new FlutterwaveClient();

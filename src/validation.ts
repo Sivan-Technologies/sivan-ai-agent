@@ -172,7 +172,7 @@ export const whatsappProviderSwitchSchema = z.object({
   provider: z.enum(["twilio", "meta"]),
 });
 
-export const nairaPaymentProviderIdSchema = z.enum(["monnify", "palmpay", "flutterwave"]);
+export const nairaPaymentProviderIdSchema = z.enum(["monnify", "palmpay", "flutterwave", "nomba"]);
 
 export const paymentProviderSettingsSchema = z.object({
   activePaymentProvider: nairaPaymentProviderIdSchema,

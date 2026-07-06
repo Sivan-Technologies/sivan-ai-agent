@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import request from "supertest";
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-admin-settings.db");
 process.env.ADMIN_API_KEY = "test-admin-key";
@@ -12,16 +12,20 @@ process.env.ADMIN_ALLOWED_IPS = "";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
-process.env.ACTIVE_PAYMENT_PROVIDER = "flutterwave";
-process.env.BACKUP_PAYMENT_PROVIDER = "palmpay";
-process.env.EMERGENCY_PAYMENT_PROVIDER = "flutterwave";
+process.env.ACTIVE_PAYMENT_PROVIDER = "nomba";
+process.env.BACKUP_PAYMENT_PROVIDER = "nomba";
+process.env.EMERGENCY_PAYMENT_PROVIDER = "nomba";
 process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED = "false";
 process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
+process.env.NOMBA_TEST_CLIENT_ID = "test-nomba-client-id";
+process.env.NOMBA_TEST_CLIENT_SECRET = "test-nomba-client-secret";
+process.env.NOMBA_TEST_ACCOUNT_ID = "test-nomba-account-id";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "8102524846";
 process.env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS = "whatsapp:+2348000000902";
 process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET = "test-twilio-debugger-secret";
 process.env.NOMBA_WEBHOOK_SECRET = "test-nomba-webhook-secret";
+process.env.DATABASE_MODE = "test";
 const palmpayPlatformKeys = crypto.generateKeyPairSync("rsa", {
   modulusLength: 2048,
   publicKeyEncoding: { type: "spki", format: "pem" },
@@ -167,6 +171,128 @@ describe("Admin Settings API Integration", () => {
       .send(payload);
     expect(accepted.status).toBe(200);
     expect(accepted.body).toMatchObject({ status: "received" });
+  });
+
+  it("should process and reconcile signed Nomba pay-in checkouts", async () => {
+    const { escrowStore } = await import("../src/context");
+    const { expectedFundingAmount } = await import("../src/services/escrowService");
+    const nairaProviderModule = await import("../src/services/nairaPaymentProvider");
+
+    const created = await escrowStore.createEscrow({
+      clientRequestId: `req-${Date.now()}`,
+      buyerUserId: "buyer-nomba",
+      sellerUserId: "seller-nomba",
+      sellerWhatsapp: "+2348000000002",
+      amount: 15000,
+      currency: "NAIRA",
+      purpose: "Nomba Payin Integration Test",
+      createdByChannel: "whatsapp_dm",
+    });
+    const escrowId = created.escrowId;
+    const paymentReference = `sandbox-nomba-${escrowId}`;
+    await escrowStore.attachPayment({
+      escrowId,
+      paymentReference,
+      paymentProvider: "nomba",
+      status: "PENDING_PAYMENT",
+    });
+
+    const expectedAmount = await expectedFundingAmount(created);
+
+    // Mock createNairaPaymentProvider to return our mocked NombaPaymentProvider
+    const originalCreate = nairaProviderModule.createNairaPaymentProvider;
+    const mockProvider = new nairaProviderModule.NombaPaymentProvider();
+    const createSpy = vi.spyOn(nairaProviderModule, "createNairaPaymentProvider")
+      .mockImplementation((provider, mode) => {
+        if (provider === "nomba") {
+          return mockProvider;
+        }
+        return originalCreate(provider, mode);
+      });
+
+    // Mock requeryTransfer for the mockProvider's client
+    const requerySpy = vi.spyOn((mockProvider as any).client, "requeryTransfer").mockResolvedValue({
+      merchantTxRef: paymentReference,
+      transactionId: "TX-NOMBA-PAYIN-001",
+      status: "succeeded",
+      amount: expectedAmount,
+      currency: "NAIRA",
+      fee: 100,
+      raw: { id: "TX-NOMBA-PAYIN-001" },
+    });
+
+    // Also mock requeryTransfer for the global context instance
+    const { nombaPaymentProvider } = await import("../src/context");
+    const globalRequerySpy = vi.spyOn((nombaPaymentProvider as any).client, "requeryTransfer").mockResolvedValue({
+      merchantTxRef: paymentReference,
+      transactionId: "TX-NOMBA-PAYIN-001",
+      status: "succeeded",
+      amount: expectedAmount,
+      currency: "NAIRA",
+      fee: 100,
+      raw: { id: "TX-NOMBA-PAYIN-001" },
+    });
+
+    const payload = {
+      event_type: "payment_success",
+      requestId: "nomba-payin-001",
+      data: {
+        merchant: {
+          name: "Sivan",
+          walletId: "wallet-001",
+        },
+        transaction: {
+          transactionId: "TX-NOMBA-PAYIN-001",
+          type: "checkout",
+          status: "SUCCESSFUL",
+          amount: expectedAmount,
+          fee: 100,
+          transactionAmount: expectedAmount + 100,
+          transactionFee: 100,
+          createdAt: "2026-06-27T10:00:00Z",
+          timeCreated: "2026-06-27T10:00:00Z",
+          terminalId: "terminal-001",
+          merchantTxRef: paymentReference,
+        },
+      },
+    };
+    const timestamp = "2026-06-27T10:01:00Z";
+    const canonical =
+      "payment_success" +
+      "nomba-payin-001" +
+      "Sivan" +
+      "wallet-001" +
+      "TX-NOMBA-PAYIN-001" +
+      "checkout" +
+      "SUCCESSFUL" +
+      String(expectedAmount) +
+      "100" +
+      String(expectedAmount + 100) +
+      "100" +
+      "2026-06-27T10:00:00Z" +
+      "2026-06-27T10:00:00Z" +
+      "terminal-001" +
+      paymentReference +
+      timestamp;
+
+    const signature = crypto.createHmac("sha256", "test-nomba-webhook-secret").update(canonical).digest("base64");
+
+    const response = await request(app)
+      .post("/webhooks/nomba")
+      .set("nomba-signature", signature)
+      .set("nomba-timestamp", timestamp)
+      .send(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ status: "received" });
+
+    const escrow = await escrowStore.getEscrowById(escrowId);
+    expect(escrow?.status).toBe("IN_PROGRESS");
+    expect(requerySpy).toHaveBeenCalledWith(paymentReference);
+
+    requerySpy.mockRestore();
+    globalRequerySpy.mockRestore();
+    createSpy.mockRestore();
   });
 
   it("should verify signed PalmPay collection and payout webhooks before accepting them", async () => {
@@ -482,16 +608,17 @@ describe("Admin Settings API Integration", () => {
       .get("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key");
     expect(status.status).toBe(200);
-    expect(status.body.activePaymentProvider).toBe("flutterwave");
+    expect(status.body.activePaymentProvider).toBe("nomba");
     expect(status.body.providers.some((provider: any) => provider.provider === "monnify")).toBe(true);
+    expect(status.body.providers.some((provider: any) => provider.provider === "nomba")).toBe(true);
 
     const invalid = await request(app)
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
         activePaymentProvider: "boguspay",
-        backupPaymentProvider: "flutterwave",
-        emergencyPaymentProvider: "flutterwave",
+        backupPaymentProvider: "nomba",
+        emergencyPaymentProvider: "nomba",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
       });
@@ -501,19 +628,31 @@ describe("Admin Settings API Integration", () => {
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "flutterwave",
-        backupPaymentProvider: "monnify",
-        emergencyPaymentProvider: "flutterwave",
+        activePaymentProvider: "nomba",
+        backupPaymentProvider: "nomba",
+        emergencyPaymentProvider: "nomba",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
       });
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({
-      activePaymentProvider: "flutterwave",
-      backupPaymentProvider: "monnify",
-      emergencyPaymentProvider: "flutterwave",
+      activePaymentProvider: "nomba",
+      backupPaymentProvider: "nomba",
+      emergencyPaymentProvider: "nomba",
       paymentProviderFallbackEnabled: false,
     });
+
+    // Reset back to flutterwave to prevent test pollution
+    await request(app)
+      .post("/admin/payment-providers")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        activePaymentProvider: "flutterwave",
+        backupPaymentProvider: "nomba",
+        emergencyPaymentProvider: "nomba",
+        paymentProviderFallbackEnabled: false,
+        expectedVersion: updated.body.version,
+      });
   });
 
   it("should switch maintenance mode and return the admin maintenance message to customer APIs", async () => {
@@ -978,7 +1117,7 @@ describe("Admin Settings API Integration", () => {
       .send({ actorWhatsapp: sellerWhatsapp });
     expect(accepted.status).toBe(200);
     expect(accepted.body.escrow.escrow.status).toBe("PENDING_PAYMENT");
-    expect(accepted.body.escrow.escrow.paymentProvider).toBe("flutterwave_sandbox_override");
+    expect(accepted.body.escrow.escrow.paymentProvider).toBe("nomba_sandbox_override");
 
     const funded = await request(app)
       .post(`/api/escrows/${escrowId}/test-fund`)

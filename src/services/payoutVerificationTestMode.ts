@@ -119,7 +119,8 @@ export function isSandboxPaymentReference(reference?: string, env: NodeJS.Proces
   const isSandboxPattern =
     reference.startsWith("sandbox-flutterwave-SIV-") ||
     reference.startsWith("sandbox-palmpay-SIV-") ||
-    reference.startsWith("sandbox-monnify-SIV-");
+    reference.startsWith("sandbox-monnify-SIV-") ||
+    reference.startsWith("sandbox-nomba-SIV-");
 
   return Boolean(
     isSandboxPattern &&

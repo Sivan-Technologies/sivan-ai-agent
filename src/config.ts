@@ -153,6 +153,10 @@ export const config = {
     payoutEnabled: envValue("NOMBA_PAYOUT_ENABLED", "false").toLowerCase() === "true",
     senderName: envValue("NOMBA_SENDER_NAME", "Sivan"),
     subAccountId: envValue("NOMBA_SUB_ACCOUNT_ID"),
+    paymentMethods: envValue("NOMBA_PAYMENT_METHODS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
+      .split(",")
+      .map((method) => method.trim())
+      .filter(Boolean),
   },
   nairaPayments: {
     methods: envValue("NAIRA_PAYMENT_METHODS", "bank_transfer")
@@ -240,6 +244,11 @@ export function validateConfig() {
     const palmKey = config.palmpay.appId;
     if (!palmKey) {
       required.push({ key: "PALMPAY_APP_ID (active provider is palmpay)", value: palmKey });
+    }
+  } else if (activeProvider === "nomba") {
+    const nombaKey = config.nomba.clientId;
+    if (!nombaKey) {
+      required.push({ key: "NOMBA_CLIENT_ID (active provider is nomba)", value: nombaKey });
     }
   }
 

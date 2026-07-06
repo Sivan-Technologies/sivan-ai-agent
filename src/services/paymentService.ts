@@ -11,6 +11,7 @@ import {
   flutterwaveClient,
 } from "../context";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
+import { NombaPayoutClient } from "./nombaPayoutClient";
 
 /**
  * Derives the base host URL for the current escrow agent instance.
@@ -44,6 +45,7 @@ export function providerConfigured(provider: string) {
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
   if (normalized === "palmpay") return palmpayClient.isCollectionConfigured();
   if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
+  if (normalized === "nomba") return new NombaPayoutClient(config.databaseMode).isCollectionConfigured();
   return false;
 }
 

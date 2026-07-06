@@ -561,7 +561,7 @@ export class SettingsStore {
       ["backup payment provider", resolved.backupPaymentProvider],
       ["emergency payment provider", resolved.emergencyPaymentProvider],
     ] as const) {
-      if (!["monnify", "palmpay", "flutterwave"].includes(provider)) {
+      if (!["monnify", "palmpay", "flutterwave", "nomba"].includes(provider)) {
         throw new Error(`Unsupported ${label}: ${provider}`);
       }
     }

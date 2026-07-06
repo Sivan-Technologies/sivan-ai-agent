@@ -49,7 +49,7 @@ services:
       - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
         value: "*"
       - key: ACTIVE_PAYMENT_PROVIDER
-        value: flutterwave
+        value: nomba
       - key: BACKUP_PAYMENT_PROVIDER
         value: palmpay
       # Flutterwave — active provider (TEST keys)
@@ -138,7 +138,7 @@ services:
       - key: NOTIFICATION_URL
         value: https://sivan-whatsapp-bot-live.onrender.com
       - key: ACTIVE_PAYMENT_PROVIDER
-        value: flutterwave
+        value: nomba
       - key: BACKUP_PAYMENT_PROVIDER
         value: palmpay
       # Flutterwave — active provider (LIVE keys)

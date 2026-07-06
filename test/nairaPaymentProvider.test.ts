@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "crypto";
-import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PalmPayPaymentProvider, createNairaPaymentProvider } from "../src/services/nairaPaymentProvider";
+import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PalmPayPaymentProvider, NombaPaymentProvider, createNairaPaymentProvider } from "../src/services/nairaPaymentProvider";
 import { config } from "../src/config";
 import { MonnifyClient } from "../src/services/monnifyClient";
 import { FlutterwaveClient } from "../src/services/flutterwaveClient";
@@ -362,6 +362,83 @@ describe("FlutterwavePaymentProvider", () => {
       eventType: "charge.completed",
       paymentReference: "flutterwave-ref-2",
       transactionReference: "chg_123",
+    });
+  });
+});
+
+describe("NombaPaymentProvider", () => {
+  it("initializes Nomba checkout order payments", async () => {
+    const provider = new NombaPaymentProvider();
+    const createSpy = vi.spyOn((provider as any).client, "createCheckoutOrder").mockResolvedValue({
+      checkoutLink: "https://checkout.nomba.com/checkout/NOMBA|300",
+      orderReference: "nomba-ref-300",
+      raw: { ok: true },
+    });
+
+    await expect(provider.initializeBankTransferPayment({
+      amount: 15000,
+      customerEmail: "buyer@example.com",
+      paymentReference: "nomba-ref-300",
+    })).resolves.toMatchObject({
+      provider: "nomba",
+      status: "pending",
+      paymentReference: "nomba-ref-300",
+      authorizationUrl: "https://checkout.nomba.com/checkout/NOMBA|300",
+      transactionReference: "nomba-ref-300",
+    });
+
+    expect(createSpy).toHaveBeenCalledWith({
+      amount: 15000,
+      customerEmail: "buyer@example.com",
+      paymentReference: "nomba-ref-300",
+      redirectUrl: undefined,
+    });
+  });
+
+  it("verifies and maps Nomba transaction successfully", async () => {
+    const provider = new NombaPaymentProvider();
+    const requerySpy = vi.spyOn((provider as any).client, "requeryTransfer").mockResolvedValue({
+      merchantTxRef: "nomba-ref-400",
+      transactionId: "TX|400",
+      status: "succeeded",
+      amount: 20000,
+      currency: "NAIRA",
+      fee: 100,
+      raw: { id: "TX|400", status: "SUCCESSFUL" },
+    });
+
+    await expect(provider.verifyPayment("nomba-ref-400")).resolves.toMatchObject({
+      provider: "nomba",
+      status: "success",
+      paymentReference: "nomba-ref-400",
+      transactionReference: "TX|400",
+      amount: 20000,
+      currency: "NGN",
+      processorFee: 100,
+    });
+
+    expect(requerySpy).toHaveBeenCalledWith("nomba-ref-400");
+  });
+
+  it("normalizes Nomba payment_success webhook payloads", () => {
+    const provider = new NombaPaymentProvider();
+    const event = provider.normalizeWebhook({
+      requestId: "req_999",
+      eventType: "payment_success",
+      data: {
+        transaction: {
+          id: "TX|999",
+          merchantTxRef: "nomba-ref-999",
+        },
+      },
+    });
+
+    expect(event).toMatchObject({
+      provider: "nomba",
+      eventId: "req_999",
+      eventType: "payment_success",
+      paymentReference: "nomba-ref-999",
+      transactionReference: "TX|999",
     });
   });
 });

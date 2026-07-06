@@ -595,6 +595,13 @@ function providerStatus() {
       configured: providerConfigured("flutterwave"),
       methods: ["bank_transfer"],
     },
+    {
+      provider: "nomba",
+      label: "Nomba",
+      implemented: true,
+      configured: providerConfigured("nomba"),
+      methods: ["bank_transfer"],
+    },
   ];
 }
 

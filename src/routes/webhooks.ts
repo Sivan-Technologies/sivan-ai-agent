@@ -6,6 +6,7 @@ import {
   monnifyPaymentProvider,
   palmpayPaymentProvider,
   flutterwavePaymentProvider,
+  nombaPaymentProvider,
   workflowStore,
   escrowStore,
   orchestrator,
@@ -581,13 +582,15 @@ router.post("/webhooks/nomba", async (req, res) => {
     const data = body.data && typeof body.data === "object" ? body.data : {};
     const transaction = data.transaction && typeof data.transaction === "object" ? data.transaction : data;
     const eventType = String(firstPresent(body.event_type, body.eventType, body.type, body.event, "unknown"));
+    // For pay-in webhooks, our assigned paymentReference lives in merchantTxRef.
+    // Prioritise it over Nomba's internal transactionId so escrow lookup succeeds immediately.
     reference = String(firstPresent(
+      transaction.merchantTxRef,
+      transaction.meta?.merchantTxRef,
       transaction.id,
       transaction.transactionId,
       transaction.transactionRef,
       transaction.transactionReference,
-      transaction.meta?.merchantTxRef,
-      transaction.merchantTxRef,
       body.request_id,
       body.requestId,
       crypto.randomUUID()
@@ -605,7 +608,7 @@ router.post("/webhooks/nomba", async (req, res) => {
       (transaction.meta?.merchantTxRef ? await escrowStore.getTransactionByProviderReference("nomba", String(transaction.meta.merchantTxRef)) : null) ||
       (transaction.merchantTxRef ? await escrowStore.getTransactionByProviderReference("nomba", String(transaction.merchantTxRef)) : null);
 
-    if (relatedTransaction) {
+    if (relatedTransaction && relatedTransaction.transactionType === "release") {
       await escrowStore.addEvent({
         escrowId: relatedTransaction.escrowId,
         actor: "nomba",
@@ -629,7 +632,65 @@ router.post("/webhooks/nomba", async (req, res) => {
         reason: "nomba_payout_webhook_requires_operator_or_requery_confirmation",
       }, { maxAttempts: 3 });
     } else {
-      capturePaymentWarning("Nomba payout webhook did not match a Sivan payout transaction", { reference, eventType });
+      const escrow = await escrowStore.findEscrowByPaymentReference(reference) ||
+        (transaction.meta?.merchantTxRef ? await escrowStore.findEscrowByPaymentReference(String(transaction.meta.merchantTxRef)) : null) ||
+        (transaction.merchantTxRef ? await escrowStore.findEscrowByPaymentReference(String(transaction.merchantTxRef)) : null);
+
+      if (escrow) {
+        if (escrow.paymentProvider && escrow.paymentProvider !== "nomba" && escrow.paymentProvider !== "nomba_sandbox_override") {
+          capturePaymentWarning("Nomba webhook matched escrow with different provider", {
+            escrowId: escrow.escrowId,
+            escrowProvider: escrow.paymentProvider,
+            paymentReference: reference,
+          });
+          return res.status(409).send({ error: "Payment reference belongs to a different provider" });
+        }
+
+        if (eventType === "payment_success" || eventType === "charge.completed" || eventType === "SUCCESS" || eventType === "SUCCESSFUL") {
+          const transactionData = await nombaPaymentProvider.verifyPayment(reference);
+          if (transactionData.paymentReference !== reference && transactionData.paymentReference !== escrow.paymentReference) {
+            capturePaymentWarning("Nomba verification reference mismatch", {
+              webhookReference: reference,
+              verifiedReference: transactionData.paymentReference,
+            });
+            return res.status(202).send({ status: "verification_reference_mismatch" });
+          }
+
+          const paymentEvent = normalizeVerifiedPaymentEvent({
+            webhook: {
+              provider: "nomba",
+              eventId: `nomba:${eventType}:${reference}`,
+              eventType,
+              paymentReference: reference,
+              raw: body,
+            },
+            verifiedPayment: transactionData,
+            escrow,
+            expectedAmount: await expectedFundingAmount(escrow),
+            signatureVerified: true,
+            raw: body,
+          });
+
+          const funded = await reconcileEscrowPayment(escrow.escrowId, transactionData, "webhook", paymentEvent);
+          if (funded.status === "IN_PROGRESS") {
+            info("Escrow funded from verified Nomba webhook", {
+              escrowId: funded.escrowId,
+              paymentReference: reference,
+            });
+            await notifyEscrowFundedParticipants(funded);
+          } else if (funded.status === "REVIEW_REQUIRED") {
+            info("Escrow payment moved to review from Nomba webhook", {
+              escrowId: funded.escrowId,
+              paymentReference: reference,
+            });
+          }
+        }
+      } else {
+        capturePaymentWarning("Nomba webhook did not match any escrow or payout transaction", {
+          reference,
+          eventType,
+        });
+      }
     }
 
     return res.status(200).send({ status: "received" });

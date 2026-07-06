@@ -128,6 +128,10 @@ export class NombaPayoutClient {
     }
   }
 
+  public isCollectionConfigured() {
+    return Boolean(this.clientId && this.clientSecret && this.accountId);
+  }
+
   public isPayoutConfigured() {
     return Boolean(
       config.nomba.payoutEnabled &&
@@ -305,6 +309,51 @@ export class NombaPayoutClient {
       };
     } catch (err) {
       throw new Error(`Nomba transfer requery failed: ${extractAxiosMessage(err)}`);
+    }
+  }
+
+  public async createCheckoutOrder(input: {
+    amount: number;
+    customerEmail: string;
+    paymentReference: string;
+    redirectUrl?: string;
+  }): Promise<{ checkoutLink: string; orderReference: string; raw: any }> {
+    try {
+      const payload = {
+        amount: input.amount,
+        currency: "NGN",
+        customerEmail: input.customerEmail,
+        merchantTxRef: input.paymentReference,
+        allowedPaymentMethods: ["Transfer"],
+        redirectUrl: input.redirectUrl || config.flutterwave.callbackUrl,
+      };
+
+      const res = await axios.post(
+        `${this.baseUrl}/v1/checkout/order`,
+        payload,
+        {
+          headers: await this.authHeaders(),
+          timeout: this.timeoutMs,
+        }
+      );
+
+      const response = res.data;
+      const data = response?.data;
+      if (response?.code !== "00" || !data?.checkoutLink) {
+        throw new Error(
+          response?.description ||
+          response?.message ||
+          "Nomba checkout order creation returned no checkoutLink"
+        );
+      }
+
+      return {
+        checkoutLink: data.checkoutLink,
+        orderReference: data.orderReference || input.paymentReference,
+        raw: response,
+      };
+    } catch (err) {
+      throw new Error(`Nomba checkout order creation failed: ${extractAxiosMessage(err)}`);
     }
   }
 

@@ -200,7 +200,7 @@ export async function refreshEscrowPaymentLifecycle(escrowId: string) {
         // read calls cannot each trigger a duplicate funded notification.
         const preReconcileSnapshot = await escrowStore.getEscrowById(escrowId);
         const alreadyFunded = preReconcileSnapshot && preReconcileSnapshot.status !== "PENDING_PAYMENT";
-        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
+        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck", undefined, { skipLifecycleRefresh: true });
         if (funded.status === "IN_PROGRESS" && !alreadyFunded) {
           await notifyEscrowFundedParticipants(funded);
         }
@@ -1180,9 +1180,12 @@ export async function reconcileEscrowPayment(
   escrowId: string,
   transaction: any,
   source: "webhook" | "admin_recheck",
-  normalizedEvent?: NormalizedPaymentEvent
+  normalizedEvent?: NormalizedPaymentEvent,
+  options: { skipLifecycleRefresh?: boolean } = {}
 ): Promise<EscrowRecord> {
-  const escrow = await refreshEscrowPaymentLifecycle(escrowId);
+  const escrow = options.skipLifecycleRefresh
+    ? await escrowStore.getEscrowById(escrowId)
+    : await refreshEscrowPaymentLifecycle(escrowId);
   if (!escrow) throw new Error("Escrow not found");
   const storedTransaction = await escrowStore.getTransactionByReference(transaction.paymentReference);
   const reconciliationMetadata = normalizedEvent ? { ...transaction, normalizedEvent } : transaction;

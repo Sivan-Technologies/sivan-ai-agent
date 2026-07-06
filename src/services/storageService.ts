@@ -40,9 +40,10 @@ export async function uploadEvidenceUrlToR2(sourceUrl: string, filename: string)
     config.storage.r2SecretAccessKey &&
     config.storage.r2Endpoint
   );
+  const isVitest = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
 
-  if (!hasR2Creds) {
-    info("No R2 credentials configured: returning mock R2 storage key directly", { sourceUrl, filename });
+  if (isVitest || !hasR2Creds) {
+    info("No R2 credentials or running in Vitest: returning mock R2 storage key directly", { sourceUrl, filename });
     return `test/proofs/mock_${Date.now()}_${filename.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
   }
 
@@ -109,8 +110,9 @@ export async function getPresignedDownloadUrl(key: string): Promise<string> {
     config.storage.r2SecretAccessKey &&
     config.storage.r2Endpoint
   );
+  const isVitest = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
 
-  if (!hasR2Creds) {
+  if (isVitest || !hasR2Creds) {
     return `https://sivan-mock-presigned-url.test/${key}`;
   }
 

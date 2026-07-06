@@ -139,9 +139,11 @@ class PalmPayPayoutProvider implements PayoutProvider {
 
 class NombaPayoutProvider implements PayoutProvider {
   public readonly id = "nomba" as const;
-  private readonly client = new NombaPayoutClient();
+  private readonly client: NombaPayoutClient;
 
-  constructor(private platformMode?: "test" | "live" | "maintenance") {}
+  constructor(private platformMode?: "test" | "live" | "maintenance") {
+    this.client = new NombaPayoutClient(platformMode);
+  }
 
   public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
     if (this.platformMode === "test") {
