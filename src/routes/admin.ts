@@ -54,7 +54,7 @@ import {
   buildOperationalVisibility,
 } from "../services/monitoring";
 import { info, warn, error } from "../lib/logger";
-import { EscrowRecord } from "../services/escrowStore";
+import { EscrowRecord, EscrowTransactionRecord } from "../services/escrowStore";
 
 const router = Router();
 
@@ -77,15 +77,26 @@ router.get("/admin/escrows", requireAdminAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
   }
   const rawEscrows = await escrowStore.listEscrows(parsed.data.limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "admin_escrows"))))
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "admin_escrows"))))
     .filter(Boolean) as EscrowRecord[];
-  const rows = await Promise.all(escrows.map(async (escrow) => {
-    const transactions = await escrowStore.listTransactions(escrow.escrowId);
+  
+  const escrowIds = escrows.map((e) => e.escrowId);
+  const transactionsList = await escrowStore.listTransactionsForEscrows(escrowIds);
+  
+  const transactionsByEscrow = transactionsList.reduce((acc, tx) => {
+    acc[tx.escrowId] ||= [];
+    acc[tx.escrowId].push(tx);
+    return acc;
+  }, {} as Record<string, EscrowTransactionRecord[]>);
+
+  const rows = escrows.map((escrow) => {
+    const transactions = transactionsByEscrow[escrow.escrowId] || [];
     const expiredPaymentReferences = transactions
       .filter((transaction) => transaction.transactionType === "funding" && transaction.status === "expired" && transaction.reference)
       .map((transaction) => transaction.reference);
     return { ...escrow, expiredPaymentReferences };
-  }));
+  });
+
   res.status(200).json(rows);
 });
 

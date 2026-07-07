@@ -169,7 +169,7 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
       return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
     }
     const rawEscrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
-    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "participant_deals"))))
+    const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "participant_deals"))))
       .filter(Boolean) as EscrowRecord[];
     const deals = await Promise.all(escrows.map(async (escrow) => {
       try {
