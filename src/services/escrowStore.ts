@@ -2219,6 +2219,18 @@ export class EscrowStore {
     return result.rows.map((row) => this.mapTransaction(row));
   }
 
+  public async listTransactionsForEscrows(escrowIds: string[]): Promise<EscrowTransactionRecord[]> {
+    await this.initializeSchema();
+    if (escrowIds.length === 0) return [];
+    if (this.provider === "sqlite") {
+      const placeholders = escrowIds.map(() => "?").join(",");
+      return this.sqlite!.prepare(`SELECT * FROM transactions WHERE escrow_id IN (${placeholders}) ORDER BY created_at DESC`).all(escrowIds).map((row) => this.mapTransaction(row));
+    }
+    const placeholders = escrowIds.map((_, i) => `$${i + 1}`).join(",");
+    const result = await this.pool!.query(`SELECT * FROM transactions WHERE escrow_id IN (${placeholders}) ORDER BY created_at DESC`, escrowIds);
+    return result.rows.map((row) => this.mapTransaction(row));
+  }
+
   public async listFundingTransactionsForReconciliation(input: {
     windowStart: string;
     windowEnd: string;

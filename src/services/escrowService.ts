@@ -245,16 +245,22 @@ export async function refreshEscrowPaymentLifecycle(escrowId: string) {
   return escrow;
 }
 
-export async function refreshEscrowPaymentLifecycleForRead(escrowId: string, context: string) {
+export async function refreshEscrowPaymentLifecycleForRead(escrow: EscrowRecord | string, context: string) {
   try {
-    return await refreshEscrowPaymentLifecycle(escrowId);
+    const record = typeof escrow === "string" ? await escrowStore.getEscrowById(escrow) : escrow;
+    if (!record) return null;
+    if (record.status !== "PENDING_PAYMENT") {
+      return record;
+    }
+    return await refreshEscrowPaymentLifecycle(record.escrowId);
   } catch (err: any) {
+    const id = typeof escrow === "string" ? escrow : escrow?.escrowId;
     console.warn("Payment lifecycle refresh failed on read path", {
-      escrowId,
+      escrowId: id,
       context,
       error: err?.message || err,
     });
-    return escrowStore.getEscrowById(escrowId);
+    return typeof escrow === "string" ? escrowStore.getEscrowById(escrow) : escrow;
   }
 }
 
@@ -863,7 +869,7 @@ export async function recordDeliveryProof(input: {
 
 export async function buildReconciliationRows(limit = 250) {
   const rawEscrows = await escrowStore.listEscrows(limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow.escrowId, "reconciliation"))))
+  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "reconciliation"))))
     .filter(Boolean) as EscrowRecord[];
   return Promise.all(
     escrows.map(async (escrow) => {
