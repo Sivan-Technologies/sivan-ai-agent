@@ -215,7 +215,7 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
         complianceRisk: risk,
       });
     }
-    const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+    const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
     const payoutProvider = escrow.currency === "NAIRA" ? getPayoutProviderForEscrow(escrow, config.databaseMode) : null;
     const payoutAccount = escrow.sellerUserId
       ? payoutProvider?.id === "manual_bank_transfer"

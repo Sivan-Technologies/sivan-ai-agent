@@ -155,6 +155,7 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       purpose: input.purpose,
       clientRequestId: input.clientRequestId,
       createdByChannel: input.channel,
+      feePayer: input.feePayer,
     });
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
@@ -547,6 +548,7 @@ router.get("/api/escrows/payment-ref/:reference", async (req, res) => {
       return res.status(404).json({ error: "Escrow not found" });
     }
 
+    const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
     res.status(200).json({
       escrowId: escrow.escrowId,
       purpose: escrow.purpose,
@@ -555,6 +557,9 @@ router.get("/api/escrows/payment-ref/:reference", async (req, res) => {
       status: escrow.status,
       paymentProvider: escrow.paymentProvider,
       paymentReference: escrow.paymentReference,
+      feePayer: escrow.feePayer || "buyer",
+      platformFeeAmount: payoutQuote.platformFeeAmount,
+      totalWithFee: payoutQuote.totalWithFee,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to lookup payment reference" });

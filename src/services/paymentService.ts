@@ -94,13 +94,26 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
   const currency = escrow.currency === "NAIRA" ? "NGN" : escrow.currency;
   const total = new Intl.NumberFormat("en-NG").format(payment.totalPayable || escrow.amount);
   const escrowAmount = new Intl.NumberFormat("en-NG").format(escrow.amount);
-  const feeAmount = new Intl.NumberFormat("en-NG").format(payment.platformFeeAmount || 0);
+  
+  const feePayer = escrow.feePayer || "buyer";
+  const totalFee = payment.platformFeeAmount || 0;
+  let displayedFee = "";
+
+  if (feePayer === "buyer") {
+    displayedFee = `${currency} ${new Intl.NumberFormat("en-NG").format(totalFee)}`;
+  } else if (feePayer === "seller") {
+    displayedFee = `${currency} 0 (paid by seller)`;
+  } else if (feePayer === "split") {
+    const buyerFee = Math.round(totalFee / 2);
+    displayedFee = `${currency} ${new Intl.NumberFormat("en-NG").format(buyerFee)} (50/50 split)`;
+  }
+
   if (payment.authorizationUrl) {
     return [
       `Payment instructions for ${escrow.escrowId}`,
       `Total to pay: ${currency} ${total}`,
       `Service amount: ${currency} ${escrowAmount}`,
-      `Sivan fee: ${currency} ${feeAmount}`,
+      `Sivan fee: ${displayedFee}`,
       "",
       `Complete payment through licensed provider: ${payment.authorizationUrl}`,
       payment.expiresAt ? `Payment link expires: ${payment.expiresAt}` : null,
@@ -116,7 +129,7 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
       `Reference: ${payment.reference}`,
       "",
       `Service amount: ${currency} ${escrowAmount}`,
-      `Sivan fee: ${currency} ${feeAmount}`,
+      `Sivan fee: ${displayedFee}`,
       payment.expiresAt ? `Payment details expire: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
@@ -125,7 +138,7 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
     `Payment reference: ${payment.reference}`,
     `Total to pay: ${currency} ${total}`,
     `Service amount: ${currency} ${escrowAmount}`,
-    `Sivan fee: ${currency} ${feeAmount}`,
+    `Sivan fee: ${displayedFee}`,
   ].join("\n");
 }
 
@@ -142,17 +155,45 @@ export type PayoutQuote = FeeCalculation & {
   amountSource: "escrow_record";
 };
 
-export async function calculateEscrowPayoutQuote(amount: number, currency: EscrowCurrency): Promise<PayoutQuote> {
+export async function calculateEscrowPayoutQuote(
+  amount: number, 
+  currency: EscrowCurrency,
+  feePayer: "buyer" | "seller" | "split" = "buyer"
+): Promise<PayoutQuote> {
   const settings = await settingsStore.getSettings();
   const fees = currency === "NAIRA"
     ? settingsStore.calculateNairaFee(amount, settings)
     : settingsStore.calculateUSDCFee(amount, settings);
   const platformFeeAmount = Math.max(0, fees.totalPlatformFee);
-  const sellerNetAmount = amount;
+  
+  let totalWithFee = amount;
+  let sellerNetAmount = amount;
+
+  if (feePayer === "buyer") {
+    totalWithFee = amount + platformFeeAmount;
+    sellerNetAmount = amount;
+  } else if (feePayer === "seller") {
+    totalWithFee = amount;
+    sellerNetAmount = amount - platformFeeAmount;
+  } else if (feePayer === "split") {
+    const halfFee = Math.round(platformFeeAmount / 2);
+    totalWithFee = amount + halfFee;
+    sellerNetAmount = amount - (platformFeeAmount - halfFee);
+  }
+
+  if (currency === "USDC") {
+    totalWithFee = parseFloat(totalWithFee.toFixed(6));
+    sellerNetAmount = parseFloat(sellerNetAmount.toFixed(6));
+  } else {
+    totalWithFee = Math.round(totalWithFee);
+    sellerNetAmount = Math.round(sellerNetAmount);
+  }
+
   return {
     ...fees,
     totalPlatformFee: platformFeeAmount,
     recipientNet: sellerNetAmount,
+    totalWithFee,
     currency,
     grossAmount: amount,
     platformFeeAmount,
@@ -163,7 +204,7 @@ export async function calculateEscrowPayoutQuote(amount: number, currency: Escro
 
 export async function createNairaPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
   const provider = escrow.paymentProvider ? await getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
-  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
   const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
   const transaction = await provider.initializeBankTransferPayment({
     amount: payoutQuote.totalWithFee,

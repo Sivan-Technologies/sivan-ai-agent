@@ -321,7 +321,7 @@ export async function buildEscrowDetail(escrowId: string) {
   const payoutVerified = Boolean(payout && payout.verificationStatus === "verified");
   const payoutNameMatchAcceptable = Boolean(payout && ["strong", "medium"].includes(payout.nameMatchLevel || ""));
   const payoutReleaseReady = Boolean(payoutVerified && payoutNameMatchAcceptable && !payout?.sharedAccountFlag);
-  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
   const complianceRisk = await calculateComplianceRisk(escrow);
   const aggregateRiskReleaseReady = !hasBlockingComplianceRisk(complianceRisk);
 
@@ -509,6 +509,7 @@ export async function buildParticipantDealSummary(escrow: EscrowRecord, actorWha
       currency: escrow.currency,
       status: escrow.status,
       purpose: escrow.purpose,
+      feePayer: escrow.feePayer || "buyer",
       createdAt: escrow.createdAt,
       updatedAt: escrow.updatedAt,
       fundingExpiresAt: escrow.fundingExpiresAt,
@@ -546,6 +547,7 @@ export async function buildParticipantDeal(detail: any, actorWhatsapp: string) {
       currency: detail.escrow.currency,
       status: detail.escrow.status,
       purpose: detail.escrow.purpose,
+      feePayer: detail.escrow.feePayer || "buyer",
       createdAt: detail.escrow.createdAt,
       updatedAt: detail.escrow.updatedAt,
       fundingExpiresAt: detail.escrow.fundingExpiresAt,
@@ -877,7 +879,7 @@ export async function buildReconciliationRows(limit = 250) {
         escrowStore.getUserById(escrow.buyerUserId),
         escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
         escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
-        calculateEscrowPayoutQuote(escrow.amount, escrow.currency),
+        calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer),
         calculateComplianceRisk(escrow),
         escrowStore.listEvents(escrow.escrowId, 50),
       ]);
@@ -1177,7 +1179,7 @@ export function amountsMatch(expected: number, received: number) {
 }
 
 export async function expectedFundingAmount(escrow: EscrowRecord) {
-  const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
   return escrow.currency === "NAIRA" ? quote.totalWithFee : escrow.amount;
 }
 

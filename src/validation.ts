@@ -58,6 +58,7 @@ export const escrowCreateSchema = z.object({
   ),
   channel: z.enum(["whatsapp_dm", "whatsapp_group", "admin", "api"]).default("api"),
   clientRequestId: z.string().trim().min(8).max(120).optional(),
+  feePayer: z.enum(["buyer", "seller", "split"]).default("buyer"),
 });
 
 export const userProfileSchema = z.object({
