@@ -41,6 +41,8 @@ export interface PlatformSettings {
   reconciliationWorkerEnabled: boolean;
   queueWorkerEnabled: boolean;
   stuckEscrowAlertMinutes: number;
+  autoReleaseEnabled: boolean;
+  deliveryInspectionWindowDays: number;
   outageStatusPageUrl: string;
   outageContacts: string;
   version: number;
@@ -149,6 +151,8 @@ export class SettingsStore {
       reconciliationWorkerEnabled: Boolean(row.reconciliation_worker_enabled ?? 0),
       queueWorkerEnabled: Boolean(row.queue_worker_enabled ?? 0),
       stuckEscrowAlertMinutes: Number(row.stuck_escrow_alert_minutes ?? 1440),
+      autoReleaseEnabled: Boolean(row.auto_release_enabled ?? 1),
+      deliveryInspectionWindowDays: Number(row.delivery_inspection_window_days ?? 3),
       outageStatusPageUrl: row.outage_status_page_url || "",
       outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
       version: Number(row.version),
@@ -233,6 +237,8 @@ export class SettingsStore {
       "reconciliation_worker_enabled INTEGER NOT NULL DEFAULT 0",
       "queue_worker_enabled INTEGER NOT NULL DEFAULT 0",
       "stuck_escrow_alert_minutes INTEGER NOT NULL DEFAULT 1440",
+      "auto_release_enabled INTEGER NOT NULL DEFAULT 1",
+      "delivery_inspection_window_days INTEGER NOT NULL DEFAULT 3",
       "outage_status_page_url TEXT NOT NULL DEFAULT ''",
       "outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai'",
     ];
@@ -262,6 +268,7 @@ export class SettingsStore {
           naira_high_value_review_amount, usdc_high_value_review_amount,
           payment_lifecycle_worker_enabled, payment_lifecycle_worker_interval_ms,
           reconciliation_worker_enabled, queue_worker_enabled, stuck_escrow_alert_minutes,
+          auto_release_enabled, delivery_inspection_window_days,
           outage_status_page_url, outage_contacts,
           version, updated_at, updated_by
         )
@@ -277,6 +284,7 @@ export class SettingsStore {
           @nairaHighValueReviewAmount, @usdcHighValueReviewAmount,
           @paymentLifecycleWorkerEnabled, @paymentLifecycleWorkerIntervalMs,
           @reconciliationWorkerEnabled, @queueWorkerEnabled, @stuckEscrowAlertMinutes,
+          1, 3,
           @outageStatusPageUrl, @outageContacts,
           1, @now, 'system'
         )
@@ -375,6 +383,8 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS reconciliation_worker_enabled INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS queue_worker_enabled INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS stuck_escrow_alert_minutes INTEGER NOT NULL DEFAULT 1440;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS auto_release_enabled INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS delivery_inspection_window_days INTEGER NOT NULL DEFAULT 3;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_status_page_url TEXT NOT NULL DEFAULT '';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai';
     `);
@@ -394,10 +404,11 @@ export class SettingsStore {
           naira_high_value_review_amount, usdc_high_value_review_amount,
           payment_lifecycle_worker_enabled, payment_lifecycle_worker_interval_ms,
           reconciliation_worker_enabled, queue_worker_enabled, stuck_escrow_alert_minutes,
+          auto_release_enabled, delivery_inspection_window_days,
           outage_status_page_url, outage_contacts,
           version, updated_at, updated_by
         )
-         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1, $24, 'system')`,
+         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 1, 3, $22, $23, 1, $24, 'system')`,
         [
           process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave",
           process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
@@ -475,6 +486,8 @@ export class SettingsStore {
     reconciliationWorkerEnabled?: boolean;
     queueWorkerEnabled?: boolean;
     stuckEscrowAlertMinutes?: number;
+    autoReleaseEnabled?: boolean;
+    deliveryInspectionWindowDays?: number;
     outageStatusPageUrl?: string;
     outageContacts?: string;
     expectedVersion: number;
@@ -516,6 +529,8 @@ export class SettingsStore {
       reconciliationWorkerEnabled: settings.reconciliationWorkerEnabled ?? current.reconciliationWorkerEnabled,
       queueWorkerEnabled: settings.queueWorkerEnabled ?? current.queueWorkerEnabled,
       stuckEscrowAlertMinutes: settings.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
+      autoReleaseEnabled: settings.autoReleaseEnabled ?? current.autoReleaseEnabled,
+      deliveryInspectionWindowDays: settings.deliveryInspectionWindowDays ?? current.deliveryInspectionWindowDays,
       outageStatusPageUrl: settings.outageStatusPageUrl ?? current.outageStatusPageUrl,
       outageContacts: settings.outageContacts ?? current.outageContacts,
     };
@@ -538,6 +553,9 @@ export class SettingsStore {
     if (resolved.nairaFeeFixed < 0) throw new Error("Naira fixed fee must be non-negative");
     if (resolved.usdcFeePercent < 0 || resolved.usdcFeePercent > 50) throw new Error("USDC fee percent must be between 0 and 50");
     if (resolved.usdcFeeFixed < 0) throw new Error("USDC fixed fee must be non-negative");
+    if (resolved.deliveryInspectionWindowDays < 1 || resolved.deliveryInspectionWindowDays > 30) {
+      throw new Error("Delivery inspection window must be between 1 and 30 days");
+    }
     if (!(resolved.nairaNewUserLimit <= resolved.nairaTrustedUserLimit
       && resolved.nairaTrustedUserLimit <= resolved.nairaEstablishedUserLimit
       && resolved.nairaEstablishedUserLimit <= resolved.nairaSpecialApprovalLimit)) {
@@ -614,6 +632,8 @@ export class SettingsStore {
             reconciliation_worker_enabled = @reconciliationWorkerEnabled,
             queue_worker_enabled = @queueWorkerEnabled,
             stuck_escrow_alert_minutes = @stuckEscrowAlertMinutes,
+            auto_release_enabled = @autoReleaseEnabled,
+            delivery_inspection_window_days = @deliveryInspectionWindowDays,
             outage_status_page_url = @outageStatusPageUrl,
             outage_contacts = @outageContacts,
             version = @newVersion,
@@ -626,6 +646,7 @@ export class SettingsStore {
         paymentLifecycleWorkerEnabled: resolved.paymentLifecycleWorkerEnabled ? 1 : 0,
         reconciliationWorkerEnabled: resolved.reconciliationWorkerEnabled ? 1 : 0,
         queueWorkerEnabled: resolved.queueWorkerEnabled ? 1 : 0,
+        autoReleaseEnabled: resolved.autoReleaseEnabled ? 1 : 0,
         newVersion,
         now,
       });
@@ -669,12 +690,14 @@ export class SettingsStore {
              reconciliation_worker_enabled = $34,
              queue_worker_enabled = $35,
              stuck_escrow_alert_minutes = $36,
-             outage_status_page_url = $37,
-             outage_contacts = $38,
-             version = $39,
-             updated_at = $40,
-             updated_by = $41
-         WHERE id = 'default' AND version = $42`,
+             auto_release_enabled = $37,
+             delivery_inspection_window_days = $38,
+             outage_status_page_url = $39,
+             outage_contacts = $40,
+             version = $41,
+             updated_at = $42,
+             updated_by = $43
+         WHERE id = 'default' AND version = $44`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -712,6 +735,8 @@ export class SettingsStore {
           resolved.reconciliationWorkerEnabled ? 1 : 0,
           resolved.queueWorkerEnabled ? 1 : 0,
           resolved.stuckEscrowAlertMinutes,
+          resolved.autoReleaseEnabled ? 1 : 0,
+          resolved.deliveryInspectionWindowDays,
           resolved.outageStatusPageUrl,
           resolved.outageContacts,
           newVersion,

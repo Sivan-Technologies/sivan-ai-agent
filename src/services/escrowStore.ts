@@ -1761,7 +1761,18 @@ export class EscrowStore {
         throw new Error(`Escrow cannot be marked delivered from status ${escrow.status}`);
       }
       const deliveredAt = new Date().toISOString();
-      const inspectionDays = Number(process.env.DELIVERY_INSPECTION_WINDOW_DAYS || "3");
+      let inspectionDays = 3;
+      if (this.provider === "sqlite") {
+        const row = this.sqlite!.prepare("SELECT delivery_inspection_window_days FROM platform_settings LIMIT 1").get();
+        if (row && (row as any).delivery_inspection_window_days !== undefined) {
+          inspectionDays = Number((row as any).delivery_inspection_window_days);
+        }
+      } else {
+        const result = await this.pool!.query("SELECT delivery_inspection_window_days FROM platform_settings LIMIT 1");
+        if (result.rows.length > 0 && result.rows[0].delivery_inspection_window_days !== undefined) {
+          inspectionDays = Number(result.rows[0].delivery_inspection_window_days);
+        }
+      }
       const inspectionExpiresAt = new Date(Date.now() + inspectionDays * 24 * 60 * 60 * 1000).toISOString();
 
       await this.transitionEscrow(escrowId, "DELIVERED", {

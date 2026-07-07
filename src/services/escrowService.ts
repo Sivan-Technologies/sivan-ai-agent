@@ -1287,6 +1287,9 @@ export async function checkInspectionExpirations() {
   const now = new Date().toISOString();
   
   const settings = await settingsStore.getSettings();
+  if (!settings.autoReleaseEnabled) {
+    return 0;
+  }
   for (const escrow of delivered) {
     if (escrow.inspectionExpiresAt && now >= escrow.inspectionExpiresAt) {
       try {
