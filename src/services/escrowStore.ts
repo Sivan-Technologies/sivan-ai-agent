@@ -2347,6 +2347,15 @@ export class EscrowStore {
     return result.rows.map((row) => this.mapEvent(row));
   }
 
+  public async listSettlementReceivedEvents(): Promise<EscrowEventRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM escrow_events WHERE event_type = 'settlement_received' ORDER BY created_at DESC`).all().map((row) => this.mapEvent(row));
+    }
+    const result = await this.pool!.query(`SELECT * FROM escrow_events WHERE event_type = 'settlement_received' ORDER BY created_at DESC`);
+    return result.rows.map((row) => this.mapEvent(row));
+  }
+
   public async isMediaUrlLinked(url: string): Promise<boolean> {
     await this.initializeSchema();
     const pattern = `%${url}%`;

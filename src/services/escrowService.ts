@@ -1110,11 +1110,7 @@ export async function buildRevenueAnalytics() {
     processorFees: number;
     processorFeeKnownCount: number;
   }>));
-  const settlementEvents = (await Promise.all(
-    Array.from(new Set(productionFundingTransactions.map((transaction) => transaction.escrowId))).map((escrowId) =>
-      escrowStore.listEvents(escrowId, 50)
-    )
-  )).flat().filter((event) => event.eventType === "settlement_received");
+  const settlementEvents = (await escrowStore.listSettlementReceivedEvents()).filter((event) => !sandboxEscrowIds.has(event.escrowId));
   const settlementSummary = Object.values(settlementEvents.reduce((acc, event) => {
     let metadata: any = {};
     try {
