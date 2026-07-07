@@ -561,6 +561,8 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       reconciliationWorkerEnabled: updates.reconciliationWorkerEnabled ?? current.reconciliationWorkerEnabled,
       queueWorkerEnabled: updates.queueWorkerEnabled ?? current.queueWorkerEnabled,
       stuckEscrowAlertMinutes: updates.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
+      autoReleaseEnabled: updates.autoReleaseEnabled ?? current.autoReleaseEnabled,
+      deliveryInspectionWindowDays: updates.deliveryInspectionWindowDays ?? current.deliveryInspectionWindowDays,
       outageStatusPageUrl: updates.outageStatusPageUrl ?? current.outageStatusPageUrl,
       outageContacts: updates.outageContacts ?? current.outageContacts,
       expectedVersion: Number(updates.expectedVersion || 1),
