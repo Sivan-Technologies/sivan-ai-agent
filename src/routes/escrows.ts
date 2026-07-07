@@ -535,4 +535,30 @@ router.post("/api/escrows/:escrowId/dispute/evidence", requireCoreApiAuth, async
   res.status(201).json(detail);
 });
 
+router.get("/api/escrows/payment-ref/:reference", async (req, res) => {
+  try {
+    const reference = String(req.params.reference || "").trim();
+    if (!reference) {
+      return res.status(400).json({ error: "Payment reference is required" });
+    }
+
+    const escrow = await escrowStore.findEscrowByPaymentReference(reference);
+    if (!escrow) {
+      return res.status(404).json({ error: "Escrow not found" });
+    }
+
+    res.status(200).json({
+      escrowId: escrow.escrowId,
+      purpose: escrow.purpose,
+      amount: escrow.amount,
+      currency: escrow.currency,
+      status: escrow.status,
+      paymentProvider: escrow.paymentProvider,
+      paymentReference: escrow.paymentReference,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to lookup payment reference" });
+  }
+});
+
 export default router;

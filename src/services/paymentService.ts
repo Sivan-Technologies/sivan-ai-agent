@@ -226,7 +226,7 @@ export async function activeNairaPaymentInstructionForEscrow(detail: any) {
   let authorizationUrl: string | undefined =
     detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl;
   if (!authorizationUrl && /^sandbox-/i.test(paymentRef)) {
-    authorizationUrl = `${deriveAgentBaseUrl()}/sandbox-pay?reference=${encodeURIComponent(paymentRef)}`;
+    authorizationUrl = `https://sivantech.online/pay?reference=${encodeURIComponent(paymentRef)}`;
   }
 
   return {
