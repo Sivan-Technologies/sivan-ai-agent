@@ -143,7 +143,7 @@ export class NombaPayoutClient {
   }
 
   private async issueToken() {
-    if (!config.nomba.clientId || !config.nomba.clientSecret || !config.nomba.accountId) {
+    if (!this.clientId || !this.clientSecret || !this.accountId) {
       throw new Error("Nomba client credentials and account ID are required");
     }
 
@@ -153,13 +153,13 @@ export class NombaPayoutClient {
         `${this.baseUrl}/v1/auth/token/issue`,
         {
           grant_type: "client_credentials",
-          client_id: config.nomba.clientId,
-          client_secret: config.nomba.clientSecret,
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
         },
         {
           headers: {
             "Content-Type": "application/json",
-            accountId: config.nomba.accountId,
+            accountId: this.accountId,
           },
           timeout: this.timeoutMs,
         }
@@ -192,7 +192,7 @@ export class NombaPayoutClient {
     return {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      accountId: config.nomba.accountId,
+      accountId: this.accountId,
     };
   }
 
