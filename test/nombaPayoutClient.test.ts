@@ -174,6 +174,58 @@ describe("NombaPayoutClient", () => {
     });
   });
 
+  it("creates a checkout order", async () => {
+    mockedAxios.post
+      .mockResolvedValueOnce({ data: { data: { access_token: "access-token", expires_in: 1800 } } })
+      .mockResolvedValueOnce({
+        data: {
+          code: "00",
+          description: "Success",
+          data: {
+            checkoutLink: "https://checkout.nomba.com/pay/order-123",
+            orderReference: "ord-12345",
+          },
+        },
+      });
+
+    const client = new NombaPayoutClient();
+    await expect(client.createCheckoutOrder({
+      amount: 10000,
+      customerEmail: "buyer@example.com",
+      paymentReference: "sandbox-nomba-SIV-123",
+      redirectUrl: "https://sivan-escrow-agent-test.onrender.com/callback",
+    })).resolves.toEqual({
+      checkoutLink: "https://checkout.nomba.com/pay/order-123",
+      orderReference: "ord-12345",
+      raw: {
+        code: "00",
+        description: "Success",
+        data: {
+          checkoutLink: "https://checkout.nomba.com/pay/order-123",
+          orderReference: "ord-12345",
+        },
+      },
+    });
+
+    expect(mockedAxios.post).toHaveBeenLastCalledWith(
+      "https://sandbox.nomba.com/v1/checkout/order",
+      expect.objectContaining({
+        amount: 10000,
+        currency: "NGN",
+        customerEmail: "buyer@example.com",
+        merchantTxRef: "sandbox-nomba-SIV-123",
+        allowedPaymentMethods: ["Transfer"],
+        redirectUrl: "https://sivan-escrow-agent-test.onrender.com/callback",
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer access-token",
+          accountId: "nomba-account-id",
+        }),
+      })
+    );
+  });
+
   it("verifies webhook signatures with HMAC-SHA256 over the raw body", () => {
     const client = new NombaPayoutClient();
     const rawBody = JSON.stringify({ event_type: "payout_success", data: { id: "API-TRANSFER-1" } });
