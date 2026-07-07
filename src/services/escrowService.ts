@@ -1038,9 +1038,12 @@ export async function buildRevenueAnalytics() {
     escrowStore.listRevenueLedgerEntries(),
     escrowStore.listRevenueTransactions(),
   ]);
-  const sandboxTransactions = fundingTransactions.filter((transaction) =>
-    /sandbox|test_override/i.test(transaction.provider) || /^sandbox-/i.test(transaction.reference || "")
-  );
+  const includeSandbox = config.databaseMode === "test" || process.env.ALLOW_SANDBOX_REVENUE === "true";
+  const sandboxTransactions = includeSandbox
+    ? []
+    : fundingTransactions.filter((transaction) =>
+        /sandbox|test_override/i.test(transaction.provider) || /^sandbox-/i.test(transaction.reference || "")
+      );
   const sandboxEscrowIds = new Set(sandboxTransactions.map((transaction) => transaction.escrowId));
   const productionLedgerEntries = ledgerEntries.filter((entry) => !sandboxEscrowIds.has(entry.escrowId));
   const productionFundingTransactions = fundingTransactions.filter((transaction) => !sandboxEscrowIds.has(transaction.escrowId));
