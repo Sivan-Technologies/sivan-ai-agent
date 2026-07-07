@@ -1190,9 +1190,9 @@ describe("Admin Settings API Integration", () => {
     expect(approved.body.escrow).toMatchObject({
       escrowId,
       status: "RELEASED",
-      manualPayoutReference: "TEST-paystack-transfer-ref-001",
       releasedBy: "unknown",
     });
+    expect(approved.body.escrow.manualPayoutReference).toContain("TEST-NOMBA-");
     expect(approved.body.payoutQuote).toMatchObject({
       grossAmount: payoutRow.grossAmount,
       platformFeeAmount: payoutRow.platformFeeAmount,
@@ -1208,7 +1208,7 @@ describe("Admin Settings API Integration", () => {
     expect(events.body.transactions.some((transaction: any) => (
       transaction.transactionType === "release" &&
       transaction.amount === payoutRow.sellerNetAmount &&
-      transaction.reference === "TEST-paystack-transfer-ref-001"
+      transaction.reference.startsWith("TEST-NOMBA-")
     ))).toBe(true);
 
     const detail = await request(app)
@@ -1228,7 +1228,7 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("resolved account name");
     expect(csv.text).toContain("compliance risk score");
     expect(csv.text).toContain("reconciliation risk level");
-    expect(csv.text).toContain("TEST-paystack-transfer-ref-001");
+    expect(csv.text).toContain("TEST-NOMBA-");
   });
 
   it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {

@@ -208,3 +208,24 @@ export function getActivePayoutProvider(
 ): PayoutProvider {
   return createPayoutProvider(configuredActivePayoutProvider(), platformMode);
 }
+
+export function getPayoutProviderForEscrow(
+  escrow: EscrowRecord,
+  platformMode?: "test" | "live" | "maintenance"
+): PayoutProvider {
+  if (escrow.currency !== "NAIRA") {
+    return createPayoutProvider("manual_bank_transfer", platformMode);
+  }
+
+  const payInProvider = (escrow.paymentProvider || "").replace(/_sandbox_override$/, "").toLowerCase();
+
+  if (payInProvider === "nomba" && (platformMode === "test" || config.nomba.payoutEnabled)) {
+    return createPayoutProvider("nomba", platformMode);
+  }
+
+  if (payInProvider === "palmpay" && (platformMode === "test" || config.palmpay.payoutEnabled)) {
+    return createPayoutProvider("palmpay", platformMode);
+  }
+
+  return getActivePayoutProvider(platformMode);
+}

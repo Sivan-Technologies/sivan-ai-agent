@@ -45,7 +45,7 @@ import {
   getProviderForEscrow,
   providerConfigured as configCheck,
 } from "../services/paymentService";
-import { getActivePayoutProvider } from "../services/payoutProvider";
+import { getActivePayoutProvider, getPayoutProviderForEscrow } from "../services/payoutProvider";
 import { runDailyReconciliation } from "../services/reconciliationService";
 import {
   capturePaymentWarning,
@@ -205,7 +205,7 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
     }
     const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
-    const payoutProvider = escrow.currency === "NAIRA" ? getActivePayoutProvider(config.databaseMode) : null;
+    const payoutProvider = escrow.currency === "NAIRA" ? getPayoutProviderForEscrow(escrow, config.databaseMode) : null;
     const payoutAccount = escrow.sellerUserId
       ? payoutProvider?.id === "manual_bank_transfer"
         ? await escrowStore.getPayoutAccount(escrow.sellerUserId)

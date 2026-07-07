@@ -170,17 +170,16 @@ describe("Nomba Pay-in & Payout E2E Lifecycle", () => {
     expect(releaseRequestRes.status).toBe(200);
     expect(releaseRequestRes.body.status).toBe("PENDING_RELEASE");
 
-    // 8. Admin Approve Release
+    // 8. Admin Approve Release (triggers automated Nomba payout)
     const approveReleaseRes = await request(app)
       .post(`/admin/escrows/${escrowId}/approve-release`)
       .set("x-admin-key", "test-admin-key")
       .send({
-        manualPayoutReference: "paystack-trn-nomba-e2e",
-        payoutNotes: "E2E manual release approved for Nomba provider",
+        payoutNotes: "E2E automated release approved for Nomba provider",
       });
 
     expect(approveReleaseRes.status).toBe(200);
     expect(approveReleaseRes.body.escrow.status).toBe("RELEASED");
-    expect(approveReleaseRes.body.escrow.manualPayoutReference).toBe("TEST-paystack-trn-nomba-e2e");
+    expect(approveReleaseRes.body.escrow.manualPayoutReference).toContain("TEST-NOMBA-");
   }, 30000);
 });

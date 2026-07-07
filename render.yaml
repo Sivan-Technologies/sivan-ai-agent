@@ -82,6 +82,10 @@ services:
         sync: false
       - key: PALMPAY_BASE_URL
         value: https://open-gw-sandbox.palmpay-inc.com
+      - key: PALMPAY_PAYOUT_ENABLED
+        value: "true"
+      - key: NOMBA_PAYOUT_ENABLED
+        value: "true"
       # Cloudflare R2 Credentials
       - key: R2_ACCESS_KEY_ID
         sync: false
@@ -171,6 +175,10 @@ services:
         sync: false
       - key: PALMPAY_LIVE_BASE_URL
         value: https://open-gw-prod.palmpay-inc.com
+      - key: PALMPAY_PAYOUT_ENABLED
+        value: "true"
+      - key: NOMBA_PAYOUT_ENABLED
+        value: "true"
       # Cloudflare R2 Credentials
       - key: R2_ACCESS_KEY_ID
         sync: false
