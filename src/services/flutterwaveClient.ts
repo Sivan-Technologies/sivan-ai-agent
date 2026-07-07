@@ -1,6 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
 import { config } from "../config";
+import { NairaAccountResolution } from "./monnifyClient";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
 // ---------------------------------------------------------------------------
@@ -53,9 +54,22 @@ function extractAxiosMessage(err: unknown): string {
 
 export class FlutterwaveClient {
   private baseUrl = config.flutterwave.baseUrl.replace(/\/$/, "");
-  private secretKey = config.flutterwave.secretKey;
+  private secretKey: string | undefined;
   private webhookSecret = config.flutterwave.webhookSecret;
   private timeoutMs = config.flutterwave.timeoutMs;
+
+  constructor(platformMode?: "test" | "live" | "maintenance") {
+    if (platformMode === "live") {
+      this.secretKey = config.flutterwave.liveSecretKey || config.flutterwave.secretKey;
+      this.baseUrl = "https://api.flutterwave.com";
+    } else if (platformMode === "test") {
+      this.secretKey = config.flutterwave.testSecretKey || config.flutterwave.secretKey;
+      this.baseUrl = "https://api.flutterwave.com";
+    } else {
+      this.secretKey = config.flutterwave.secretKey;
+      this.baseUrl = config.flutterwave.baseUrl.replace(/\/$/, "");
+    }
+  }
 
   public isCollectionConfigured() {
     return Boolean(this.secretKey && this.baseUrl);
@@ -124,7 +138,7 @@ export class FlutterwaveClient {
       tx_ref: input.paymentReference,
       amount: input.amount,
       currency: "NGN",
-      redirect_url: input.redirectUrl || config.flutterwave.webhookUrl || config.paystack.callbackUrl,
+      redirect_url: input.redirectUrl || config.flutterwave.callbackUrl || config.app.frontendUrl,
       payment_options: paymentOptions || "banktransfer",
       customer: {
         email: input.customerEmail,
@@ -209,6 +223,48 @@ export class FlutterwaveClient {
     return this.mapTransactionResponse(response, paymentReference);
   }
 
+  public async listTransactions(input: { from: string; to: string; perPage?: number }): Promise<FlutterwaveVerifiedCharge[]> {
+    const transactions: FlutterwaveVerifiedCharge[] = [];
+    const perPage = input.perPage || 100;
+    let page = 1;
+
+    while (page <= 20) {
+      let response: any;
+      try {
+        const res = await axios.get(
+          `${this.baseUrl}/v3/transactions`,
+          {
+            headers: this.authHeaders(),
+            params: {
+              from: input.from.slice(0, 10),
+              to: input.to.slice(0, 10),
+              page,
+              per_page: perPage,
+            },
+            timeout: this.timeoutMs,
+          }
+        );
+        response = res.data;
+      } catch (err) {
+        throw new Error(`Flutterwave transaction list failed: ${extractAxiosMessage(err)}`);
+      }
+
+      if (response?.status !== "success" || !Array.isArray(response.data)) {
+        throw new Error(response?.message || "Flutterwave transaction list returned no data");
+      }
+
+      transactions.push(...response.data.map((tx: any) => this.mapTransaction(tx, response, String(tx.tx_ref || tx.id || ""))));
+
+      const meta = response.meta || {};
+      const totalPages = Number(meta.total_pages || meta.pageCount || 0);
+      if (!response.data.length || (totalPages && page >= totalPages)) break;
+      if (response.data.length < perPage) break;
+      page += 1;
+    }
+
+    return transactions.filter((transaction) => transaction.paymentReference);
+  }
+
   private mapTransactionResponse(response: any, fallbackReference: string): FlutterwaveVerifiedCharge {
     const data = response?.data;
     if (response?.status !== "success" || !data) {
@@ -248,5 +304,41 @@ export class FlutterwaveClient {
       customerId: tx.customer?.id ? String(tx.customer.id) : undefined,
       raw,
     };
+  }
+
+  public async resolveBankAccount(accountNumber: string, bankCode: string): Promise<NairaAccountResolution> {
+    if (!this.isCollectionConfigured()) {
+      throw new Error("Flutterwave credentials are not configured");
+    }
+    // Translate standard Monnify/CBN codes to Flutterwave-specific codes
+    const codeMapping: Record<string, string> = {
+      "999992": "100004", // Opay
+      "999991": "100033", // Palmpay
+      "50211": "090267",  // Kuda
+      "50515": "090405",  // Moniepoint
+    };
+    const translatedCode = codeMapping[bankCode] || bankCode;
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/v3/accounts/resolve`,
+        {
+          account_number: accountNumber,
+          account_bank: translatedCode,
+        },
+        { headers: this.authHeaders(), timeout: this.timeoutMs }
+      );
+      const data = response.data?.data;
+      if (response.data?.status !== "success" || !data?.account_name) {
+        throw new Error(response.data?.message || "Unable to resolve bank account with Flutterwave");
+      }
+      return {
+        accountNumber: data.account_number || accountNumber,
+        accountName: data.account_name,
+        bankCode,
+      };
+    } catch (err) {
+      throw new Error(`Flutterwave bank account resolution failed: ${extractAxiosMessage(err)}`);
+    }
   }
 }

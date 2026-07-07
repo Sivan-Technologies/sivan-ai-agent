@@ -1,7 +1,7 @@
 {
   "name": "sivan-escrow-agent",
   "version": "0.1.0",
-  "description": "Sivan Escrow Agent: autonomous SAP + Ace Data Cloud escrow orchestration with Paystack Naira and x402 USDC settlement.",
+  "description": "Sivan Escrow Agent: autonomous SAP + Ace Data Cloud escrow orchestration with Naira and x402 USDC settlement.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -14,14 +14,27 @@
     "dr:check": "ts-node src/scripts/disaster-recovery-check.ts",
     "drill:incident": "ts-node src/scripts/incident-drill.ts",
     "verify:settlement": "ts-node src/scripts/verify-settlement.ts",
+    "verify:palmpay": "ts-node src/scripts/palmpay-proof.ts",
+    "verify:nomba-transfer": "ts-node src/scripts/nomba-transfer-proof.ts",
+    "set-active-provider": "ts-node src/scripts/set-active-provider.ts",
     "test": "vitest"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1076.0",
+    "@aws-sdk/s3-request-presigner": "^3.1076.0",
     "@oobe-protocol-labs/synapse-client-sdk": "^2.0.6",
     "@sentry/node": "^10.55.0",
     "@sentry/profiling-node": "^10.55.0",
+    "@types/better-sqlite3": "^7.0.0",
+    "@types/body-parser": "^1.19.5",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.18",
+    "@types/jsonwebtoken": "^9.0.0",
+    "@types/node": "^20.11.0",
+    "@types/node-fetch": "^2.6.4",
+    "@types/pg": "^8.20.0",
     "axios": "^1.5.0",
     "better-sqlite3": "^11.9.1",
     "body-parser": "^1.20.3",
@@ -32,21 +45,14 @@
     "jsonwebtoken": "^9.0.0",
     "node-fetch": "^2.6.7",
     "pg": "^8.21.0",
+    "typescript": "^5.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.0.0",
-    "@types/body-parser": "^1.19.5",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.18",
-    "@types/jsonwebtoken": "^9.0.0",
-    "@types/node-fetch": "^2.6.4",
-    "@types/pg": "^8.20.0",
     "@types/supertest": "^2.0.12",
     "supertest": "^6.3.3",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.5.0",
     "vitest": "^1.6.1"
   }
 }

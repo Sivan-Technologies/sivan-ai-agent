@@ -6,21 +6,46 @@ import { ComplianceRisk, scoreComplianceRisk } from "./complianceRisk";
 import {
   settingsStore,
   escrowStore,
-  paystackClient,
   monnifyClient,
+  palmpayClient,
   flutterwaveClient,
 } from "../context";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
+import { NombaPayoutClient } from "./nombaPayoutClient";
 
-export function createProviderForId(provider?: string) {
-  return createNairaPaymentProvider(provider || "paystack");
+/**
+ * Derives the base host URL for the current escrow agent instance.
+ * Used to reconstruct sandbox payment simulation links.
+ */
+function deriveAgentBaseUrl(): string {
+  const callbackUrl = config.flutterwave.callbackUrl || "";
+  if (callbackUrl) {
+    try {
+      return new URL(callbackUrl).origin;
+    } catch {
+      // fall through
+    }
+  }
+  return config.databaseMode === "live"
+    ? "https://sivan-escrow-agent-live.onrender.com"
+    : "https://sivan-escrow-agent-test.onrender.com";
+}
+
+export function createProviderForId(provider?: string, platformMode?: "test" | "live" | "maintenance") {
+  if (!provider) {
+    throw new Error(
+      "No payment provider specified. Set ACTIVE_PAYMENT_PROVIDER in your environment."
+    );
+  }
+  return createNairaPaymentProvider(provider, platformMode);
 }
 
 export function providerConfigured(provider: string) {
   const normalized = provider.trim().toLowerCase();
-  if (normalized === "paystack") return Boolean(config.paystack.secretKey);
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
+  if (normalized === "palmpay") return palmpayClient.isCollectionConfigured();
   if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
+  if (normalized === "nomba") return new NombaPayoutClient(config.databaseMode).isCollectionConfigured();
   return false;
 }
 
@@ -29,26 +54,40 @@ export async function getActiveNairaPaymentProvider() {
   if (!providerConfigured(settings.activePaymentProvider)) {
     throw new Error(`Active Naira payment provider is not configured: ${settings.activePaymentProvider}`);
   }
-  return createProviderForId(settings.activePaymentProvider);
+  return createProviderForId(settings.activePaymentProvider, settings.platformMode);
 }
 
-export function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
-  return createProviderForId(escrow.paymentProvider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack");
+export async function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
+  const settings = await settingsStore.getSettings();
+  return createProviderForId(
+    escrow.paymentProvider || settings.activePaymentProvider,
+    settings.platformMode
+  );
 }
 
-export function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
+export async function fundingWindowHoursForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
   if (escrow.currency !== "NAIRA") return 24;
-  return escrow.amount >= config.nairaPayments.highValueFundingWindowAmount
-    ? config.nairaPayments.highValueFundingWindowHours
-    : config.nairaPayments.fundingWindowHours;
+  const settings = await settingsStore.getSettings();
+  return escrow.amount >= settings.nairaHighValueFundingWindowAmount
+    ? settings.nairaHighValueFundingWindowHours
+    : settings.nairaFundingWindowHours;
 }
 
-export function fundingDeadlineForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
-  return new Date(Date.now() + fundingWindowHoursForEscrow(escrow) * 60 * 60 * 1000).toISOString();
+export async function fundingDeadlineForEscrow(escrow: Pick<EscrowRecord, "currency" | "amount">) {
+  const hours = await fundingWindowHoursForEscrow(escrow);
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
 export function uniqueProviderReference(providerId: string, escrowId: string) {
   return `${providerId}-${escrowId}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function callbackUrlForProvider(providerId: string) {
+  const normalized = providerId.trim().toLowerCase();
+  if (normalized === "palmpay") return config.palmpay.callbackUrl || config.flutterwave.callbackUrl;
+  if (normalized === "flutterwave") return config.flutterwave.callbackUrl;
+  if (normalized === "monnify") return config.monnify.webhookUrl || config.flutterwave.callbackUrl;
+  return config.flutterwave.callbackUrl;
 }
 
 export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
@@ -90,9 +129,9 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
   ].join("\n");
 }
 
-export function paystackEmailForWhatsapp(whatsappNumber: string) {
+export function nairaCustomerEmailForWhatsapp(whatsappNumber: string) {
   const digits = whatsappNumber.replace(/\D/g, "");
-  return `whatsapp_${digits || "user"}@sivan.local`;
+  return `whatsapp_${digits || "user"}@sivan.com`;
 }
 
 export type PayoutQuote = FeeCalculation & {
@@ -123,17 +162,17 @@ export async function calculateEscrowPayoutQuote(amount: number, currency: Escro
 }
 
 export async function createNairaPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
-  const provider = escrow.paymentProvider ? getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
+  const provider = escrow.paymentProvider ? await getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
   const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
   const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
   const transaction = await provider.initializeBankTransferPayment({
     amount: payoutQuote.totalWithFee,
-    customerEmail: paystackEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
-    callbackUrl: config.paystack.callbackUrl,
+    customerEmail: nairaCustomerEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
+    callbackUrl: callbackUrlForProvider(provider.id),
     escrowId: escrow.escrowId,
     paymentReference,
   });
-  const fundingExpiresAt = escrow.fundingExpiresAt || fundingDeadlineForEscrow(escrow);
+  const fundingExpiresAt = escrow.fundingExpiresAt || await fundingDeadlineForEscrow(escrow);
   await escrowStore.attachPayment({
     escrowId: escrow.escrowId,
     paymentReference: transaction.paymentReference,
@@ -180,11 +219,21 @@ export async function activeNairaPaymentInstructionForEscrow(detail: any) {
   } catch {
     rawPayload = {};
   }
+
+  // Resolve authorization URL — for sandbox references created before the URL
+  // was stored, reconstruct it on the fly so Pay Now always has a clickable link.
+  const paymentRef = detail.escrow.paymentReference as string;
+  let authorizationUrl: string | undefined =
+    detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl;
+  if (!authorizationUrl && /^sandbox-/i.test(paymentRef)) {
+    authorizationUrl = `${deriveAgentBaseUrl()}/sandbox-pay?reference=${encodeURIComponent(paymentRef)}`;
+  }
+
   return {
     provider: detail.escrow.paymentProvider,
-    reference: detail.escrow.paymentReference,
+    reference: paymentRef,
     transactionReference: rawPayload.transactionReference || null,
-    authorizationUrl: detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl,
+    authorizationUrl,
     accountNumber: rawPayload.accountNumber,
     accountName: rawPayload.accountName,
     bankName: rawPayload.bankName,
@@ -211,7 +260,7 @@ export async function calculateComplianceRisk(escrow: EscrowRecord): Promise<Com
   }));
   const sellerDisputeCount = Math.max(disputedStatuses, disputedByEvent.filter(Boolean).length);
 
-  return scoreComplianceRisk({
+  return await scoreComplianceRisk({
     amount: escrow.amount,
     currency: escrow.currency,
     sellerDisputeCount,

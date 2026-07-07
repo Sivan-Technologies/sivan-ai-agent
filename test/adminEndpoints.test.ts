@@ -1,31 +1,53 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import request from "supertest";
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-admin-settings.db");
 process.env.ADMIN_API_KEY = "test-admin-key";
-process.env.CORE_API_SECRET = "test-core-key";
+process.env.CORE_API_SECRET = "test-core-secret";
+process.env.ADMIN_IP_ALLOWLIST = "";
+process.env.ADMIN_ALLOWED_IPS = "";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
-process.env.ACTIVE_PAYMENT_PROVIDER = "paystack";
-process.env.BACKUP_PAYMENT_PROVIDER = "monnify";
-process.env.EMERGENCY_PAYMENT_PROVIDER = "flutterwave";
+process.env.ACTIVE_PAYMENT_PROVIDER = "nomba";
+process.env.BACKUP_PAYMENT_PROVIDER = "nomba";
+process.env.EMERGENCY_PAYMENT_PROVIDER = "nomba";
 process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED = "false";
-process.env.PAYSTACK_SECRET_KEY = "sk_test_admin_endpoint";
-process.env.PAYSTACK_BASE_URL = "http://127.0.0.1:9";
-process.env.PAYSTACK_TIMEOUT_MS = "50";
+process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
+process.env.NOMBA_TEST_CLIENT_ID = "test-nomba-client-id";
+process.env.NOMBA_TEST_CLIENT_SECRET = "test-nomba-client-secret";
+process.env.NOMBA_TEST_ACCOUNT_ID = "test-nomba-account-id";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "8102524846";
 process.env.PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS = "whatsapp:+2348000000902";
 process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET = "test-twilio-debugger-secret";
+process.env.NOMBA_WEBHOOK_SECRET = "test-nomba-webhook-secret";
+process.env.DATABASE_MODE = "test";
+const palmpayPlatformKeys = crypto.generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
+process.env.PALMPAY_PLATFORM_PUBLIC_KEY = palmpayPlatformKeys.publicKey;
 
 if (fs.existsSync(TEST_DB_PATH)) {
   fs.unlinkSync(TEST_DB_PATH);
 }
 
 const app = (await import("../src/server")).default;
+
+function palmpaySign(payload: Record<string, unknown>) {
+  const canonical = Object.keys(payload)
+    .filter((key) => key !== "sign" && payload[key] !== undefined && payload[key] !== null && String(payload[key]).trim() !== "")
+    .sort()
+    .map((key) => `${key}=${String(payload[key]).trim()}`)
+    .join("&");
+  const digest = crypto.createHash("md5").update(canonical, "utf8").digest("hex").toUpperCase();
+  return crypto.createSign("RSA-SHA1").update(digest).sign(palmpayPlatformKeys.privateKey, "base64");
+}
 
 describe("Admin Settings API Integration", () => {
   afterAll(() => {
@@ -89,6 +111,231 @@ describe("Admin Settings API Integration", () => {
       .send({});
     expect(generic.status).toBe(200);
     expect(generic.body).toMatchObject({ received: true, ignored: "missing_structured_details" });
+  });
+
+  it("should verify signed Nomba payout webhooks before accepting them", async () => {
+    const payload = {
+      event_type: "payout_success",
+      requestId: "nomba-request-001",
+      data: {
+        merchant: {
+          name: "Sivan",
+          walletId: "wallet-001",
+        },
+        transaction: {
+          transactionId: "API-TRANSFER-NOMBA-001",
+          type: "transfer",
+          status: "SUCCESS",
+          amount: 100,
+          fee: 0,
+          transactionAmount: 100,
+          transactionFee: 0,
+          createdAt: "2026-06-27T10:00:00Z",
+          timeCreated: "2026-06-27T10:00:00Z",
+          terminalId: "terminal-001",
+          merchantTxRef: "NOMBA_release_SIV_TEST",
+        },
+      },
+    };
+    const timestamp = "2026-06-27T10:01:00Z";
+    const canonical =
+      "payout_success" +
+      "nomba-request-001" +
+      "Sivan" +
+      "wallet-001" +
+      "API-TRANSFER-NOMBA-001" +
+      "transfer" +
+      "SUCCESS" +
+      "100" +
+      "0" +
+      "100" +
+      "0" +
+      "2026-06-27T10:00:00Z" +
+      "2026-06-27T10:00:00Z" +
+      "terminal-001" +
+      "NOMBA_release_SIV_TEST" +
+      timestamp;
+    const signature = crypto.createHmac("sha256", "test-nomba-webhook-secret").update(canonical).digest("base64");
+
+    const rejected = await request(app)
+      .post("/webhooks/nomba")
+      .set("nomba-signature", "bad-signature")
+      .set("nomba-timestamp", timestamp)
+      .send(payload);
+    expect(rejected.status).toBe(400);
+
+    const accepted = await request(app)
+      .post("/webhooks/nomba")
+      .set("nomba-signature", signature)
+      .set("nomba-timestamp", timestamp)
+      .send(payload);
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toMatchObject({ status: "received" });
+  });
+
+  it("should process and reconcile signed Nomba pay-in checkouts", async () => {
+    const { escrowStore } = await import("../src/context");
+    const { expectedFundingAmount } = await import("../src/services/escrowService");
+    const nairaProviderModule = await import("../src/services/nairaPaymentProvider");
+
+    const created = await escrowStore.createEscrow({
+      clientRequestId: `req-${Date.now()}`,
+      buyerUserId: "buyer-nomba",
+      sellerUserId: "seller-nomba",
+      sellerWhatsapp: "+2348000000002",
+      amount: 15000,
+      currency: "NAIRA",
+      purpose: "Nomba Payin Integration Test",
+      createdByChannel: "whatsapp_dm",
+    });
+    const escrowId = created.escrowId;
+    const paymentReference = `sandbox-nomba-${escrowId}`;
+    await escrowStore.attachPayment({
+      escrowId,
+      paymentReference,
+      paymentProvider: "nomba",
+      status: "PENDING_PAYMENT",
+    });
+
+    const expectedAmount = await expectedFundingAmount(created);
+
+    // Mock createNairaPaymentProvider to return our mocked NombaPaymentProvider
+    const originalCreate = nairaProviderModule.createNairaPaymentProvider;
+    const mockProvider = new nairaProviderModule.NombaPaymentProvider();
+    const createSpy = vi.spyOn(nairaProviderModule, "createNairaPaymentProvider")
+      .mockImplementation((provider, mode) => {
+        if (provider === "nomba") {
+          return mockProvider;
+        }
+        return originalCreate(provider, mode);
+      });
+
+    // Mock requeryTransfer for the mockProvider's client
+    const requerySpy = vi.spyOn((mockProvider as any).client, "requeryTransfer").mockResolvedValue({
+      merchantTxRef: paymentReference,
+      transactionId: "TX-NOMBA-PAYIN-001",
+      status: "succeeded",
+      amount: expectedAmount,
+      currency: "NAIRA",
+      fee: 100,
+      raw: { id: "TX-NOMBA-PAYIN-001" },
+    });
+
+    // Also mock requeryTransfer for the global context instance
+    const { nombaPaymentProvider } = await import("../src/context");
+    const globalRequerySpy = vi.spyOn((nombaPaymentProvider as any).client, "requeryTransfer").mockResolvedValue({
+      merchantTxRef: paymentReference,
+      transactionId: "TX-NOMBA-PAYIN-001",
+      status: "succeeded",
+      amount: expectedAmount,
+      currency: "NAIRA",
+      fee: 100,
+      raw: { id: "TX-NOMBA-PAYIN-001" },
+    });
+
+    const payload = {
+      event_type: "payment_success",
+      requestId: "nomba-payin-001",
+      data: {
+        merchant: {
+          name: "Sivan",
+          walletId: "wallet-001",
+        },
+        transaction: {
+          transactionId: "TX-NOMBA-PAYIN-001",
+          type: "checkout",
+          status: "SUCCESSFUL",
+          amount: expectedAmount,
+          fee: 100,
+          transactionAmount: expectedAmount + 100,
+          transactionFee: 100,
+          createdAt: "2026-06-27T10:00:00Z",
+          timeCreated: "2026-06-27T10:00:00Z",
+          terminalId: "terminal-001",
+          merchantTxRef: paymentReference,
+        },
+      },
+    };
+    const timestamp = "2026-06-27T10:01:00Z";
+    const canonical =
+      "payment_success" +
+      "nomba-payin-001" +
+      "Sivan" +
+      "wallet-001" +
+      "TX-NOMBA-PAYIN-001" +
+      "checkout" +
+      "SUCCESSFUL" +
+      String(expectedAmount) +
+      "100" +
+      String(expectedAmount + 100) +
+      "100" +
+      "2026-06-27T10:00:00Z" +
+      "2026-06-27T10:00:00Z" +
+      "terminal-001" +
+      paymentReference +
+      timestamp;
+
+    const signature = crypto.createHmac("sha256", "test-nomba-webhook-secret").update(canonical).digest("base64");
+
+    const response = await request(app)
+      .post("/webhooks/nomba")
+      .set("nomba-signature", signature)
+      .set("nomba-timestamp", timestamp)
+      .send(payload);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ status: "received" });
+
+    const escrow = await escrowStore.getEscrowById(escrowId);
+    expect(escrow?.status).toBe("IN_PROGRESS");
+    expect(requerySpy).toHaveBeenCalledWith(paymentReference);
+
+    requerySpy.mockRestore();
+    globalRequerySpy.mockRestore();
+    createSpy.mockRestore();
+  });
+
+  it("should verify signed PalmPay collection and payout webhooks before accepting them", async () => {
+    const collectionPayload = {
+      orderId: "PPSIVSIGNEDTEST",
+      orderNo: "2424231018025438544222",
+      appId: "LTEST",
+      currency: "NGN",
+      amount: 10000,
+      orderStatus: 2,
+      completeTime: 1782555000000,
+    };
+    const badCollection = await request(app)
+      .post("/webhooks/palmpay")
+      .send({ ...collectionPayload, sign: "bad-signature" });
+    expect(badCollection.status).toBe(400);
+
+    const goodCollection = await request(app)
+      .post("/webhooks/palmpay")
+      .send({ ...collectionPayload, sign: palmpaySign(collectionPayload) });
+    expect(goodCollection.status).toBe(202);
+    expect(goodCollection.text).toBe("success");
+
+    const payoutPayload = {
+      orderId: "PPOPROOFTEST",
+      orderNo: "41220723093001",
+      appId: "LTEST",
+      currency: "NGN",
+      amount: 10000,
+      orderStatus: 2,
+      sessionId: "100033240509135230000500932911",
+      completeTime: 1782555000000,
+    };
+    const badPayout = await request(app)
+      .post("/webhooks/palmpay/payout")
+      .send({ ...payoutPayload, sign: "bad-signature" });
+    expect(badPayout.status).toBe(400);
+
+    const goodPayout = await request(app)
+      .post("/webhooks/palmpay/payout")
+      .send({ ...payoutPayload, sign: palmpaySign(payoutPayload) });
+    expect(goodPayout.status).toBe(200);
+    expect(goodPayout.text).toBe("success");
   });
 
   it("should fetch fee settings with admin credentials", async () => {
@@ -164,7 +411,7 @@ describe("Admin Settings API Integration", () => {
   it("should enforce the configured new-user Naira escrow limit", async () => {
     const res = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         buyerWhatsapp: "whatsapp:+2348000000101",
         sellerWhatsapp: "whatsapp:+2348000000102",
@@ -210,7 +457,7 @@ describe("Admin Settings API Integration", () => {
 
     const normal = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-normal-1",
         buyerWhatsapp: "whatsapp:+2348000000201",
@@ -224,7 +471,7 @@ describe("Admin Settings API Integration", () => {
 
     const exposureBlocked = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-exposure-1",
         buyerWhatsapp: "whatsapp:+2348000000201",
@@ -248,7 +495,7 @@ describe("Admin Settings API Integration", () => {
 
     const tierBlocked = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-tier-reject-1",
         buyerWhatsapp: "whatsapp:+2348000000211",
@@ -263,7 +510,7 @@ describe("Admin Settings API Integration", () => {
 
     const repeated = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         clientRequestId: "review-tier-reject-1",
         buyerWhatsapp: "whatsapp:+2348000000211",
@@ -361,16 +608,17 @@ describe("Admin Settings API Integration", () => {
       .get("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key");
     expect(status.status).toBe(200);
-    expect(status.body.activePaymentProvider).toBe("paystack");
+    expect(status.body.activePaymentProvider).toBe("nomba");
     expect(status.body.providers.some((provider: any) => provider.provider === "monnify")).toBe(true);
+    expect(status.body.providers.some((provider: any) => provider.provider === "nomba")).toBe(true);
 
     const invalid = await request(app)
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "palmpay",
-        backupPaymentProvider: "paystack",
-        emergencyPaymentProvider: "flutterwave",
+        activePaymentProvider: "boguspay",
+        backupPaymentProvider: "nomba",
+        emergencyPaymentProvider: "nomba",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
       });
@@ -380,19 +628,31 @@ describe("Admin Settings API Integration", () => {
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "paystack",
-        backupPaymentProvider: "monnify",
-        emergencyPaymentProvider: "flutterwave",
+        activePaymentProvider: "nomba",
+        backupPaymentProvider: "nomba",
+        emergencyPaymentProvider: "nomba",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
       });
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({
-      activePaymentProvider: "paystack",
-      backupPaymentProvider: "monnify",
-      emergencyPaymentProvider: "flutterwave",
+      activePaymentProvider: "nomba",
+      backupPaymentProvider: "nomba",
+      emergencyPaymentProvider: "nomba",
       paymentProviderFallbackEnabled: false,
     });
+
+    // Reset back to flutterwave to prevent test pollution
+    await request(app)
+      .post("/admin/payment-providers")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        activePaymentProvider: "flutterwave",
+        backupPaymentProvider: "nomba",
+        emergencyPaymentProvider: "nomba",
+        paymentProviderFallbackEnabled: false,
+        expectedVersion: updated.body.version,
+      });
   });
 
   it("should switch maintenance mode and return the admin maintenance message to customer APIs", async () => {
@@ -427,7 +687,7 @@ describe("Admin Settings API Integration", () => {
 
     const customerRequest = await request(app)
       .post("/api/users/profile")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         whatsappNumber: "whatsapp:+2348000000991",
         firstName: "Mode",
@@ -599,7 +859,7 @@ describe("Admin Settings API Integration", () => {
   it("should allow escrow participants to submit dispute evidence through the core API", async () => {
     const created = await request(app)
       .post("/api/escrows")
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         buyerWhatsapp: "whatsapp:+2348000000001",
         sellerWhatsapp: "whatsapp:+2348000000002",
@@ -613,14 +873,14 @@ describe("Admin Settings API Integration", () => {
 
     const disputed = await request(app)
       .post(`/api/escrows/${escrowId}/dispute`)
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({ actorWhatsapp: "whatsapp:+2348000000001", reason: "Testing participant evidence" });
     expect(disputed.status).toBe(200);
     expect(disputed.body.status).toBe("DISPUTED");
 
     const evidence = await request(app)
       .post(`/api/escrows/${escrowId}/dispute/evidence`)
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         actorWhatsapp: "whatsapp:+2348000000001",
         evidenceType: "message",
@@ -632,7 +892,7 @@ describe("Admin Settings API Integration", () => {
 
     const outsider = await request(app)
       .post(`/api/escrows/${escrowId}/dispute/evidence`)
-      .set("x-core-api-key", "test-core-key")
+      .set("x-core-api-key", "test-core-secret")
       .send({
         actorWhatsapp: "whatsapp:+2348000000999",
         evidenceType: "message",
@@ -642,7 +902,7 @@ describe("Admin Settings API Integration", () => {
   });
 
   it("should let the funded seller submit delivery proof without external links", async () => {
-    const headers = { "x-core-api-key": "test-core-key" };
+    const headers = { "x-core-api-key": "test-core-secret" };
     const suffix = Date.now().toString().slice(-6);
     const buyerWhatsapp = `whatsapp:+23480${suffix}31`;
     const sellerWhatsapp = "whatsapp:+2348000000902";
@@ -745,7 +1005,7 @@ describe("Admin Settings API Integration", () => {
       paymentsNeedingReview: expect.any(Number),
       releasesAwaitingPayout: expect.any(Number),
       releasedMissingPayoutReference: expect.any(Number),
-      paystackAmountMismatches: expect.any(Number),
+      paymentAmountMismatches: expect.any(Number),
     });
 
     const csv = await request(app)
@@ -755,11 +1015,53 @@ describe("Admin Settings API Integration", () => {
     expect(csv.status).toBe(200);
     expect(csv.headers["content-type"]).toContain("text/csv");
     expect(csv.text).toContain("escrow ID");
-    expect(csv.text).toContain("Paystack reference");
+    expect(csv.text).toContain("payment reference");
+  });
+
+  it("should run and expose daily provider reconciliation history", async () => {
+    const unauthorized = await request(app)
+      .post("/admin/reconciliation/run")
+      .send({ providers: ["palmpay"] });
+    expect(unauthorized.status).toBe(401);
+
+    const run = await request(app)
+      .post("/admin/reconciliation/run")
+      .set("x-admin-key", "test-admin-key")
+      .send({
+        providers: ["palmpay"],
+        windowStart: "2026-06-25T00:00:00.000Z",
+        windowEnd: "2026-06-26T00:00:00.000Z",
+        alertOnFindings: false,
+      });
+
+    expect(run.status).toBe(201);
+    expect(run.body.run).toMatchObject({
+      status: "completed",
+      providers: ["palmpay"],
+    });
+    expect(run.body.run.summary.providerSummaries.palmpay).toMatchObject({
+      providerPullSupported: true,
+      providerPullMode: "known_reference_query",
+      missingInSivanDetectionSupported: false,
+    });
+    expect(run.body.findings.some((finding: any) => finding.findingType === "provider_pull_unsupported")).toBe(false);
+
+    const history = await request(app)
+      .get("/admin/reconciliation/runs?limit=5")
+      .set("x-admin-key", "test-admin-key");
+    expect(history.status).toBe(200);
+    expect(history.body.runs.some((item: any) => item.runId === run.body.run.runId)).toBe(true);
+
+    const detail = await request(app)
+      .get(`/admin/reconciliation/runs/${run.body.run.runId}`)
+      .set("x-admin-key", "test-admin-key");
+    expect(detail.status).toBe(200);
+    expect(detail.body.run.summary.providerSummaries.palmpay.providerPullMode).toBe("known_reference_query");
+    expect(Array.isArray(detail.body.snapshots)).toBe(true);
   });
 
   it("should enforce escrow-derived manual payout approval with accounting and audit proof", async () => {
-    const headers = { "x-core-api-key": "test-core-key" };
+    const headers = { "x-core-api-key": "test-core-secret" };
     const adminHeaders = { "x-admin-key": "test-admin-key" };
     const buyerWhatsapp = "whatsapp:+2348000000901";
     const sellerWhatsapp = "whatsapp:+2348000000902";
@@ -815,7 +1117,7 @@ describe("Admin Settings API Integration", () => {
       .send({ actorWhatsapp: sellerWhatsapp });
     expect(accepted.status).toBe(200);
     expect(accepted.body.escrow.escrow.status).toBe("PENDING_PAYMENT");
-    expect(accepted.body.escrow.escrow.paymentProvider).toBe("paystack_sandbox_override");
+    expect(accepted.body.escrow.escrow.paymentProvider).toBe("nomba_sandbox_override");
 
     const funded = await request(app)
       .post(`/api/escrows/${escrowId}/test-fund`)
@@ -888,9 +1190,9 @@ describe("Admin Settings API Integration", () => {
     expect(approved.body.escrow).toMatchObject({
       escrowId,
       status: "RELEASED",
-      manualPayoutReference: "paystack-transfer-ref-001",
       releasedBy: "unknown",
     });
+    expect(approved.body.escrow.manualPayoutReference).toContain("TEST-NOMBA-");
     expect(approved.body.payoutQuote).toMatchObject({
       grossAmount: payoutRow.grossAmount,
       platformFeeAmount: payoutRow.platformFeeAmount,
@@ -906,7 +1208,7 @@ describe("Admin Settings API Integration", () => {
     expect(events.body.transactions.some((transaction: any) => (
       transaction.transactionType === "release" &&
       transaction.amount === payoutRow.sellerNetAmount &&
-      transaction.reference === "paystack-transfer-ref-001"
+      transaction.reference.startsWith("TEST-NOMBA-")
     ))).toBe(true);
 
     const detail = await request(app)
@@ -926,7 +1228,7 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("resolved account name");
     expect(csv.text).toContain("compliance risk score");
     expect(csv.text).toContain("reconciliation risk level");
-    expect(csv.text).toContain("paystack-transfer-ref-001");
+    expect(csv.text).toContain("TEST-NOMBA-");
   });
 
   it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {

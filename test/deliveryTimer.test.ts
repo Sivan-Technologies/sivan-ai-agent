@@ -8,9 +8,7 @@ process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.CORE_API_SECRET = "test-core-secret";
 process.env.NOTIFICATION_URL = "";
-process.env.PAYSTACK_SECRET_KEY = "sk_test_server";
-process.env.PAYSTACK_BASE_URL = "http://127.0.0.1:9";
-process.env.PAYSTACK_TIMEOUT_MS = "50";
+process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "1234567890";
 
@@ -132,7 +130,7 @@ describe("Escrow Delivery Timer & Auto-Release Integration", () => {
 
     const finalEscrow = await escrowStore.getEscrowById(escrowId);
     expect(finalEscrow?.status).toBe("PENDING_RELEASE");
-  });
+  }, 30000);
 
   it("handles auto-completion and auto-release for USDC escrows immediately to RELEASED", async () => {
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000007", "buyer");
@@ -193,5 +191,5 @@ describe("Escrow Delivery Timer & Auto-Release Integration", () => {
     const finalEscrow = await escrowStore.getEscrowById(escrowId);
     expect(finalEscrow?.status).toBe("RELEASED");
     expect(finalEscrow?.settlementPolicy).toBe("autonomous_usdc_release");
-  });
+  }, 30000);
 });

@@ -58,6 +58,10 @@ export interface PayoutAccountRecord {
   updatedAt: string;
 }
 
+export type PayoutAccountTransferRecord = PayoutAccountRecord & {
+  accountNumberRaw: string;
+};
+
 export interface EscrowRecord {
   escrowId: string;
   clientRequestId?: string;
@@ -163,6 +167,7 @@ export interface ManualReleaseOptions {
   grossAmount?: number;
   platformFeeAmount?: number;
   sellerNetAmount?: number;
+  payoutProvider?: string;
 }
 
 function detectProvider(databaseUrl: string, provider?: string): StoreProvider {
@@ -200,10 +205,8 @@ function payoutAccountToken(accountNumber: string) {
   return `acct:${crypto.createHmac("sha256", secret).update(accountNumber).digest("hex").slice(0, 40)}`;
 }
 
-function highValueReviewAmount(currency: EscrowCurrency) {
-  return currency === "NAIRA"
-    ? Number(process.env.NAIRA_HIGH_VALUE_REVIEW_AMOUNT || "500000")
-    : Number(process.env.USDC_HIGH_VALUE_REVIEW_AMOUNT || "2500");
+function highValueThreshold(currency: EscrowCurrency, nairaThreshold: number, usdcThreshold: number) {
+  return currency === "NAIRA" ? nairaThreshold : usdcThreshold;
 }
 
 function payoutNameMatchAcceptable(payout: PayoutAccountRecord) {
@@ -271,6 +274,7 @@ export class EscrowStore {
     } else {
       this._pool = new Pool({
         connectionString: databaseUrl,
+        max: Number(process.env.POSTGRES_POOL_MAX || "3"),
         connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "5000"),
         query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "8000"),
         ssl: process.env.POSTGRES_SSL === "false" ? false : { rejectUnauthorized: false },
@@ -988,6 +992,20 @@ export class EscrowStore {
     return this.mapPayout(result.rows[0]);
   }
 
+  public async getPayoutAccountForTransfer(userId: string): Promise<PayoutAccountTransferRecord | null> {
+    await this.initializeSchema();
+    const row = this.provider === "sqlite"
+      ? this.sqlite!.prepare(`SELECT * FROM payout_accounts WHERE user_id = @userId ORDER BY updated_at DESC LIMIT 1`).get({ userId }) as any
+      : (await this.pool!.query(`SELECT * FROM payout_accounts WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`, [userId])).rows[0];
+    const payout = this.mapPayout(row);
+    if (!row || !payout) return null;
+    const decrypted = decryptAccountNumber(row.account_number_encrypted);
+    const legacyRaw = String(row.account_number || "").startsWith("acct:") ? "" : String(row.account_number || "");
+    const accountNumberRaw = decrypted || legacyRaw;
+    if (!accountNumberRaw) return null;
+    return { ...payout, accountNumberRaw };
+  }
+
   public async createEscrow(input: {
     clientRequestId?: string;
     buyerUserId: string;
@@ -1623,7 +1641,30 @@ export class EscrowStore {
     return result.rows[0] ? this.mapTransaction(result.rows[0]) : null;
   }
 
-  public async requestRelease(escrowId: string, actor: string, channel: string): Promise<EscrowRecord> {
+  public async getTransactionByProviderReference(provider: string, reference: string): Promise<EscrowTransactionRecord | null> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`
+        SELECT * FROM transactions
+        WHERE provider = @provider AND reference = @reference
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `).get({ provider, reference });
+      return row ? this.mapTransaction(row) : null;
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM transactions WHERE provider = $1 AND reference = $2 ORDER BY updated_at DESC LIMIT 1`,
+      [provider, reference]
+    );
+    return result.rows[0] ? this.mapTransaction(result.rows[0]) : null;
+  }
+
+  public async requestRelease(
+    escrowId: string,
+    actor: string,
+    channel: string,
+    opts: { nairaHighValueAmount?: number; usdcHighValueAmount?: number } = {},
+  ): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
     await this.assertBuyerActor(escrow, actor);
@@ -1631,8 +1672,12 @@ export class EscrowStore {
       throw new Error(`Escrow cannot be released from ${escrow.status}`);
     }
 
+    const nairaThreshold = opts.nairaHighValueAmount ?? 500000;
+    const usdcThresholdVal = opts.usdcHighValueAmount ?? 2500;
+    const threshold = highValueThreshold(escrow.currency, nairaThreshold, usdcThresholdVal);
+
     if (escrow.currency === "USDC") {
-      if (escrow.amount >= highValueReviewAmount(escrow.currency)) {
+      if (escrow.amount >= threshold) {
         throw new Error("High-value USDC release requires manual review before autonomous release");
       }
       await this.transitionEscrow(escrowId, "RELEASED", {
@@ -1655,14 +1700,14 @@ export class EscrowStore {
           throw new Error("Shared payout account requires manual compliance review before Naira release can be requested");
         }
       }
-      if (escrow.amount >= highValueReviewAmount(escrow.currency)) {
+      if (escrow.amount >= threshold) {
         await this.transitionEscrow(escrowId, "REVIEW_REQUIRED", {
           actor,
           actorRole: "buyer",
           channel,
           eventType: "high_value_release_review_required",
           reason: `Amount meets high-value review threshold for ${escrow.currency}`,
-          metadata: { threshold: highValueReviewAmount(escrow.currency), amount: escrow.amount },
+          metadata: { threshold, amount: escrow.amount },
         });
       } else {
         await this.transitionEscrow(escrowId, "PENDING_RELEASE", {
@@ -1802,9 +1847,10 @@ export class EscrowStore {
         actorRole: "admin",
         channel: "admin",
         eventType: "manual_release_approved",
-        reason: escrow.currency === "NAIRA" ? `Manual payout approved: ${options.manualPayoutReference}` : "Admin release approved",
+        reason: escrow.currency === "NAIRA" ? `Payout approved via ${options.payoutProvider || "manual_bank_transfer"}: ${options.manualPayoutReference}` : "Admin release approved",
         metadata: {
           manualPayoutReference: options.manualPayoutReference,
+          payoutProvider: options.payoutProvider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
           payoutNotes: options.payoutNotes || null,
           grossAmount,
           platformFeeAmount,
@@ -1815,14 +1861,15 @@ export class EscrowStore {
       await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
+        provider: options.payoutProvider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
         transactionType: "release",
-        status: escrow.currency === "NAIRA" ? "manual_approved" : "released",
+        status: escrow.currency === "NAIRA" ? "payout_succeeded" : "released",
         amount: sellerNetAmount,
         currency: escrow.currency,
         reference: options.manualPayoutReference,
         rawPayload: JSON.stringify({
           paymentReference: escrow.paymentReference,
+          payoutProvider: options.payoutProvider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
           payoutNotes: options.payoutNotes || null,
           grossAmount,
           platformFeeAmount,
@@ -1835,7 +1882,7 @@ export class EscrowStore {
         transactionId,
         entryType: "release",
         debitAccount: "escrow_liability",
-        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+        creditAccount: escrow.currency === "NAIRA" ? `seller_payable_${options.payoutProvider || "manual_bank_transfer"}` : "seller_payable_x402",
         amount: sellerNetAmount,
         currency: escrow.currency,
         providerReference: options.manualPayoutReference,
@@ -1930,7 +1977,7 @@ export class EscrowStore {
       await this.recordPayoutReconciliation(escrowId, adminUser, reference, `Dispute resolution: ${options.reason}`);
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.currency === "NAIRA" ? "paystack" : "x402",
+        provider: escrow.currency === "NAIRA" ? "flutterwave" : "x402",
         transactionType: "release",
         status: "manual_dispute_release",
         amount: escrow.amount,
@@ -1943,7 +1990,7 @@ export class EscrowStore {
         transactionId,
         entryType: "release",
         debitAccount: "escrow_liability",
-        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_paystack" : "seller_payable_x402",
+        creditAccount: escrow.currency === "NAIRA" ? "seller_payable_naira" : "seller_payable_x402",
         amount: escrow.amount,
         currency: escrow.currency,
         providerReference: reference,
@@ -1953,7 +2000,7 @@ export class EscrowStore {
     if (options.outcome === "refund_buyer") {
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "paystack" : "x402"),
+        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "flutterwave" : "x402"),
         transactionType: "refund",
         status: "manual_refund_recorded",
         amount: escrow.receivedAmount || escrow.amount,
@@ -1966,7 +2013,7 @@ export class EscrowStore {
         transactionId,
         entryType: "refund",
         debitAccount: "escrow_liability",
-        creditAccount: escrow.currency === "NAIRA" ? "buyer_refund_paystack" : "buyer_refund_x402",
+        creditAccount: escrow.currency === "NAIRA" ? "buyer_refund_naira" : "buyer_refund_x402",
         amount: escrow.receivedAmount || escrow.amount,
         currency: escrow.currency,
         providerReference: options.reference,
@@ -2172,6 +2219,50 @@ export class EscrowStore {
     return result.rows.map((row) => this.mapTransaction(row));
   }
 
+  public async listFundingTransactionsForReconciliation(input: {
+    windowStart: string;
+    windowEnd: string;
+    providers?: string[];
+  }): Promise<EscrowTransactionRecord[]> {
+    await this.initializeSchema();
+    const providers = input.providers || [];
+    if (this.provider === "sqlite") {
+      const providerClause = providers.length ? `AND provider IN (${providers.map(() => "?").join(",")})` : "";
+      return this.sqlite!.prepare(`
+        SELECT * FROM transactions
+        WHERE transaction_type = 'funding'
+          AND reference IS NOT NULL
+          AND updated_at >= ?
+          AND updated_at <= ?
+          ${providerClause}
+        ORDER BY updated_at DESC
+      `).all(input.windowStart, input.windowEnd, ...providers).map((row) => this.mapTransaction(row));
+    }
+    if (providers.length) {
+      const result = await this.pool!.query(
+        `SELECT * FROM transactions
+         WHERE transaction_type = 'funding'
+           AND reference IS NOT NULL
+           AND updated_at >= $1
+           AND updated_at <= $2
+           AND provider = ANY($3::text[])
+         ORDER BY updated_at DESC`,
+        [input.windowStart, input.windowEnd, providers]
+      );
+      return result.rows.map((row) => this.mapTransaction(row));
+    }
+    const result = await this.pool!.query(
+      `SELECT * FROM transactions
+       WHERE transaction_type = 'funding'
+         AND reference IS NOT NULL
+         AND updated_at >= $1
+         AND updated_at <= $2
+       ORDER BY updated_at DESC`,
+      [input.windowStart, input.windowEnd]
+    );
+    return result.rows.map((row) => this.mapTransaction(row));
+  }
+
   public async addLedgerEntry(input: {
     escrowId: string;
     transactionId?: string;
@@ -2254,6 +2345,36 @@ export class EscrowStore {
     }
     const result = await this.pool!.query(`SELECT * FROM escrow_events WHERE escrow_id = $1 ORDER BY created_at DESC LIMIT $2`, [escrowId, limit]);
     return result.rows.map((row) => this.mapEvent(row));
+  }
+
+  public async listSettlementReceivedEvents(): Promise<EscrowEventRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`SELECT * FROM escrow_events WHERE event_type = 'settlement_received' ORDER BY created_at DESC`).all().map((row) => this.mapEvent(row));
+    }
+    const result = await this.pool!.query(`SELECT * FROM escrow_events WHERE event_type = 'settlement_received' ORDER BY created_at DESC`);
+    return result.rows.map((row) => this.mapEvent(row));
+  }
+
+  public async isMediaUrlLinked(url: string): Promise<boolean> {
+    await this.initializeSchema();
+    const pattern = `%${url}%`;
+    if (this.provider === "sqlite") {
+      const row = this.sqlite!.prepare(`
+        SELECT 1 FROM escrow_events
+        WHERE event_type = 'seller_delivery_proof_recorded'
+          AND metadata LIKE @pattern
+        LIMIT 1
+      `).get({ pattern });
+      return Boolean(row);
+    }
+    const result = await this.pool!.query(`
+      SELECT 1 FROM escrow_events
+      WHERE event_type = 'seller_delivery_proof_recorded'
+        AND metadata LIKE $1
+      LIMIT 1
+    `, [pattern]);
+    return result.rowCount ? result.rowCount > 0 : false;
   }
 
   public async close(): Promise<void> {

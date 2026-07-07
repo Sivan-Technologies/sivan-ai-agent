@@ -6,7 +6,7 @@ process.env.DATABASE_PROVIDER = "sqlite";
 process.env.DATABASE_URL = process.env.DATABASE_URL || "./data/test-server.db";
 process.env.NOTIFICATION_URL = "";
 process.env.CORE_API_SECRET = "test-core-secret";
-process.env.PAYSTACK_SECRET_KEY = "sk_test_server";
+process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "1234567890";
 

@@ -30,9 +30,10 @@ import {
   buildParticipantDeal,
   disputeHistoryForEscrow,
   notifyEscrowParticipants,
+  notifyEscrowCreatedParticipants,
   participantLifecycleMessage,
   roleForEscrowParticipant,
-  queueSellerInviteNotification,
+  sendOrQueueWhatsAppNotification,
   expectedFundingAmount,
   notifyEscrowFundedParticipants,
   recordDisputeEvidence,
@@ -40,7 +41,6 @@ import {
   containsExternalLink,
   externalDeliveryLinksAllowed,
 } from "../services/escrowService";
-import { notifyWhatsAppBot } from "../services/notificationService";
 import {
   createSandboxPaymentInstruction,
   isSandboxPaymentReference,
@@ -157,20 +157,17 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       createdByChannel: input.channel,
     });
 
-    let payment: any = null;
-    if (seller) {
-      queueSellerInviteNotification({
-        sellerWhatsapp: seller.whatsappNumber,
-        escrowId: escrow.escrowId,
-        currency: input.currency,
-        amount: input.amount,
-        purpose: input.purpose,
-        context: { channel: input.channel },
-      });
-    }
-
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
-    res.status(201).json({ escrow: updated, payment, sellerInviteSent: Boolean(seller), risk: abuseDecision });
+    if (updated && input.channel.startsWith("whatsapp")) {
+      await notifyEscrowCreatedParticipants(updated);
+    }
+    res.status(201).json({
+      escrow: updated,
+      payment: null,
+      buyerNotificationSent: Boolean(updated && input.channel.startsWith("whatsapp")),
+      sellerInviteSent: Boolean(seller && input.channel.startsWith("whatsapp")),
+      risk: abuseDecision,
+    });
   } catch (err: any) {
     captureOperationalError("Failed to create escrow", err);
     res.status(500).json({ error: err.message || "Escrow creation failed" });
@@ -265,20 +262,13 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
-      try {
-        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
-      } catch (err: any) {
-        const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
-        if (!sandboxPayment) throw err;
-        warn("Using sandbox payment instruction after Naira payment initialization failure", {
-          escrowId: accepted.escrowId,
-          provider: accepted.paymentProvider || "active_provider",
-          paymentError: err?.message || String(err),
-        });
-        const fundingExpiresAt = accepted.fundingExpiresAt || fundingDeadlineForEscrow(accepted);
+      const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
+      if (sandboxPayment) {
+        const fundingExpiresAt = accepted.fundingExpiresAt || await fundingDeadlineForEscrow(accepted);
         await escrowStore.attachPayment({
           escrowId: accepted.escrowId,
           paymentReference: sandboxPayment.reference,
+          paymentAuthorizationUrl: sandboxPayment.authorizationUrl,
           paymentProvider: sandboxPayment.provider,
           paymentMetadata: {
             provider: sandboxPayment.provider,
@@ -292,9 +282,12 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         payment = {
           provider: sandboxPayment.provider,
           reference: sandboxPayment.reference,
+          authorizationUrl: sandboxPayment.authorizationUrl,
           fundingExpiresAt,
           testOnly: true,
         };
+      } else {
+        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
       }
     } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
       const reference = `x402-${accepted.escrowId}`;
@@ -311,7 +304,17 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
       const buyer = updated.buyer;
       if (buyer) {
         const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
-        await notifyWhatsAppBot(buyer.whatsappNumber, instruction);
+        const dealCard = await buildParticipantDeal(updated, buyer.whatsappNumber);
+        await sendOrQueueWhatsAppNotification({
+          to: buyer.whatsappNumber,
+          message: instruction,
+          reason: "seller_accepted_payment_details",
+          escrowId: updated.escrow.escrowId,
+          dealCard: dealCard ? {
+            escrow: dealCard.escrow,
+            participant: dealCard.participant,
+          } : undefined,
+        });
       }
     }
     res.status(200).json({ escrow: updated, payment });
@@ -332,7 +335,7 @@ router.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, 
   }
   if (
     detail.escrow.status !== "PENDING_PAYMENT" ||
-    detail.escrow.paymentProvider !== "paystack_sandbox_override" ||
+    !detail.escrow.paymentProvider?.endsWith("_sandbox_override") ||
     !isSandboxPaymentReference(detail.escrow.paymentReference)
   ) {
     return res.status(409).json({ error: "Sandbox funding is available only for pending sandbox payment references" });
@@ -355,10 +358,15 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid release payload", details: formatZodError(parsed.error) });
     }
+    const settings = await settingsStore.getSettings();
     const updated = await escrowStore.requestRelease(
       req.params.escrowId,
       parsed.data.actorWhatsapp || "unknown",
-      "whatsapp_dm"
+      "whatsapp_dm",
+      {
+        nairaHighValueAmount: settings.nairaHighValueReviewAmount,
+        usdcHighValueAmount: settings.usdcHighValueReviewAmount,
+      }
     );
     await notifyEscrowParticipants(
       updated,
@@ -447,14 +455,18 @@ router.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (
   if (!parsed.data.summary.trim() && !parsed.data.media.length) {
     return res.status(400).json({ error: "Delivery proof must include a message or media" });
   }
-  const detail = await recordDeliveryProof({
-    escrow,
-    actorWhatsapp: parsed.data.actorWhatsapp,
-    summary: parsed.data.summary,
-    media: parsed.data.media,
-    notifyBuyer: parsed.data.notifyBuyer,
-  });
-  res.status(201).json(detail);
+  try {
+    const detail = await recordDeliveryProof({
+      escrow,
+      actorWhatsapp: parsed.data.actorWhatsapp,
+      summary: parsed.data.summary,
+      media: parsed.data.media,
+      notifyBuyer: parsed.data.notifyBuyer,
+    });
+    res.status(201).json(detail);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Delivery proof could not be recorded" });
+  }
 });
 
 router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res) => {

@@ -9,7 +9,7 @@ export async function notifyWhatsAppBot(to: string, message: string, dealCard?: 
   }
 }
 
-export async function notifyWhatsAppBotStrict(to: string, message: string, dealCard?: any) {
+export async function notifyWhatsAppBotStrict(to: string, message: string, dealCard?: any, media?: string[]) {
   const notifyUrl = config.app.notificationUrl;
   const secret = config.app.notificationSecret;
 
@@ -23,7 +23,12 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
       "Content-Type": "application/json",
       ...(secret ? { "x-notify-secret": secret } : {}),
     },
-    body: JSON.stringify({ to, message, ...(dealCard ? { dealCard } : {}) }),
+    body: JSON.stringify({
+      to,
+      message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
+      ...(dealCard ? { dealCard } : {}),
+      ...(media && media.length ? { media } : {}),
+    }),
   });
 
   if (!response.ok) {

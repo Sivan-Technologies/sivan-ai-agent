@@ -153,6 +153,52 @@ describe("FlutterwaveClient", () => {
     );
   });
 
+  it("pulls and normalizes Flutterwave transactions for reconciliation", async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        status: "success",
+        data: [{
+          id: 7654321,
+          tx_ref: "flutterwave-SIV-200-recon",
+          status: "successful",
+          amount: 2500,
+          currency: "NGN",
+          payment_type: "bank_transfer",
+          app_fee: 50,
+          created_at: "2026-06-26T01:00:00.000Z",
+        }],
+        meta: { total_pages: 1 },
+      },
+    });
+
+    const client = new FlutterwaveClient();
+    const transactions = await client.listTransactions({
+      from: "2026-06-25T00:00:00.000Z",
+      to: "2026-06-26T00:00:00.000Z",
+    });
+
+    expect(transactions).toEqual([expect.objectContaining({
+      paymentReference: "flutterwave-SIV-200-recon",
+      transactionReference: "7654321",
+      status: "successful",
+      amount: 2500,
+      currency: "NGN",
+      paymentMethod: "bank_transfer",
+      processorFee: 50,
+    })]);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      "https://api.flutterwave.com/v3/transactions",
+      expect.objectContaining({
+        params: expect.objectContaining({
+          from: "2026-06-25",
+          to: "2026-06-26",
+          page: 1,
+          per_page: 100,
+        }),
+      })
+    );
+  });
+
   it("fails closed instead of silently swallowing errors when the payments API fails", async () => {
     const networkErr = Object.assign(new Error("Request failed with status code 400"), {
       response: {
@@ -176,4 +222,49 @@ describe("FlutterwaveClient", () => {
 
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
+
+  describe("resolveBankAccount", () => {
+    it("successfully resolves bank account names and translates CBN/Monnify bank codes to Flutterwave-specific codes", async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: {
+          status: "success",
+          message: "Account details fetched",
+          data: {
+            account_number: "8079604214",
+            account_name: "SAMSON MICHEAL OLALEYE",
+          },
+        },
+      });
+
+      const client = new FlutterwaveClient();
+      // "999992" is the standard/Monnify bank code for Opay
+      const result = await client.resolveBankAccount("8079604214", "999992");
+
+      expect(result).toEqual({
+        accountNumber: "8079604214",
+        accountName: "SAMSON MICHEAL OLALEYE",
+        bankCode: "999992", // retains the original requested bank code for compatibility
+      });
+
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        "https://api.flutterwave.com/v3/accounts/resolve",
+        {
+          account_number: "8079604214",
+          account_bank: "100004", // translated code for Flutterwave
+        },
+        expect.any(Object)
+      );
+    });
+
+    it("bubbles errors if the resolve endpoint fails", async () => {
+      mockedAxios.post.mockRejectedValueOnce(new Error("Unknown Bank Code"));
+
+      const client = new FlutterwaveClient();
+      await expect(
+        client.resolveBankAccount("8079604214", "999992")
+      ).rejects.toThrow(/bank account resolution failed/i);
+    });
+  });
 });
+

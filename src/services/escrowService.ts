@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { config } from "../config";
+import axios from "axios";
 import { EscrowCurrency, EscrowRecord, EscrowStore } from "./escrowStore";
+import { uploadEvidenceUrlToR2, getPresignedDownloadUrl } from "./storageService";
 import {
   notifyWhatsAppBot,
   notifyWhatsAppBotStrict,
@@ -26,11 +28,20 @@ import {
   getProviderForEscrow,
   fundingDeadlineForEscrow,
 } from "./paymentService";
+import type { NormalizedPaymentEvent } from "./paymentEventNormalizer";
 
 let lastAbuseTrendAlertAt = 0;
 
 export function sellerInviteMessage(escrowId: string, currency: string, amount: number, purpose: string) {
   return `You have been invited to Sivan service agreement ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
+}
+
+function displayCurrency(currency: string) {
+  return currency === "NAIRA" ? "NGN" : currency;
+}
+
+function displayAmount(amount: number) {
+  return new Intl.NumberFormat("en-NG").format(amount);
 }
 
 export function parseMaybeJson(value: any) {
@@ -56,8 +67,23 @@ export function queueWhatsAppNotification(params: {
   escrowId?: string;
   dealCard?: any;
   context?: Record<string, any>;
+  media?: string[];
 }) {
-  void notifyWhatsAppBotStrict(params.to, params.message, params.dealCard).catch(async (err) => {
+  void sendOrQueueWhatsAppNotification(params);
+}
+
+export async function sendOrQueueWhatsAppNotification(params: {
+  to: string;
+  message: string;
+  reason: string;
+  escrowId?: string;
+  dealCard?: any;
+  context?: Record<string, any>;
+  media?: string[];
+}) {
+  try {
+    await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard, params.media);
+  } catch (err) {
     const context = {
       escrowId: params.escrowId,
       to: params.to,
@@ -77,6 +103,7 @@ export function queueWhatsAppNotification(params: {
         escrowId: params.escrowId,
         reason: params.reason,
         ...(params.dealCard ? { dealCard: params.dealCard } : {}),
+        ...(params.media ? { media: params.media } : {}),
       }, {
         maxAttempts: 5,
         runAfter: new Date(Date.now() + (isRateLimited ? 60_000 : 15_000)).toISOString(),
@@ -84,7 +111,7 @@ export function queueWhatsAppNotification(params: {
     } catch (enqueueErr) {
       captureOperationalError("Failed to enqueue WhatsApp notification retry", enqueueErr, context);
     }
-  });
+  }
 }
 
 export function queueSellerInviteNotification(params: {
@@ -105,9 +132,89 @@ export function queueSellerInviteNotification(params: {
   });
 }
 
+export function escrowCreatedMessage(escrow: EscrowRecord, role: "buyer" | "seller") {
+  const currency = displayCurrency(escrow.currency);
+  const amount = displayAmount(escrow.amount);
+  if (role === "buyer") {
+    return [
+      `Sivan agreement created: ${escrow.escrowId}`,
+      `${escrow.purpose}`,
+      `${currency} ${amount}`,
+      "",
+      "We have sent the agreement to the other party.",
+      `Reply STATUS ${escrow.escrowId} to view the agreement or track acceptance.`,
+    ].join("\n");
+  }
+  return [
+    `You have been invited to a Sivan service agreement: ${escrow.escrowId}`,
+    `${escrow.purpose}`,
+    `${currency} ${amount}`,
+    "",
+    `Reply ACCEPT ${escrow.escrowId} to accept the deal.`,
+    `Reply STATUS ${escrow.escrowId} to view the agreement first.`,
+  ].join("\n");
+}
+
+export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord) {
+  const detail = await buildEscrowDetail(escrow.escrowId);
+  if (!detail) return;
+  const buyerWhatsapp = detail.buyer?.whatsappNumber;
+  const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
+  await Promise.all([
+    buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
+      sendOrQueueWhatsAppNotification({
+        to: buyerWhatsapp,
+        message: escrowCreatedMessage(detail.escrow, "buyer"),
+        reason: "buyer_agreement_created",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
+    ) : Promise.resolve(),
+    sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
+      sendOrQueueWhatsAppNotification({
+        to: sellerWhatsapp,
+        message: escrowCreatedMessage(detail.escrow, "seller"),
+        reason: "seller_invite",
+        escrowId: detail.escrow.escrowId,
+        dealCard: dealCard ? {
+          escrow: dealCard.escrow,
+          participant: dealCard.participant,
+        } : undefined,
+      })
+    ) : Promise.resolve(),
+  ]);
+}
+
 export async function refreshEscrowPaymentLifecycle(escrowId: string) {
+  let escrow = await escrowStore.expirePendingPaymentIfDue(escrowId);
+
+  if (escrow?.status === "PENDING_PAYMENT" && escrow.paymentReference) {
+    try {
+      const provider = await getProviderForEscrow(escrow);
+      const transaction = await provider.verifyPayment(escrow.paymentReference);
+      if (transaction && (transaction.status === "success" || transaction.status === "successful")) {
+        // Snapshot the status directly from DB before reconciling so concurrent
+        // read calls cannot each trigger a duplicate funded notification.
+        const preReconcileSnapshot = await escrowStore.getEscrowById(escrowId);
+        const alreadyFunded = preReconcileSnapshot && preReconcileSnapshot.status !== "PENDING_PAYMENT";
+        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck", undefined, { skipLifecycleRefresh: true });
+        if (funded.status === "IN_PROGRESS" && !alreadyFunded) {
+          await notifyEscrowFundedParticipants(funded);
+        }
+        escrow = funded;
+      }
+    } catch (err: any) {
+      console.warn("Failed to check provider payment status during read sync", {
+        escrowId: escrow.escrowId,
+        error: err?.message || err,
+      });
+    }
+  }
+
   const before = await escrowStore.getEscrowById(escrowId);
-  const escrow = await escrowStore.expirePendingPaymentIfDue(escrowId);
   if (before && escrow && before.status !== "EXPIRED" && escrow.status === "EXPIRED") {
     await notifyEscrowParticipants(
       escrow,
@@ -151,6 +258,45 @@ export async function refreshEscrowPaymentLifecycleForRead(escrowId: string, con
   }
 }
 
+export async function resolveR2MediaUrls(events: any[]): Promise<any[]> {
+  const resolved = [];
+  for (const event of events) {
+    if (event.metadata && typeof event.metadata === "string" && event.metadata.includes("r2://")) {
+      try {
+        const meta = JSON.parse(event.metadata);
+        if (meta.media && Array.isArray(meta.media)) {
+          meta.media = await Promise.all(
+            meta.media.map(async (m: any) => {
+              if (m.url && m.url.startsWith("r2://")) {
+                const key = m.url.substring(5);
+                try {
+                  const presignedUrl = await getPresignedDownloadUrl(key);
+                  if (presignedUrl.includes("sivan-mock-presigned-url.test") && m.originalUrl) {
+                    return { ...m, url: m.originalUrl };
+                  }
+                  return { ...m, url: presignedUrl };
+                } catch (err) {
+                  return m;
+                }
+              }
+              return m;
+            })
+          );
+          resolved.push({
+            ...event,
+            metadata: JSON.stringify(meta),
+          });
+          continue;
+        }
+      } catch {
+        // fail-safe fallback
+      }
+    }
+    resolved.push(event);
+  }
+  return resolved;
+}
+
 export async function buildEscrowDetail(escrowId: string) {
   const escrow = await refreshEscrowPaymentLifecycleForRead(escrowId, "escrow_detail");
   if (!escrow) return null;
@@ -162,6 +308,7 @@ export async function buildEscrowDetail(escrowId: string) {
     escrowStore.listEvents(escrow.escrowId, 100),
     escrowStore.listLedgerEntries(escrow.escrowId),
   ]);
+  const resolvedEvents = await resolveR2MediaUrls(events);
   const payout = escrow.sellerUserId ? await escrowStore.getPayoutAccount(escrow.sellerUserId) : null;
   const buyerProfileComplete = Boolean(buyer?.firstName && buyer?.lastName);
   const sellerProfileComplete = Boolean(seller?.firstName && seller?.lastName);
@@ -179,7 +326,7 @@ export async function buildEscrowDetail(escrowId: string) {
     payout,
     payoutQuote,
     transactions,
-    events,
+    events: resolvedEvents,
     ledgerEntries,
     complianceRisk,
     readiness: {
@@ -231,6 +378,7 @@ export async function buildDisputeRows(limit = 100) {
       escrowStore.listTransactions(escrow.escrowId),
       opsStore.searchSupportCases(escrow.escrowId, 10),
     ]);
+    const resolvedEvents = await resolveR2MediaUrls(events);
     const evidenceCount = events.filter((event) => event.eventType === "dispute_evidence_recorded").length;
     const openedAt = events.find((event) => event.eventType === "dispute_opened")?.createdAt || escrow.updatedAt;
     return {
@@ -240,7 +388,7 @@ export async function buildDisputeRows(limit = 100) {
       latestEventAt: events[0]?.createdAt || escrow.updatedAt,
       supportCases,
       transactions,
-      events,
+      events: resolvedEvents,
     };
   }));
 }
@@ -272,7 +420,7 @@ export async function notifyEscrowParticipants(escrow: EscrowRecord, message: st
 }
 
 export function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, nextLine: string) {
-  const currency = escrow.currency === "NAIRA" ? "NGN" : escrow.currency;
+  const currency = displayCurrency(escrow.currency);
   return [
     `Sivan update for ${escrow.escrowId}`,
     `${escrow.purpose}`,
@@ -511,11 +659,34 @@ export function containsExternalLink(value: string) {
   return /\bhttps?:\/\/|\bwww\./i.test(value);
 }
 
-export async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary: string) {
+export async function notifyBuyerDeliverySubmitted(
+  escrow: EscrowRecord,
+  summary: string,
+  media: Array<{ url: string }> = []
+) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   const buyerWhatsapp = detail?.buyer?.whatsappNumber;
   if (!detail || !buyerWhatsapp) return;
   const dealCard = await buildParticipantDeal(detail, buyerWhatsapp);
+
+  const resolvedMedia = await Promise.all(
+    media.map(async (m: any) => {
+      if (m.url && m.url.startsWith("r2://")) {
+        try {
+          const url = await getPresignedDownloadUrl(m.url.substring(5));
+          if (url.includes("sivan-mock-presigned-url.test") && m.originalUrl) {
+            return { ...m, url: m.originalUrl };
+          }
+          return { ...m, url };
+        } catch {
+          return m;
+        }
+      }
+      return m;
+    })
+  );
+
+  const mediaUrls = resolvedMedia.map((m) => m.url).filter(Boolean);
   queueWhatsAppNotification({
     to: buyerWhatsapp,
     message: participantLifecycleMessage(
@@ -530,7 +701,107 @@ export async function notifyBuyerDeliverySubmitted(escrow: EscrowRecord, summary
       participant: dealCard.participant,
     } : undefined,
     context: { summary: summary || "Seller submitted delivery proof" },
+    media: mediaUrls,
   });
+}
+
+export async function validateDeliveryProofMedia(
+  media: Array<{ url: string; contentType?: string; filename?: string }>
+): Promise<void> {
+  if (config.databaseMode === "test") {
+    return;
+  }
+
+  const allowedMimeTypes = [
+    "application/pdf",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "video/mp4",
+  ];
+
+  for (const item of media) {
+    const url = item.url;
+    if (!url) {
+      throw new Error("Evidence file URL is required");
+    }
+
+    // 1. Storage Isolation Validation
+    const sivanBucketPattern = /sivan-(test|live)-bucket/i;
+    const match = url.match(sivanBucketPattern);
+    if (match) {
+      const mode = match[1];
+      if (mode !== config.databaseMode) {
+        throw new Error(`Evidence storage mismatch: Cannot use a ${mode} storage URL in ${config.databaseMode} mode`);
+      }
+    }
+
+    // 2. Anti-reuse validation (Immutable evidence check)
+    const isLinked = await escrowStore.isMediaUrlLinked(url);
+    if (isLinked) {
+      throw new Error(`Evidence URL has already been submitted in a different transaction: ${url}`);
+    }
+
+    // 3. HTTP HEAD/GET range checks to verify size and content-type
+    const isTwilioUrl = url.includes("api.twilio.com");
+    const hasTwilioCreds = Boolean(config.twilio?.accountSid && config.twilio?.authToken);
+
+    if (isTwilioUrl && !hasTwilioCreds) {
+      if (item.contentType) {
+        const matchesMimetype = allowedMimeTypes.some((mime) => item.contentType?.toLowerCase().startsWith(mime));
+        if (!matchesMimetype) {
+          throw new Error(`Unsupported evidence file type: ${item.contentType}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+        }
+      }
+      continue;
+    }
+
+    const requestHeaders: Record<string, string> = { "User-Agent": "SivanEvidenceValidator/1.0" };
+    if (isTwilioUrl && hasTwilioCreds) {
+      const auth = Buffer.from(`${config.twilio.accountSid}:${config.twilio.authToken}`).toString("base64");
+      requestHeaders["Authorization"] = `Basic ${auth}`;
+    }
+
+    try {
+      const res = await axios.head(url, { timeout: 8000, headers: requestHeaders });
+      const serverType = String(res.headers["content-type"] || "").toLowerCase();
+      const serverLength = Number(res.headers["content-length"] || 0);
+
+      const matchesMimetype = allowedMimeTypes.some((mime) => serverType.startsWith(mime));
+      if (!matchesMimetype) {
+        throw new Error(`Unsupported evidence file type: ${serverType || "unknown"}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+      }
+
+      const isVideo = serverType.startsWith("video/");
+      const limit = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+      if (serverLength > limit) {
+        throw new Error(`Evidence file size exceeds the limit of ${isVideo ? "50MB" : "10MB"}: ${(serverLength / (1024 * 1024)).toFixed(1)}MB`);
+      }
+    } catch (err: any) {
+      try {
+        const getHeaders = { ...requestHeaders, Range: "bytes=0-10" };
+        const res = await axios.get(url, {
+          headers: getHeaders,
+          timeout: 8000,
+        });
+        const serverType = String(res.headers["content-type"] || "").toLowerCase();
+        const serverLength = Number(res.headers["content-range"]?.split("/")?.[1] || res.headers["content-length"] || 0);
+
+        const matchesMimetype = allowedMimeTypes.some((mime) => serverType.startsWith(mime));
+        if (!matchesMimetype) {
+          throw new Error(`Unsupported evidence file type: ${serverType || "unknown"}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+        }
+
+        const isVideo = serverType.startsWith("video/");
+        const limit = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (serverLength > limit) {
+          throw new Error(`Evidence file size exceeds the limit of ${isVideo ? "50MB" : "10MB"}: ${(serverLength / (1024 * 1024)).toFixed(1)}MB`);
+        }
+      } catch (getErr: any) {
+        throw new Error(`Invalid or unreachable evidence upload link: ${err.message || String(err)}`);
+      }
+    }
+  }
 }
 
 export async function recordDeliveryProof(input: {
@@ -542,6 +813,36 @@ export async function recordDeliveryProof(input: {
 }) {
   const { escrow, actorWhatsapp, summary, media, notifyBuyer } = input;
   const safeSummary = summary.trim() || "Seller submitted delivery proof";
+
+  // Validate the evidence files first
+  await validateDeliveryProofMedia(media);
+
+  // Upload whitelisted media files to Cloudflare R2
+  const uploadedMedia = await Promise.all(
+    media.map(async (m) => {
+      const filename = m.filename || `evidence_${Date.now()}.${m.contentType?.split("/")?.[1] || "pdf"}`;
+      const r2Key = await uploadEvidenceUrlToR2(m.url, filename);
+      return {
+        ...m,
+        url: `r2://${r2Key}`,
+        originalUrl: m.url,
+      };
+    })
+  );
+
+  // Storage tagging and immutable linking
+  const storageMode = config.databaseMode;
+  const paymentReference = escrow.paymentReference || "unfunded_or_test";
+
+  // Audit trail logging payload
+  const auditTrail = {
+    uploadedBy: actorWhatsapp,
+    uploadedAt: new Date().toISOString(),
+    escrowStage: escrow.status,
+    paymentReference,
+    storageMode,
+  };
+
   const updated = await escrowStore.markDelivered(
     escrow.escrowId,
     actorWhatsapp,
@@ -549,13 +850,14 @@ export async function recordDeliveryProof(input: {
     safeSummary,
     JSON.stringify({
       summary: safeSummary,
-      media,
-      mediaCount: media.length,
+      media: uploadedMedia,
+      mediaCount: uploadedMedia.length,
       externalLinksAllowed: externalDeliveryLinksAllowed(),
+      auditTrail,
     })
   );
 
-  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary);
+  if (notifyBuyer) await notifyBuyerDeliverySubmitted(updated, safeSummary, uploadedMedia);
   return buildEscrowDetail(escrow.escrowId);
 }
 
@@ -627,7 +929,7 @@ export async function buildReconciliationRows(limit = 250) {
         platformFeeAmount: payoutQuote.platformFeeAmount,
         sellerNetAmount: payoutQuote.sellerNetAmount,
         amountSource: payoutQuote.amountSource,
-        paystackReference: escrow.paymentProvider === "paystack" ? escrow.paymentReference || null : null,
+        paymentReference: escrow.paymentReference || null,
         paymentProvider: escrow.paymentProvider || null,
         paymentStatus: escrow.providerPaymentStatus || escrow.status,
         settlementReference,
@@ -674,7 +976,7 @@ export function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildRec
     "seller net payout",
     "amount source",
     "currency",
-    "Paystack reference",
+    "payment reference",
     "payment provider",
     "payment status",
     "settlement reference",
@@ -706,7 +1008,7 @@ export function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildRec
     row.sellerNetAmount,
     row.amountSource,
     row.currency,
-    row.paystackReference,
+    row.paymentReference,
     row.paymentProvider,
     row.paymentStatus,
     row.settlementReference,
@@ -736,9 +1038,12 @@ export async function buildRevenueAnalytics() {
     escrowStore.listRevenueLedgerEntries(),
     escrowStore.listRevenueTransactions(),
   ]);
-  const sandboxTransactions = fundingTransactions.filter((transaction) =>
-    /sandbox|test_override/i.test(transaction.provider) || /^sandbox-/i.test(transaction.reference || "")
-  );
+  const includeSandbox = config.databaseMode === "test" || process.env.ALLOW_SANDBOX_REVENUE === "true";
+  const sandboxTransactions = includeSandbox
+    ? []
+    : fundingTransactions.filter((transaction) =>
+        /sandbox|test_override/i.test(transaction.provider) || /^sandbox-/i.test(transaction.reference || "")
+      );
   const sandboxEscrowIds = new Set(sandboxTransactions.map((transaction) => transaction.escrowId));
   const productionLedgerEntries = ledgerEntries.filter((entry) => !sandboxEscrowIds.has(entry.escrowId));
   const productionFundingTransactions = fundingTransactions.filter((transaction) => !sandboxEscrowIds.has(transaction.escrowId));
@@ -805,11 +1110,7 @@ export async function buildRevenueAnalytics() {
     processorFees: number;
     processorFeeKnownCount: number;
   }>));
-  const settlementEvents = (await Promise.all(
-    Array.from(new Set(productionFundingTransactions.map((transaction) => transaction.escrowId))).map((escrowId) =>
-      escrowStore.listEvents(escrowId, 50)
-    )
-  )).flat().filter((event) => event.eventType === "settlement_received");
+  const settlementEvents = (await escrowStore.listSettlementReceivedEvents()).filter((event) => !sandboxEscrowIds.has(event.escrowId));
   const settlementSummary = Object.values(settlementEvents.reduce((acc, event) => {
     let metadata: any = {};
     try {
@@ -877,11 +1178,16 @@ export async function expectedFundingAmount(escrow: EscrowRecord) {
 export async function reconcileEscrowPayment(
   escrowId: string,
   transaction: any,
-  source: "webhook" | "admin_recheck"
+  source: "webhook" | "admin_recheck",
+  normalizedEvent?: NormalizedPaymentEvent,
+  options: { skipLifecycleRefresh?: boolean } = {}
 ): Promise<EscrowRecord> {
-  const escrow = await refreshEscrowPaymentLifecycle(escrowId);
+  const escrow = options.skipLifecycleRefresh
+    ? await escrowStore.getEscrowById(escrowId)
+    : await refreshEscrowPaymentLifecycle(escrowId);
   if (!escrow) throw new Error("Escrow not found");
   const storedTransaction = await escrowStore.getTransactionByReference(transaction.paymentReference);
+  const reconciliationMetadata = normalizedEvent ? { ...transaction, normalizedEvent } : transaction;
 
   if (storedTransaction?.status === "expired" || (escrow.paymentReference && escrow.paymentReference !== transaction.paymentReference)) {
     capturePaymentWarning("Naira escrow payment arrived for an expired or inactive payment instruction", {
@@ -898,7 +1204,7 @@ export async function reconcileEscrowPayment(
       flags: ["late_payment_after_expired_instruction"],
       reason: "Payment arrived for an expired or inactive payment instruction",
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source, activePaymentReference: escrow.paymentReference || null },
+      metadata: { ...reconciliationMetadata, source, activePaymentReference: escrow.paymentReference || null },
     });
   }
 
@@ -916,7 +1222,7 @@ export async function reconcileEscrowPayment(
       flags: ["late_payment_after_expiry"],
       reason: "Payment arrived after the payment instruction expired",
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source, expiredStatus: escrow.status },
+      metadata: { ...reconciliationMetadata, source, expiredStatus: escrow.status },
     });
   }
 
@@ -934,7 +1240,7 @@ export async function reconcileEscrowPayment(
       flags: [`${transaction.provider}_verification_not_success`],
       reason: `${transaction.provider} verification returned ${transaction.status}`,
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source },
+      metadata: { ...reconciliationMetadata, source },
     });
   }
 
@@ -955,11 +1261,11 @@ export async function reconcileEscrowPayment(
       flags: ["payment_amount_mismatch"],
       reason: `Expected ${expectedAmount} ${escrow.currency}, received ${transaction.amount} ${transaction.currency}`,
       reference: transaction.paymentReference,
-      metadata: { ...transaction, source, expectedAmount, escrowAmount: escrow.amount },
+      metadata: { ...reconciliationMetadata, source, expectedAmount, escrowAmount: escrow.amount },
     });
   }
 
-  const funded = await escrowStore.markFundedByPaymentReference(transaction.paymentReference, { ...transaction, source });
+  const funded = await escrowStore.markFundedByPaymentReference(transaction.paymentReference, { ...reconciliationMetadata, source });
   if (!funded) {
     throw new Error(`Verified ${transaction.provider} transaction did not match an escrow payment reference`);
   }
@@ -972,11 +1278,15 @@ export async function checkInspectionExpirations() {
   let transitionedCount = 0;
   const now = new Date().toISOString();
   
+  const settings = await settingsStore.getSettings();
   for (const escrow of delivered) {
     if (escrow.inspectionExpiresAt && now >= escrow.inspectionExpiresAt) {
       try {
         await escrowStore.completeEscrow(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
-        const updated = await escrowStore.requestRelease(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
+        const updated = await escrowStore.requestRelease(escrow.escrowId, "system-sweep", "system_lifecycle_sweep", {
+          nairaHighValueAmount: settings.nairaHighValueReviewAmount,
+          usdcHighValueAmount: settings.usdcHighValueReviewAmount,
+        });
         await notifyEscrowParticipants(
           updated,
           participantLifecycleMessage(
@@ -1028,7 +1338,10 @@ export async function buildDatabaseStatus() {
 }
 
 export async function buildDisasterRecoveryStatus() {
-  const database = await buildDatabaseStatus();
+  const [database, settings] = await Promise.all([
+    buildDatabaseStatus(),
+    settingsStore.getSettings(),
+  ]);
   const provider = process.env.BACKUP_PROVIDER || (config.app.databaseProvider === "postgres" ? "managed-postgres" : "local-sqlite");
   const retentionDays = Number(process.env.BACKUP_RETENTION_DAYS || (config.app.databaseProvider === "postgres" ? "7" : "0"));
   const restoreMaxAgeDays = Number(process.env.BACKUP_RESTORE_TEST_MAX_AGE_DAYS || "30");
@@ -1038,7 +1351,7 @@ export async function buildDisasterRecoveryStatus() {
   const restoreTestFresh = Boolean(lastRestoreTime && Date.now() - lastRestoreTime <= restoreMaxAgeDays * 24 * 60 * 60 * 1000);
   const backupConfigured = config.app.databaseProvider === "postgres" && retentionDays > 0;
   const rollbackConfigured = Boolean(process.env.ROLLBACK_RELEASE_URL || process.env.RENDER_SERVICE_ID || process.env.VERCEL_PROJECT_ID);
-  const outageConfigured = Boolean(process.env.OUTAGE_STATUS_PAGE_URL || process.env.OUTAGE_CONTACTS);
+  const outageConfigured = Boolean(settings.outageStatusPageUrl || settings.outageContacts);
   const productionNeedsAttention =
     process.env.NODE_ENV === "production" &&
     (!backupConfigured || !restoreTestFresh || !rollbackConfigured || !outageConfigured);
@@ -1068,8 +1381,10 @@ export async function buildDisasterRecoveryStatus() {
     },
     outage: {
       configured: outageConfigured,
-      statusPageConfigured: Boolean(process.env.OUTAGE_STATUS_PAGE_URL),
-      contactsConfigured: Boolean(process.env.OUTAGE_CONTACTS),
+      statusPageConfigured: Boolean(settings.outageStatusPageUrl),
+      contactsConfigured: Boolean(settings.outageContacts),
+      statusPageUrl: settings.outageStatusPageUrl || null,
+      contacts: settings.outageContacts || null,
     },
     runbook: process.env.BACKUP_RESTORE_RUNBOOK_URL || "docs/disaster-recovery.md",
   };
@@ -1084,7 +1399,8 @@ export async function buildQueueStatus() {
 }
 
 export async function buildStuckEscrowStatus(limit = 250) {
-  const thresholdMinutes = Number(process.env.STUCK_ESCROW_ALERT_MINUTES || "1440");
+  const settings = await settingsStore.getSettings();
+  const thresholdMinutes = settings.stuckEscrowAlertMinutes;
   const thresholdMs = thresholdMinutes * 60 * 1000;
   const now = Date.now();
   const watchedStatuses = new Set(["PENDING_PAYMENT", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED", "DISPUTED"]);

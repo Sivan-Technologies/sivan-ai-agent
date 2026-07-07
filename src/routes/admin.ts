@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { config } from "../config";
 import { requireAdminAuth, logAdminAction } from "../middleware/adminAuth";
 import {
   limitQuerySchema,
@@ -9,6 +10,7 @@ import {
   whatsappProviderSwitchSchema,
   adminSettingsSchema,
   paymentProviderSettingsSchema,
+  reconciliationRunSchema,
   formatZodError,
 } from "../validation";
 import {
@@ -16,6 +18,7 @@ import {
   escrowStore,
   opsStore,
   settingsStore,
+  reconciliationStore,
 } from "../context";
 import {
   refreshEscrowPaymentLifecycleForRead,
@@ -42,6 +45,8 @@ import {
   getProviderForEscrow,
   providerConfigured as configCheck,
 } from "../services/paymentService";
+import { getActivePayoutProvider, getPayoutProviderForEscrow } from "../services/payoutProvider";
+import { runDailyReconciliation } from "../services/reconciliationService";
 import {
   capturePaymentWarning,
   captureOperationalError,
@@ -117,7 +122,7 @@ router.get("/admin/reconciliation", requireAdminAuth, async (req, res) => {
     paymentsNeedingReview: rows.filter((row) => row.status === "REVIEW_REQUIRED").length,
     releasesAwaitingPayout: rows.filter((row) => row.status === "PENDING_RELEASE").length,
     releasedMissingPayoutReference: rows.filter((row) => row.status === "RELEASED" && !row.payoutReference).length,
-    paystackAmountMismatches: rows.filter((row) => row.flags.includes("payment_amount_mismatch")).length,
+    paymentAmountMismatches: rows.filter((row) => row.flags.includes("payment_amount_mismatch")).length,
   };
   res.status(200).json({ rows, needsAttention });
 });
@@ -131,6 +136,36 @@ router.get("/admin/reconciliation.csv", requireAdminAuth, async (req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="sivan-reconciliation-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.status(200).send(reconciliationRowsToCsv(rows));
+});
+
+router.get("/admin/reconciliation/runs", requireAdminAuth, async (req, res) => {
+  const parsed = limitQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: formatZodError(parsed.error) });
+  }
+  res.status(200).json({ runs: await reconciliationStore.listRuns(parsed.data.limit) });
+});
+
+router.get("/admin/reconciliation/runs/:runId", requireAdminAuth, async (req, res) => {
+  const run = await reconciliationStore.getRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: "Reconciliation run not found" });
+  const [findings, snapshots] = await Promise.all([
+    reconciliationStore.listFindings(req.params.runId),
+    reconciliationStore.listSnapshots(req.params.runId),
+  ]);
+  res.status(200).json({ run, findings, snapshots });
+});
+
+router.post("/admin/reconciliation/run", requireAdminAuth, logAdminAction("run_daily_reconciliation"), async (req, res) => {
+  const parsed = reconciliationRunSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid reconciliation run payload", details: formatZodError(parsed.error) });
+  }
+  const result = await runDailyReconciliation({
+    ...parsed.data,
+    reason: "admin_manual",
+  });
+  res.status(result.run.status === "failed" ? 500 : 201).json(result);
 });
 
 router.get("/admin/revenue", requireAdminAuth, async (_req, res) => {
@@ -170,8 +205,52 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
     }
     const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+    const payoutProvider = escrow.currency === "NAIRA" ? getPayoutProviderForEscrow(escrow, config.databaseMode) : null;
+    const payoutAccount = escrow.sellerUserId
+      ? payoutProvider?.id === "manual_bank_transfer"
+        ? await escrowStore.getPayoutAccount(escrow.sellerUserId)
+        : await escrowStore.getPayoutAccountForTransfer(escrow.sellerUserId)
+      : null;
+    const payoutResult = payoutProvider
+      ? await payoutProvider.initiatePayout({
+          escrow,
+          payoutAccount,
+          amount: payoutQuote.sellerNetAmount,
+          currency: escrow.currency,
+          requestedBy: adminUser,
+          idempotencyKey: `release-${escrow.escrowId}`,
+          manualPayoutReference: parsed.data.manualPayoutReference,
+          payoutNotes: parsed.data.payoutNotes,
+        })
+      : null;
+    if (payoutResult && payoutResult.status !== "succeeded") {
+      await escrowStore.addTransaction({
+        escrowId: escrow.escrowId,
+        provider: payoutResult.provider,
+        transactionType: "release",
+        status: `payout_${payoutResult.status}`,
+        amount: payoutQuote.sellerNetAmount,
+        currency: escrow.currency,
+        reference: payoutResult.reference,
+        rawPayload: JSON.stringify(payoutResult.rawPayload || {}),
+      });
+      await escrowStore.addEvent({
+        escrowId: escrow.escrowId,
+        actor: adminUser,
+        actorRole: "admin",
+        channel: "admin",
+        previousStatus: escrow.status,
+        nextStatus: escrow.status,
+        eventType: "payout_not_finalized",
+        reason: payoutResult.message,
+        metadata: payoutResult,
+      });
+      return res.status(202).json({ escrow, payoutQuote, payout: payoutResult });
+    }
     const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, {
       ...parsed.data,
+      manualPayoutReference: payoutResult?.reference || parsed.data.manualPayoutReference || "",
+      payoutProvider: payoutResult?.provider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
       grossAmount: payoutQuote.grossAmount,
       platformFeeAmount: payoutQuote.platformFeeAmount,
       sellerNetAmount: payoutQuote.sellerNetAmount,
@@ -180,6 +259,7 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       escrowId: updated.escrowId,
       adminUser,
       manualPayoutReference: updated.manualPayoutReference,
+      payoutProvider: payoutResult?.provider || null,
       releasedAt: updated.releasedAt,
       grossAmount: payoutQuote.grossAmount,
       platformFeeAmount: payoutQuote.platformFeeAmount,
@@ -189,11 +269,11 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       updated,
       participantLifecycleMessage(
         updated,
-        `Service completed. Provider payout reference was recorded for ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
-        `Provider reference: ${updated.manualPayoutReference || parsed.data.manualPayoutReference}`
+        `Service completed. Payout was confirmed for ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
+        `Payout provider: ${payoutResult?.provider || "manual_bank_transfer"}\nProvider reference: ${updated.manualPayoutReference || payoutResult?.reference || parsed.data.manualPayoutReference}`
       )
     );
-    res.status(200).json({ escrow: updated, payoutQuote });
+    res.status(200).json({ escrow: updated, payoutQuote, payout: payoutResult });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Release approval failed" });
   }
@@ -210,7 +290,8 @@ router.post("/admin/escrows/:escrowId/recheck-payment", requireAdminAuth, logAdm
       return res.status(400).json({ error: "Escrow has no payment reference" });
     }
 
-    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
     const updated = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
     const detail = await buildEscrowDetail(updated.escrowId);
     res.status(200).json({ escrow: updated, detail, transaction });
@@ -454,6 +535,23 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       nairaPaymentMethod: "bank_transfer",
       nairaFeeModel: updates.nairaFeeModel ?? current.nairaFeeModel,
       nairaFeeTiers: updates.nairaFeeTiers ?? current.nairaFeeTiers,
+      nairaFundingWindowHours: updates.nairaFundingWindowHours ?? current.nairaFundingWindowHours,
+      nairaHighValueFundingWindowHours: updates.nairaHighValueFundingWindowHours ?? current.nairaHighValueFundingWindowHours,
+      nairaHighValueFundingWindowAmount: updates.nairaHighValueFundingWindowAmount ?? current.nairaHighValueFundingWindowAmount,
+      nairaFundingReminderBeforeExpiryHours: updates.nairaFundingReminderBeforeExpiryHours ?? current.nairaFundingReminderBeforeExpiryHours,
+      payoutSharedAccountReviewCount: updates.payoutSharedAccountReviewCount ?? current.payoutSharedAccountReviewCount,
+      complianceNewSellerEscrowCount: updates.complianceNewSellerEscrowCount ?? current.complianceNewSellerEscrowCount,
+      complianceHighDisputeRatio: updates.complianceHighDisputeRatio ?? current.complianceHighDisputeRatio,
+      complianceHighDisputeMinEscrows: updates.complianceHighDisputeMinEscrows ?? current.complianceHighDisputeMinEscrows,
+      nairaHighValueReviewAmount: updates.nairaHighValueReviewAmount ?? current.nairaHighValueReviewAmount,
+      usdcHighValueReviewAmount: updates.usdcHighValueReviewAmount ?? current.usdcHighValueReviewAmount,
+      paymentLifecycleWorkerEnabled: updates.paymentLifecycleWorkerEnabled ?? current.paymentLifecycleWorkerEnabled,
+      paymentLifecycleWorkerIntervalMs: updates.paymentLifecycleWorkerIntervalMs ?? current.paymentLifecycleWorkerIntervalMs,
+      reconciliationWorkerEnabled: updates.reconciliationWorkerEnabled ?? current.reconciliationWorkerEnabled,
+      queueWorkerEnabled: updates.queueWorkerEnabled ?? current.queueWorkerEnabled,
+      stuckEscrowAlertMinutes: updates.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
+      outageStatusPageUrl: updates.outageStatusPageUrl ?? current.outageStatusPageUrl,
+      outageContacts: updates.outageContacts ?? current.outageContacts,
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });
@@ -477,13 +575,6 @@ function providerConfigured(provider: string) {
 function providerStatus() {
   return [
     {
-      provider: "paystack",
-      label: "Paystack",
-      implemented: true,
-      configured: providerConfigured("paystack"),
-      methods: ["bank_transfer"],
-    },
-    {
       provider: "monnify",
       label: "Monnify",
       implemented: true,
@@ -493,8 +584,8 @@ function providerStatus() {
     {
       provider: "palmpay",
       label: "PalmPay",
-      implemented: false,
-      configured: false,
+      implemented: true,
+      configured: providerConfigured("palmpay"),
       methods: ["bank_transfer"],
     },
     {
@@ -502,6 +593,13 @@ function providerStatus() {
       label: "Flutterwave",
       implemented: true,
       configured: providerConfigured("flutterwave"),
+      methods: ["bank_transfer"],
+    },
+    {
+      provider: "nomba",
+      label: "Nomba",
+      implemented: true,
+      configured: providerConfigured("nomba"),
       methods: ["bank_transfer"],
     },
   ];

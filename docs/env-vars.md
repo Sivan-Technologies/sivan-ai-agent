@@ -52,7 +52,7 @@ This file documents the environment variables required to run the Sivan Escrow A
 
 ### Naira payment provider transport
 
-- `ACTIVE_PAYMENT_PROVIDER` - Default provider selector for new Naira payment creation before DB settings are loaded. Supported implemented values are `paystack`, `monnify`, and `flutterwave`; keep `flutterwave` for emergency backup only until its low-value proof passes. `palmpay` is reserved for a future adapter.
+- `ACTIVE_PAYMENT_PROVIDER` - Default provider selector for new Naira payment creation before DB settings are loaded. Supported implemented values are `paystack`, `monnify`, `palmpay`, and `flutterwave`; use `palmpay` as the preferred primary provider only after sandbox order and signed callback proof pass. Keep `flutterwave` for emergency backup only until its low-value proof passes.
 - `BACKUP_PAYMENT_PROVIDER` - Default backup provider setting. Fallback applies only to new payment creation after policy allows it, never to existing escrows with a created payment reference.
 - `EMERGENCY_PAYMENT_PROVIDER` - Default emergency provider setting for operator-approved continuity.
 - `PAYMENT_PROVIDER_FALLBACK_ENABLED` - Default explicit toggle for fallback behavior. Keep `false` until both active and backup providers pass live transfer tests.
@@ -65,6 +65,11 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `PAYMENT_LIFECYCLE_WORKER_ENABLED` - Enables the background sweep that expires stale payment instructions, sends one reminder before the funding deadline, and expires unfunded escrows after the funding window. Set `true` on the backend worker/runtime after deploy.
 - `PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS` - Sweep interval for the payment lifecycle worker. Suggested default: `300000`.
 - `PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE` - Maximum recent escrows scanned per sweep. Suggested default: `250`.
+- `RECONCILIATION_WORKER_ENABLED` - Enables the daily provider-vs-Sivan reconciliation worker. Set `true` in production after provider credentials and ops alerting are configured.
+- `RECONCILIATION_WORKER_INITIAL_DELAY_MS` - Delay before the first reconciliation run after boot. Suggested default: `60000`.
+- `RECONCILIATION_WORKER_INTERVAL_MS` - Interval between automatic reconciliation runs. Suggested default: `86400000` (24 hours).
+- `RECONCILIATION_LOOKBACK_HOURS` - Provider transaction lookback window for each run. Suggested default: `24`.
+- `RECONCILIATION_PROVIDERS` - Comma-separated providers included in daily reconciliation. Paystack and Flutterwave use bulk provider transaction pulls. PalmPay queries every Sivan-known PalmPay order reference through PalmPay `queryStatus`, which covers amount/currency/status drift for local PalmPay transactions; a PalmPay settlement/report export is still required before Sivan can detect PalmPay transactions that are completely missing from Sivan. Monnify currently re-verifies local references until its bulk transaction/settlement report endpoint is configured/proven.
 
 ### Monnify
 
@@ -76,6 +81,36 @@ This file documents the environment variables required to run the Sivan Escrow A
 - `MONNIFY_PAYMENT_METHODS` - Legacy Monnify-specific allowlist. Prefer `NAIRA_PAYMENT_METHODS=bank_transfer`; if set, this must also resolve to bank transfer only.
 - `MONNIFY_WEBHOOK_URL` - Monnify webhook callback URL, expected to be `/webhooks/monnify`.
 - `MONNIFY_SOURCE_ACCOUNT_NUMBER` - Future Monnify disbursement source wallet/account number. Required only if automated Monnify payouts are later implemented.
+
+### PalmPay
+
+PalmPay is implemented as a primary bank-transfer collection transport. Add these before setting `ACTIVE_PAYMENT_PROVIDER=palmpay`:
+
+- `PALMPAY_APP_ID` - PalmPay App ID used in the `Authorization: Bearer <AppId>` header.
+- `PALMPAY_APP_NAME` - Human-readable PalmPay portal app/website name. Suggested value: `Sivan Escrow`.
+- `PALMPAY_MERCHANT_ID` - PalmPay merchant ID for account/product identification and support handoff.
+- `PALMPAY_MERCHANT_PRIVATE_KEY` - Merchant private RSA key used to sign outbound PalmPay API requests. Keep secret.
+- `PALMPAY_MERCHANT_PUBLIC_KEY` - Merchant public RSA key uploaded to PalmPay.
+- `PALMPAY_PLATFORM_PUBLIC_KEY` - PalmPay platform public key used to verify signed PalmPay callbacks.
+- `PALMPAY_WHITELIST_IP` - Outbound server IP/CIDR ranges submitted to PalmPay for API access. For the current Render service, use `74.220.48.0/24,74.220.56.0/24` unless Render changes the service outbound ranges. Do not use the Render URL or your laptop IP.
+- `PALMPAY_BASE_URL` - PalmPay API base URL. Use `https://open-gw-sandbox.palmpay-inc.com` for sandbox and `https://open-gw-prod.palmpay-inc.com` for production.
+- `PALMPAY_WEBHOOK_URL` - Webhook callback URL, expected to be `/webhooks/palmpay`.
+- `PALMPAY_CALLBACK_URL` - Browser/H5 return URL after PalmPay checkout.
+- `PALMPAY_COUNTRY_CODE` - Country header value. Use `NG` for Nigeria.
+- `PALMPAY_TIMEOUT_MS` - Timeout for PalmPay API calls. Suggested default: `8000`.
+- `PALMPAY_PAYMENT_METHODS` - Must be `bank_transfer`.
+- `PALMPAY_ORDER_EXPIRE_SECONDS` - Payment/order expiry. Suggested default: `1800`.
+- `PALMPAY_PAYOUT_ENABLED` - Future automated PalmPay payout flag. Keep `false` until PalmPay payout proof passes.
+- `PALMPAY_PAYOUT_NOTIFY_URL` - Future PalmPay payout callback URL, expected to be `/webhooks/palmpay/payout` if automated payout is implemented.
+- `PALMPAY_PROOF_AMOUNT` - Sandbox create-order proof amount in NGN. Keep low; default `100`.
+- `PALMPAY_PROOF_ORDER_ID` - Optional explicit PalmPay-safe proof order ID. Leave blank to auto-generate.
+- `PALMPAY_PROOF_USER_ID` - User/customer identifier used in the proof create-order call.
+- `PALMPAY_PROOF_RUN_PAYOUT` - Must be `true` before `npm run verify:palmpay` initiates a payout proof. Defaults to `false`.
+- `PALMPAY_PROOF_PAYEE_NAME` - Test payee name for PalmPay payout proof only.
+- `PALMPAY_PROOF_PAYEE_BANK_CODE` - Test payee bank code for PalmPay payout proof only.
+- `PALMPAY_PROOF_PAYEE_ACCOUNT_NUMBER` - Test payee account number for PalmPay payout proof only.
+- `PALMPAY_PROOF_PAYOUT_AMOUNT` - Payout proof amount in NGN. Keep low; default `100`.
+- `PALMPAY_PROOF_PAYOUT_ORDER_ID` - Optional explicit PalmPay-safe payout proof order ID. Leave blank to auto-generate.
 
 ### Flutterwave
 
@@ -89,6 +124,26 @@ Flutterwave is implemented as an emergency backup bank-transfer collection trans
 - `FLUTTERWAVE_TIMEOUT_MS` - Timeout for Flutterwave API calls. Suggested default: `8000`.
 - `FLUTTERWAVE_PAYMENT_METHODS` - Must be `bank_transfer` if set. Sivan must not enable card collection.
 - `FLUTTERWAVE_DYNAMIC_ACCOUNT_EXPIRY_SECONDS` - Dynamic virtual account expiry. Suggested default: `3600`.
+
+### Nomba transfer-only payout rail
+
+Nomba is implemented only as a bank-transfer payout/disbursement transport. Do not add Nomba to `ACTIVE_PAYMENT_PROVIDER`; Sivan must not use Nomba Checkout or card collection for escrow pay-in.
+
+- `NOMBA_CLIENT_ID` - Nomba OAuth client ID for the selected environment.
+- `NOMBA_CLIENT_SECRET` - Nomba OAuth client secret. Keep secret and server-side only.
+- `NOMBA_ACCOUNT_ID` - Nomba account ID sent in the `accountId` header.
+- `NOMBA_BASE_URL` - Nomba API base URL. Use `https://sandbox.nomba.com` for sandbox and `https://api.nomba.com` for production.
+- `NOMBA_WEBHOOK_URL` - Public callback URL to configure in the Nomba dashboard. Expected path: `/webhooks/nomba`.
+- `NOMBA_WEBHOOK_SECRET` - Signature key configured in the Nomba dashboard for payout webhook verification.
+- `NOMBA_TIMEOUT_MS` - Timeout for Nomba auth, bank lookup, transfer, and requery calls. Suggested default: `8000`.
+- `NOMBA_PAYOUT_ENABLED` - Automated Nomba transfer flag. Keep `false` until sandbox transfer proof, signed webhook proof, and live low-value proof pass.
+- `NOMBA_SENDER_NAME` - Sender name sent to Nomba transfer requests. Suggested default: `Sivan`.
+- `NOMBA_SUB_ACCOUNT_ID` - Optional Nomba sub-account ID. Leave blank to transfer from the parent account.
+- `NOMBA_PROOF_ACCOUNT_NUMBER` - Test recipient account number used by `npm run verify:nomba-transfer`.
+- `NOMBA_PROOF_BANK_CODE` - Test recipient bank code used by `npm run verify:nomba-transfer`.
+- `NOMBA_PROOF_AMOUNT` - Proof transfer amount. Keep low in live proof.
+- `NOMBA_PROOF_RUN_TRANSFER` - Must be `true` before the proof script initiates a transfer. Defaults to `false`.
+- `NOMBA_PROOF_MERCHANT_TX_REF` - Optional explicit proof idempotency reference. Leave blank to auto-generate a proof reference.
 
 ### Delivery proof
 
@@ -125,6 +180,7 @@ Flutterwave is implemented as an emergency backup bank-transfer collection trans
 - `CORE_API_IP_ALLOWLIST` - Optional comma-separated allowlist for core API callers such as the WhatsApp bot. Supports exact IPs and IPv4 CIDR ranges. Leave blank if the caller runs from dynamic egress without a stable IP.
 - `PAYOUT_ENCRYPTION_KEY` - Required in production. Used to AES-256-GCM encrypt payout account numbers at rest. Generate a 32-byte random secret and keep it stable across deploys; rotating it requires a planned data re-encryption migration.
 - `PAYOUT_TOKEN_SECRET` - Optional separate HMAC secret used to derive deterministic payout account tokens for uniqueness/lookups without storing raw account numbers. If blank, the app falls back to `PAYOUT_ENCRYPTION_KEY`.
+- `ACTIVE_PAYOUT_PROVIDER` - Payout provider selector. Supported values are `manual_bank_transfer`, `palmpay`, and `nomba` for implemented providers; `flutterwave` and `monnify` remain fail-closed placeholders. Keep `manual_bank_transfer` until the chosen automated payout rail passes sandbox transfer, signed webhook/requery, and live low-value payout proof.
 - `PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT` - Number of distinct sellers using the same payout account token that triggers manual compliance review. Defaults to `2`.
 - `NAIRA_HIGH_VALUE_REVIEW_AMOUNT` - Naira release amount threshold that moves release to compliance review before payout approval. Defaults to `500000`.
 - `USDC_HIGH_VALUE_REVIEW_AMOUNT` - USDC release amount threshold that blocks autonomous release for manual review. Defaults to `2500`.
@@ -159,6 +215,7 @@ Flutterwave is implemented as an emergency backup bank-transfer collection trans
 - `QUEUE_LOCK_TIMEOUT_SECONDS` - Time before a stuck `running` queue job can be recovered. Defaults to `300`.
 - `QUEUE_RETRY_BASE_DELAY_MS` - Initial retry backoff delay. Defaults to `30000`.
 - `QUEUE_RETRY_MAX_DELAY_MS` - Maximum retry backoff delay. Defaults to `1800000`.
+- Queue job type `daily_reconciliation` can be enqueued manually through `/admin/queue/jobs` when a one-off reconciliation run should be retried outside the daily interval.
 - `STUCK_ESCROW_ALERT_MINUTES` - Escrow age threshold used by operations status for stuck active escrows. Defaults to `1440`.
 - `ABUSE_BLOCK_SCORE` - Risk score at or above which escrow creation is blocked. Defaults to `95`.
 - `ABUSE_REVIEW_SCORE` - Risk score at or above which an abuse signal is recorded for operator review. Defaults to `60`.
@@ -224,6 +281,11 @@ NAIRA_FUNDING_REMINDER_BEFORE_EXPIRY_HOURS=6
 PAYMENT_LIFECYCLE_WORKER_ENABLED=false
 PAYMENT_LIFECYCLE_WORKER_INTERVAL_MS=300000
 PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE=250
+RECONCILIATION_WORKER_ENABLED=false
+RECONCILIATION_WORKER_INITIAL_DELAY_MS=60000
+RECONCILIATION_WORKER_INTERVAL_MS=86400000
+RECONCILIATION_LOOKBACK_HOURS=24
+RECONCILIATION_PROVIDERS=paystack,monnify,palmpay,flutterwave
 MONNIFY_API_KEY=
 MONNIFY_SECRET_KEY=
 MONNIFY_BASE_URL=https://sandbox.monnify.com

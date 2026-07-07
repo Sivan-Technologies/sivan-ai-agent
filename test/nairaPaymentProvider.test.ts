@@ -1,114 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "crypto";
-import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PaystackPaymentProvider } from "../src/services/nairaPaymentProvider";
+import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PalmPayPaymentProvider, NombaPaymentProvider, createNairaPaymentProvider } from "../src/services/nairaPaymentProvider";
 import { config } from "../src/config";
-import { PaystackClient } from "../src/services/paystackClient";
 import { MonnifyClient } from "../src/services/monnifyClient";
 import { FlutterwaveClient } from "../src/services/flutterwaveClient";
-
-describe("PaystackPaymentProvider", () => {
-  it("initializes bank-transfer-only payments through Paystack", async () => {
-    (config.paystack as any).channels = ["bank_transfer"];
-    const client = {
-      initializeTransaction: vi.fn().mockResolvedValue({
-        authorizationUrl: "https://checkout.paystack.com/test",
-        reference: "paystack-ref-1",
-        accessCode: "access-code-1",
-      }),
-      fetchTransaction: vi.fn(),
-      verifyWebhookSignature: vi.fn(),
-    } as unknown as PaystackClient;
-    const provider = new PaystackPaymentProvider(client);
-
-    const payment = await provider.initializeBankTransferPayment({
-      amount: 10000,
-      customerEmail: "buyer@example.com",
-      callbackUrl: "https://sivan.example/callback",
-      escrowId: "SIV-100",
-    });
-
-    expect(payment).toMatchObject({
-      provider: "paystack",
-      status: "pending",
-      paymentReference: "paystack-ref-1",
-      transactionReference: "paystack-ref-1",
-      authorizationUrl: "https://checkout.paystack.com/test",
-      accessCode: "access-code-1",
-    });
-    expect(client.initializeTransaction).toHaveBeenCalledWith(10000, "buyer@example.com", "https://sivan.example/callback");
-  });
-
-  it("rejects non-transfer Paystack channel configuration", async () => {
-    (config.paystack as any).channels = ["bank_transfer", "card"];
-    const provider = new PaystackPaymentProvider({
-      initializeTransaction: vi.fn(),
-      fetchTransaction: vi.fn(),
-      verifyWebhookSignature: vi.fn(),
-    } as unknown as PaystackClient);
-
-    await expect(provider.initializeBankTransferPayment({
-      amount: 10000,
-      customerEmail: "buyer@example.com",
-    })).rejects.toThrow(/bank transfer only/i);
-  });
-
-  it("normalizes Paystack transaction status", async () => {
-    const provider = new PaystackPaymentProvider({
-      initializeTransaction: vi.fn(),
-      fetchTransaction: vi.fn().mockResolvedValue({
-        status: "success",
-        reference: "paystack-ref-2",
-        amount: 15000,
-        currency: "NGN",
-        processorFee: 150,
-        channel: "bank_transfer",
-        paidAt: "2026-06-11T10:00:00Z",
-      }),
-      verifyWebhookSignature: vi.fn(),
-    } as unknown as PaystackClient);
-
-    await expect(provider.verifyPayment("paystack-ref-2")).resolves.toMatchObject({
-      provider: "paystack",
-      status: "success",
-      paymentReference: "paystack-ref-2",
-      transactionReference: "paystack-ref-2",
-      amount: 15000,
-      currency: "NGN",
-      processorFee: 150,
-      channel: "bank_transfer",
-    });
-  });
-
-  it("normalizes Paystack webhook payloads", () => {
-    const provider = new PaystackPaymentProvider();
-    const event = provider.normalizeWebhook({
-      id: 123,
-      event: "charge.success",
-      data: { reference: "paystack-ref-3" },
-    });
-
-    expect(event).toEqual({
-      provider: "paystack",
-      eventId: "123",
-      eventType: "charge.success",
-      paymentReference: "paystack-ref-3",
-      raw: {
-        id: 123,
-        event: "charge.success",
-        data: { reference: "paystack-ref-3" },
-      },
-    });
-  });
-
-  it("delegates Paystack webhook signature verification", async () => {
-    (config.paystack as any).secretKey = "test-secret";
-    const provider = new PaystackPaymentProvider();
-    const payload = JSON.stringify({ event: "charge.success", data: { reference: "ref-1" } });
-    const signature = crypto.createHmac("sha512", "test-secret").update(payload).digest("hex");
-
-    await expect(provider.verifyWebhookSignature(payload, signature)).resolves.toBe(true);
-  });
-});
+import { PalmPayClient } from "../src/services/palmpayClient";
 
 describe("MonnifyPaymentProvider", () => {
   it("initializes account-transfer-only Monnify payments", async () => {
@@ -217,6 +113,155 @@ describe("MonnifyPaymentProvider", () => {
   });
 });
 
+describe("PalmPayPaymentProvider", () => {
+  it("initializes PalmPay bank-transfer payments with PalmPay-safe references", async () => {
+    const client = {
+      initializeBankTransferPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIV300MFD8A1B2C3",
+        transactionReference: "2424220903032435363613",
+        checkoutUrl: "https://openapi.transspay.net/open-api/api/v1/payment/h5/redirect",
+        accountNumber: "8792003113",
+        accountName: "Sivan Collection",
+        bankName: "PalmPay Test Bank",
+        expiresAt: "2026-06-26T10:30:00.000Z",
+        expiresInSeconds: 1800,
+        raw: { ok: true },
+      }),
+      verifyPayment: vi.fn(),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient;
+    const provider = new PalmPayPaymentProvider(client);
+
+    await expect(provider.initializeBankTransferPayment({
+      amount: 5500,
+      customerEmail: "buyer@example.com",
+      escrowId: "SIV-300682-FEB6",
+    })).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "pending",
+      paymentReference: "PPSIV300MFD8A1B2C3",
+      transactionReference: "2424220903032435363613",
+      authorizationUrl: "https://openapi.transspay.net/open-api/api/v1/payment/h5/redirect",
+      accountNumber: "8792003113",
+      bankName: "PalmPay Test Bank",
+    });
+
+    expect(client.initializeBankTransferPayment).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 5500,
+      paymentReference: expect.stringMatching(/^PPSIV300682FE[A-Z0-9]+$/),
+      metadata: expect.objectContaining({ provider: "palmpay", paymentMethod: "bank_transfer" }),
+    }));
+  });
+
+  it("normalizes successful PalmPay bank transfers as success", async () => {
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIV300682FEB6",
+        transactionReference: "2424220903032435363613",
+        status: "success",
+        amount: 5500,
+        currency: "NGN",
+        paymentMethod: "bank_transfer",
+        raw: { ok: true },
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient);
+
+    await expect(provider.verifyPayment("PPSIV300682FEB6")).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "success",
+      paymentReference: "PPSIV300682FEB6",
+      amount: 5500,
+      currency: "NGN",
+      channel: "bank_transfer",
+    });
+  });
+
+  it("does not normalize non-transfer PalmPay payments as success", async () => {
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIVCARDROUTE",
+        transactionReference: "2424220903032435363613",
+        status: "success",
+        amount: 5500,
+        currency: "NGN",
+        paymentMethod: "pay_wallet",
+        raw: { ok: true },
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient);
+
+    await expect(provider.verifyPayment("PPSIVCARDROUTE")).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "invalid_payment_method",
+      paymentReference: "PPSIVCARDROUTE",
+    });
+  });
+
+  it("does not normalize non-NGN PalmPay payments as success", async () => {
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn().mockResolvedValue({
+        paymentReference: "PPSIVUSDROUTE",
+        transactionReference: "2424220903032435363613",
+        status: "success",
+        amount: 5500,
+        currency: "USD",
+        paymentMethod: "bank_transfer",
+        raw: { ok: true },
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PalmPayClient);
+
+    await expect(provider.verifyPayment("PPSIVUSDROUTE")).resolves.toMatchObject({
+      provider: "palmpay",
+      status: "invalid_currency",
+      paymentReference: "PPSIVUSDROUTE",
+    });
+  });
+
+  it("normalizes PalmPay payment notifications", () => {
+    const provider = new PalmPayPaymentProvider();
+    const event = provider.normalizeWebhook({
+      orderId: "PPSIV300682FEB6",
+      orderNo: "2424220903032435363613",
+      orderStatus: 2,
+    });
+
+    expect(event).toMatchObject({
+      provider: "palmpay",
+      eventType: "order.2",
+      paymentReference: "PPSIV300682FEB6",
+      transactionReference: "2424220903032435363613",
+    });
+  });
+
+  it("verifies PalmPay webhook signatures through the provider interface", async () => {
+    const verifyWebhookSignature = vi.fn().mockReturnValue(true);
+    const provider = new PalmPayPaymentProvider({
+      initializeBankTransferPayment: vi.fn(),
+      verifyPayment: vi.fn(),
+      verifyWebhookSignature,
+    } as unknown as PalmPayClient);
+    const payload = {
+      orderId: "PPSIV300682FEB6",
+      orderNo: "2424220903032435363613",
+      orderStatus: 2,
+    };
+
+    await expect(provider.verifyWebhookSignature(JSON.stringify(payload), "valid-signature")).resolves.toBe(true);
+    expect(verifyWebhookSignature).toHaveBeenCalledWith(payload, "valid-signature");
+    await expect(provider.verifyWebhookSignature("not-json", "valid-signature")).resolves.toBe(false);
+    await expect(provider.verifyWebhookSignature(JSON.stringify(payload), "")).resolves.toBe(false);
+  });
+
+  it("selects PalmPay from the provider factory", () => {
+    expect(createNairaPaymentProvider("palmpay")).toBeInstanceOf(PalmPayPaymentProvider);
+  });
+});
+
 describe("FlutterwavePaymentProvider", () => {
   it("initializes dynamic bank-transfer-only Flutterwave payments via checkout link", async () => {
     (config.flutterwave as any).paymentMethods = ["bank_transfer"];
@@ -317,6 +362,83 @@ describe("FlutterwavePaymentProvider", () => {
       eventType: "charge.completed",
       paymentReference: "flutterwave-ref-2",
       transactionReference: "chg_123",
+    });
+  });
+});
+
+describe("NombaPaymentProvider", () => {
+  it("initializes Nomba checkout order payments", async () => {
+    const provider = new NombaPaymentProvider();
+    const createSpy = vi.spyOn((provider as any).client, "createCheckoutOrder").mockResolvedValue({
+      checkoutLink: "https://checkout.nomba.com/checkout/NOMBA|300",
+      orderReference: "nomba-ref-300",
+      raw: { ok: true },
+    });
+
+    await expect(provider.initializeBankTransferPayment({
+      amount: 15000,
+      customerEmail: "buyer@example.com",
+      paymentReference: "nomba-ref-300",
+    })).resolves.toMatchObject({
+      provider: "nomba",
+      status: "pending",
+      paymentReference: "nomba-ref-300",
+      authorizationUrl: "https://checkout.nomba.com/checkout/NOMBA|300",
+      transactionReference: "nomba-ref-300",
+    });
+
+    expect(createSpy).toHaveBeenCalledWith({
+      amount: 15000,
+      customerEmail: "buyer@example.com",
+      paymentReference: "nomba-ref-300",
+      redirectUrl: undefined,
+    });
+  });
+
+  it("verifies and maps Nomba transaction successfully", async () => {
+    const provider = new NombaPaymentProvider();
+    const requerySpy = vi.spyOn((provider as any).client, "requeryTransfer").mockResolvedValue({
+      merchantTxRef: "nomba-ref-400",
+      transactionId: "TX|400",
+      status: "succeeded",
+      amount: 20000,
+      currency: "NAIRA",
+      fee: 100,
+      raw: { id: "TX|400", status: "SUCCESSFUL" },
+    });
+
+    await expect(provider.verifyPayment("nomba-ref-400")).resolves.toMatchObject({
+      provider: "nomba",
+      status: "success",
+      paymentReference: "nomba-ref-400",
+      transactionReference: "TX|400",
+      amount: 20000,
+      currency: "NGN",
+      processorFee: 100,
+    });
+
+    expect(requerySpy).toHaveBeenCalledWith("nomba-ref-400");
+  });
+
+  it("normalizes Nomba payment_success webhook payloads", () => {
+    const provider = new NombaPaymentProvider();
+    const event = provider.normalizeWebhook({
+      requestId: "req_999",
+      eventType: "payment_success",
+      data: {
+        transaction: {
+          id: "TX|999",
+          merchantTxRef: "nomba-ref-999",
+        },
+      },
+    });
+
+    expect(event).toMatchObject({
+      provider: "nomba",
+      eventId: "req_999",
+      eventType: "payment_success",
+      paymentReference: "nomba-ref-999",
+      transactionReference: "TX|999",
     });
   });
 });

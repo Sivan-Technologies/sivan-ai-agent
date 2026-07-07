@@ -8,12 +8,13 @@ import {
 } from "../validation";
 import {
   escrowStore,
-  paystackClient,
   monnifyClient,
+  flutterwaveClient,
+  settingsStore,
 } from "../context";
 import { getPayoutVerificationTestResolution } from "../services/payoutVerificationTestMode";
 import { scoreAccountName } from "../services/nameMatch";
-import { filterBanks } from "../services/bankFallback";
+import { filterBanks, NIGERIA_BANK_FALLBACKS } from "../services/bankFallback";
 import {
   refreshEscrowPaymentLifecycleForRead,
   buildParticipantDealSummary,
@@ -67,7 +68,7 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
     whatsappNumber: parsed.data.whatsappNumber,
     sellerName,
   }, parsed.data.bankCode);
-  let verificationProvider = "paystack_account_resolution";
+  let verificationProvider = "monnify_name_enquiry";
   if (resolution) {
     verificationProvider = "sandbox_test_override";
     warn("Using allowlisted sandbox payout verification override", {
@@ -76,19 +77,28 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
       accountNumberLast4: parsed.data.accountNumber.slice(-4),
     });
   } else {
-    try {
-      resolution = await paystackClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
-    } catch (err: any) {
-      if (monnifyClient.isConfigured()) {
-        try {
-          resolution = await monnifyClient.validateBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
-          verificationProvider = "monnify_name_enquiry";
-        } catch (monnifyErr: any) {
-          warn("Paystack and Monnify account verification failed", {
-            paystackError: err?.message || String(err),
-            monnifyError: monnifyErr?.message || String(monnifyErr),
-          });
-        }
+    const settings = await settingsStore.getSettings();
+    const activeProvider = settings.activePaymentProvider?.toLowerCase();
+
+    if (flutterwaveClient.isCollectionConfigured()) {
+      try {
+        resolution = await flutterwaveClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+        verificationProvider = "flutterwave_name_enquiry";
+      } catch (flwErr: any) {
+        warn("Flutterwave account verification failed, trying fallback to Monnify", {
+          flutterwaveError: flwErr?.message || String(flwErr),
+        });
+      }
+    }
+
+    if (!resolution && monnifyClient.isConfigured()) {
+      try {
+        resolution = await monnifyClient.validateBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+        verificationProvider = "monnify_name_enquiry";
+      } catch (monnifyErr: any) {
+        warn("Monnify account verification failed", {
+          monnifyError: monnifyErr?.message || String(monnifyErr),
+        });
       }
     }
   }
@@ -107,7 +117,9 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
 
   const nameMatch = scoreAccountName(sellerName, resolution.accountName);
   const sharedAccountCount = (await escrowStore.countUsersWithPayoutAccountNumber(parsed.data.accountNumber, user.userId)) + 1;
-  const sharedAccountFlag = sharedAccountCount >= Number(process.env.PAYOUT_SHARED_ACCOUNT_REVIEW_COUNT || "2");
+  const settings = await settingsStore.getSettings();
+  const sharedAccountReviewCount = settings.payoutSharedAccountReviewCount;
+  const sharedAccountFlag = sharedAccountCount >= sharedAccountReviewCount;
   const verificationStatus =
     nameMatch.level === "failed"
       ? "failed"
@@ -141,11 +153,10 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
   res.status(200).json(payout);
 });
 
-router.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
+router.get("/api/banks", requireCoreApiAuth, async (req, res) => {
   try {
     const query = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
-    const banks = await paystackClient.listBanks();
-    res.status(200).json(filterBanks(banks, query, query ? 8 : 100));
+    res.status(200).json(filterBanks(NIGERIA_BANK_FALLBACKS, query, query ? 8 : 100));
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to fetch banks" });
   }

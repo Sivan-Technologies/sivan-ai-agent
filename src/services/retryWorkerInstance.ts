@@ -4,13 +4,30 @@ import { notifyWhatsAppBotStrict } from "./notificationService";
 import { getProviderForEscrow } from "./paymentService";
 import { capturePaymentWarning } from "./monitoring";
 import { reconcileEscrowPayment } from "./escrowService";
+import { runDailyReconciliation } from "./reconciliationService";
 
 export const retryWorker = new RetryWorker(opsStore, {
   whatsapp_notification: async (payload) => {
     if (!payload.to || !payload.message) {
       throw new Error("whatsapp_notification requires payload.to and payload.message");
     }
-    await notifyWhatsAppBotStrict(String(payload.to), String(payload.message), payload.dealCard);
+    await notifyWhatsAppBotStrict(
+      String(payload.to),
+      String(payload.message),
+      payload.dealCard,
+      Array.isArray(payload.media) ? (payload.media as string[]) : undefined
+    );
+  },
+  payment_recheck: async (payload) => {
+    const paymentReference = String(payload.paymentReference || "").trim();
+    if (!paymentReference) throw new Error("payment_recheck requires paymentReference");
+    const escrow = payload.escrowId
+      ? await escrowStore.getEscrowById(String(payload.escrowId))
+      : await escrowStore.findEscrowByPaymentReference(paymentReference);
+    if (!escrow) throw new Error("No escrow found for payment reference");
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
+    await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
   },
   paystack_recheck: async (payload) => {
     const paymentReference = String(payload.paymentReference || "").trim();
@@ -18,8 +35,9 @@ export const retryWorker = new RetryWorker(opsStore, {
     const escrow = payload.escrowId
       ? await escrowStore.getEscrowById(String(payload.escrowId))
       : await escrowStore.findEscrowByPaymentReference(paymentReference);
-    if (!escrow) throw new Error("No escrow found for Paystack payment reference");
-    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
+    if (!escrow) throw new Error("No escrow found for payment reference");
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck");
   },
   webhook_recovery: async (payload) => {
@@ -27,7 +45,8 @@ export const retryWorker = new RetryWorker(opsStore, {
     if (!paymentReference) throw new Error("webhook_recovery requires paymentReference");
     const escrow = await escrowStore.findEscrowByPaymentReference(paymentReference);
     if (!escrow) throw new Error("No escrow found for webhook recovery payment reference");
-    const transaction = await getProviderForEscrow(escrow).verifyPayment(paymentReference);
+    const provider = await getProviderForEscrow(escrow);
+    const transaction = await provider.verifyPayment(paymentReference);
     await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
   },
   payout_review: async (payload) => {
@@ -39,6 +58,15 @@ export const retryWorker = new RetryWorker(opsStore, {
       status: escrow.status,
       manualPayoutReference: escrow.manualPayoutReference,
       reason: payload.reason || "payout_review",
+    });
+  },
+  daily_reconciliation: async (payload) => {
+    await runDailyReconciliation({
+      windowStart: payload.windowStart,
+      windowEnd: payload.windowEnd,
+      providers: Array.isArray(payload.providers) ? payload.providers : undefined,
+      reason: payload.reason || "queue_job",
+      alertOnFindings: payload.alertOnFindings !== false,
     });
   },
 }, {

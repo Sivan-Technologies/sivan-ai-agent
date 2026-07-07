@@ -1,0 +1,190 @@
+services:
+  - type: web
+    name: sivan-escrow-agent-test
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_MODE
+        value: test
+      - key: DATABASE_PROVIDER
+        value: postgres
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        value: https://sivan-admin-hub-test.vercel.app
+      - key: SYNAPSE_API_KEY
+        sync: false
+      - key: SYNAPSE_RPC_URL
+        sync: false
+      - key: SAP_AGENT_PRIVATE_KEY
+        sync: false
+      - key: SAP_AGENT_PUBLIC_KEY
+        sync: false
+      - key: ACE_DATA_API_KEY
+        sync: false
+      - key: SYNAPSE_X402_FACILITATOR_URL
+        sync: false
+      - key: CORE_API_SECRET
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: ADMIN_JWT_SECRET
+        sync: false
+      - key: PAYOUT_ENCRYPTION_KEY
+        sync: false
+      - key: PAYOUT_TOKEN_SECRET
+        sync: false
+      - key: NOTIFICATION_SECRET
+        sync: false
+      - key: NOTIFICATION_URL
+        value: https://sivan-whatsapp-bot-test.onrender.com
+      - key: PAYOUT_VERIFICATION_TEST_MODE
+        value: "true"
+      - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
+        value: "*"
+      - key: ACTIVE_PAYMENT_PROVIDER
+        value: nomba
+      - key: BACKUP_PAYMENT_PROVIDER
+        value: palmpay
+      # Flutterwave — active provider (TEST keys)
+      - key: FLUTTERWAVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_PUBLIC_KEY
+        sync: false
+      - key: FLUTTERWAVE_TEST_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_TEST_PUBLIC_KEY
+        sync: false
+      - key: FLUTTERWAVE_WEBHOOK_SECRET
+        sync: false
+      - key: FLUTTERWAVE_BASE_URL
+        value: https://api.flutterwave.com
+      - key: FLUTTERWAVE_CALLBACK_URL
+        value: https://sivan-escrow-agent-test.onrender.com/payment/success
+      - key: FLUTTERWAVE_PAYMENT_METHODS
+        value: bank_transfer
+      # PalmPay — backup provider (sandbox)
+      - key: PALMPAY_APP_ID
+        sync: false
+      - key: PALMPAY_MERCHANT_ID
+        sync: false
+      - key: PALMPAY_MERCHANT_PRIVATE_KEY
+        sync: false
+      - key: PALMPAY_MERCHANT_PUBLIC_KEY
+        sync: false
+      - key: PALMPAY_PLATFORM_PUBLIC_KEY
+        sync: false
+      - key: PALMPAY_BASE_URL
+        value: https://open-gw-sandbox.palmpay-inc.com
+      - key: PALMPAY_PAYOUT_ENABLED
+        value: "true"
+      - key: NOMBA_PAYOUT_ENABLED
+        value: "true"
+      # Cloudflare R2 Credentials
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: sivan-delivery-proofs-test
+
+  - type: web
+    name: sivan-escrow-agent-live
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_MODE
+        value: live
+      - key: DATABASE_PROVIDER
+        value: postgres
+      - key: LIVE_DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        value: https://admin.sivan.online
+      - key: SYNAPSE_API_KEY
+        sync: false
+      - key: SYNAPSE_RPC_URL
+        sync: false
+      - key: SAP_AGENT_PRIVATE_KEY
+        sync: false
+      - key: SAP_AGENT_PUBLIC_KEY
+        sync: false
+      - key: ACE_DATA_API_KEY
+        sync: false
+      - key: SYNAPSE_X402_FACILITATOR_URL
+        sync: false
+      - key: CORE_API_SECRET
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: ADMIN_JWT_SECRET
+        sync: false
+      - key: PAYOUT_ENCRYPTION_KEY
+        sync: false
+      - key: PAYOUT_TOKEN_SECRET
+        sync: false
+      - key: NOTIFICATION_SECRET
+        sync: false
+      - key: NOTIFICATION_URL
+        value: https://sivan-whatsapp-bot-live.onrender.com
+      - key: ACTIVE_PAYMENT_PROVIDER
+        value: nomba
+      - key: BACKUP_PAYMENT_PROVIDER
+        value: palmpay
+      # Flutterwave — active provider (LIVE keys)
+      - key: FLUTTERWAVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_PUBLIC_KEY
+        sync: false
+      - key: FLUTTERWAVE_LIVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_LIVE_PUBLIC_KEY
+        sync: false
+      - key: FLUTTERWAVE_WEBHOOK_SECRET
+        sync: false
+      - key: FLUTTERWAVE_BASE_URL
+        value: https://api.flutterwave.com
+      - key: FLUTTERWAVE_CALLBACK_URL
+        value: https://sivan-escrow-agent-live.onrender.com/payment/success
+      - key: FLUTTERWAVE_PAYMENT_METHODS
+        value: bank_transfer
+      # PalmPay — backup provider (live/production)
+      - key: PALMPAY_APP_ID
+        sync: false
+      - key: PALMPAY_MERCHANT_ID
+        sync: false
+      - key: PALMPAY_MERCHANT_PRIVATE_KEY
+        sync: false
+      - key: PALMPAY_MERCHANT_PUBLIC_KEY
+        sync: false
+      - key: PALMPAY_PLATFORM_PUBLIC_KEY
+        sync: false
+      - key: PALMPAY_LIVE_BASE_URL
+        value: https://open-gw-prod.palmpay-inc.com
+      - key: PALMPAY_PAYOUT_ENABLED
+        value: "true"
+      - key: NOMBA_PAYOUT_ENABLED
+        value: "true"
+      # Cloudflare R2 Credentials
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: sivan-delivery-proofs-live
