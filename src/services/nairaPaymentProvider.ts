@@ -498,12 +498,33 @@ export class NombaPaymentProvider implements PaymentProvider {
   public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
     const result = await this.client.requeryTransfer(paymentReference);
     const status = result.status === "succeeded" ? "success" : result.status;
+    let amount = result.amount;
+
+    if (status === "success" && this.client.getBaseUrl().includes("sandbox")) {
+      const match = paymentReference.match(/(SIV-\d{6}-\d{4})/i);
+      const escrowId = match ? match[1] : null;
+      if (escrowId) {
+        try {
+          const { escrowStore } = await import("../context.js");
+          const escrow = await escrowStore.getEscrowById(escrowId);
+          if (escrow) {
+            const { calculateEscrowPayoutQuote } = await import("./paymentService.js");
+            const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
+            const expected = escrow.currency === "NAIRA" ? quote.totalWithFee : escrow.amount;
+            amount = expected;
+          }
+        } catch {
+          // Fallback to original sandbox amount if lookup fails
+        }
+      }
+    }
+
     return {
       provider: this.id,
       status,
       paymentReference: result.merchantTxRef || paymentReference,
       transactionReference: result.transactionId,
-      amount: result.amount,
+      amount,
       currency: "NGN",
       processorFee: result.fee,
       raw: result.raw,

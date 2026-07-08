@@ -109,6 +109,10 @@ export class NombaPayoutClient {
   private accessToken?: string;
   private tokenExpiresAt = 0;
 
+  public getBaseUrl() {
+    return this.baseUrl;
+  }
+
   constructor(platformMode?: "test" | "live" | "maintenance") {
     if (platformMode === "live") {
       this.clientId = config.nomba.liveClientId || config.nomba.clientId;
