@@ -363,6 +363,41 @@ export class NombaPayoutClient {
     }
   }
 
+  public async requeryCheckoutOrder(orderReference: string): Promise<NombaPayoutResult> {
+    try {
+      const res = await axios.get(
+        `${this.baseUrl}/v1/checkout/order/${encodeURIComponent(orderReference)}`,
+        {
+          headers: await this.authHeaders(),
+          timeout: this.timeoutMs,
+        }
+      );
+      const response = res.data;
+      const data = response?.data || {};
+      const txn = data.transaction || data;
+      const status = normalizeTransferStatus(
+        txn.status || txn.paymentStatus || data.status || response.status
+      );
+      const amount = Number(txn.amount || data.amount || 0);
+      const merchantTxRef = String(
+        txn.merchantTxRef || txn.meta?.merchantTxRef || data.merchantTxRef || orderReference
+      );
+      const transactionId = String(txn.id || txn.transactionId || orderReference);
+      return {
+        merchantTxRef,
+        transactionId,
+        status,
+        amount,
+        currency: "NAIRA",
+        fee: txn.fee === undefined ? undefined : Number(txn.fee),
+        message: response?.message || response?.description || String(status),
+        raw: response,
+      };
+    } catch (err) {
+      throw new Error(`Nomba checkout order requery failed: ${extractAxiosMessage(err)}`);
+    }
+  }
+
   public verifyWebhookSignature(rawBody: string | Buffer, receivedSignature?: string | string[], timestamp?: string | string[]) {
     const signature = Array.isArray(receivedSignature) ? receivedSignature[0] : receivedSignature;
     if (!config.nomba.webhookSecret || !signature) return false;
