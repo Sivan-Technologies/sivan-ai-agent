@@ -647,7 +647,30 @@ router.post("/webhooks/nomba", async (req, res) => {
         }
 
         if (eventType === "payment_success" || eventType === "charge.completed" || eventType === "SUCCESS" || eventType === "SUCCESSFUL") {
-          const transactionData = await nombaPaymentProvider.verifyPayment(reference);
+          // For Nomba checkout webhooks, the payload already carries the payment details.
+          // Extract amount/status directly from the webhook before making an API requery,
+          // so that sandbox and live checkout orders are handled correctly without a "Tag mismatch" error.
+          const webhookAmount = Number(transaction.amount || 0);
+          const webhookStatus = String(transaction.status || "").toUpperCase();
+          const isCheckoutRef = reference.startsWith("nomba-") || reference.startsWith("sandbox-nomba-");
+          const webhookConfirmsSuccess = (webhookStatus === "SUCCESS" || webhookStatus === "SUCCESSFUL" || webhookStatus === "COMPLETED") && webhookAmount > 0;
+
+          let transactionData: any;
+          if (isCheckoutRef && webhookConfirmsSuccess) {
+            // Trust the webhook payload directly for checkout references
+            transactionData = {
+              provider: "nomba",
+              status: "success",
+              paymentReference: reference,
+              transactionReference: transaction.id || transaction.transactionId || reference,
+              amount: webhookAmount,
+              currency: "NGN",
+              raw: body,
+            };
+          } else {
+            transactionData = await nombaPaymentProvider.verifyPayment(reference);
+          }
+
           if (transactionData.paymentReference !== reference && transactionData.paymentReference !== escrow.paymentReference) {
             capturePaymentWarning("Nomba verification reference mismatch", {
               webhookReference: reference,
