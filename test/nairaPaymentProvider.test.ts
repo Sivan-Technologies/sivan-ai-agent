@@ -397,7 +397,7 @@ describe("NombaPaymentProvider", () => {
 
   it("verifies and maps Nomba transaction successfully", async () => {
     const provider = new NombaPaymentProvider();
-    const requerySpy = vi.spyOn((provider as any).client, "requeryTransfer").mockResolvedValue({
+    const requerySpy = vi.spyOn((provider as any).client, "requeryCheckoutOrder").mockResolvedValue({
       merchantTxRef: "nomba-ref-400",
       transactionId: "TX|400",
       status: "succeeded",
