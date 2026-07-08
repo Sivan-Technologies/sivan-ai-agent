@@ -320,12 +320,14 @@ export class NombaPayoutClient {
   }): Promise<{ checkoutLink: string; orderReference: string; raw: any }> {
     try {
       const payload = {
-        amount: input.amount,
-        currency: "NGN",
-        customerEmail: input.customerEmail,
-        merchantTxRef: input.paymentReference,
-        allowedPaymentMethods: ["Transfer"],
-        redirectUrl: input.redirectUrl || config.flutterwave.callbackUrl,
+        order: {
+          amount: input.amount,
+          currency: "NGN",
+          customerEmail: input.customerEmail,
+          merchantTxRef: input.paymentReference,
+          allowedPaymentMethods: ["Transfer"],
+          redirectUrl: input.redirectUrl || config.flutterwave.callbackUrl,
+        }
       };
 
       const res = await axios.post(
