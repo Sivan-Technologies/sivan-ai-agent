@@ -639,6 +639,43 @@ router.get("/admin/payment-providers", requireAdminAuth, async (_req, res) => {
   }
 });
 
+router.post("/admin/payment-providers/test-connection", requireAdminAuth, logAdminAction("test_payment_provider_connection"), async (req, res) => {
+  try {
+    const settings = await settingsStore.getSettings();
+    const provider = String(req.body.provider || settings.activePaymentProvider).trim().toLowerCase();
+
+    if (provider === "flutterwave") {
+      const { FlutterwaveClient } = await import("../services/flutterwaveClient.js");
+      const client = new FlutterwaveClient();
+      const today = new Date().toISOString().slice(0, 10);
+      await client.listTransactions({ from: today, to: today, perPage: 1 });
+      return res.status(200).json({
+        status: "ok",
+        provider: "flutterwave",
+        message: "Flutterwave credentials verification succeeded! Connection check passed.",
+      });
+    }
+
+    if (provider === "nomba") {
+      const { NombaPayoutClient } = await import("../services/nombaPayoutClient.js");
+      const client = new NombaPayoutClient(settings.platformMode);
+      await client.listBanks();
+      return res.status(200).json({
+        status: "ok",
+        provider: "nomba",
+        message: "Nomba credentials verification succeeded! Connection check passed.",
+      });
+    }
+
+    return res.status(400).json({ error: `Connection check is not implemented for provider: ${provider}` });
+  } catch (err: any) {
+    res.status(400).json({
+      status: "error",
+      error: err.message || err,
+    });
+  }
+});
+
 router.post("/admin/payment-providers", requireAdminAuth, logAdminAction("update_payment_providers"), async (req, res) => {
   try {
     const parsed = paymentProviderSettingsSchema.safeParse(req.body);
