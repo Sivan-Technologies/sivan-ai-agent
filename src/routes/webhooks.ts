@@ -646,14 +646,14 @@ router.post("/webhooks/nomba", async (req, res) => {
           return res.status(409).send({ error: "Payment reference belongs to a different provider" });
         }
 
-        if (eventType === "payment_success" || eventType === "charge.completed" || eventType === "SUCCESS" || eventType === "SUCCESSFUL") {
+        if (eventType === "payment_success" || eventType === "charge.completed" || eventType === "SUCCESS" || eventType === "SUCCESSFUL" || eventType === "SUCCEEDED") {
           // For Nomba checkout webhooks, the payload already carries the payment details.
           // Extract amount/status directly from the webhook before making an API requery,
           // so that sandbox and live checkout orders are handled correctly without a "Tag mismatch" error.
           const webhookAmount = Number(transaction.amount || 0);
           const webhookStatus = String(transaction.status || "").toUpperCase();
           const isCheckoutRef = reference.startsWith("nomba-") || reference.startsWith("sandbox-nomba-");
-          const webhookConfirmsSuccess = (webhookStatus === "SUCCESS" || webhookStatus === "SUCCESSFUL" || webhookStatus === "COMPLETED") && webhookAmount > 0;
+          const webhookConfirmsSuccess = ["SUCCESS", "SUCCESSFUL", "COMPLETED", "SUCCEEDED"].includes(webhookStatus) && webhookAmount > 0;
 
           let transactionData: any;
           if (isCheckoutRef && webhookConfirmsSuccess) {
