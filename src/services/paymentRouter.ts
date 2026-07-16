@@ -94,4 +94,12 @@ export class PaymentRouter {
       details: settlement,
     };
   }
+
+  public getSapAgent(): SapAgent | undefined {
+    return this.sapAgent;
+  }
+
+  public getX402Client(): X402Client {
+    return this.x402Client;
+  }
 }

@@ -8,11 +8,13 @@ import {
   participantDisputeEvidenceSchema,
   formatZodError,
 } from "../validation";
+import { config } from "../config";
 import {
   escrowStore,
   abusePrevention,
   settingsStore,
   opsStore,
+  paymentRouter,
 } from "../context";
 import {
   capturePaymentWarning,
@@ -291,14 +293,41 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
       }
     } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
-      const reference = `x402-${accepted.escrowId}`;
+      const usdcChannel = process.env.USDC_CHANNEL || "x402";
+      let paymentResult: any;
+
+      try {
+        const recipient = config.sap.agentPublicKey || "sivan-escrow-agent";
+        if (usdcChannel === "sap") {
+          paymentResult = await paymentRouter.processUsdcSapEscrow(accepted.amount, recipient);
+        } else {
+          paymentResult = await paymentRouter.processUsdcEscrow(accepted.amount, recipient);
+        }
+      } catch (err: any) {
+        warn("Failed to create on-chain USDC payment facility, using fallback mock reference", err);
+        paymentResult = {
+          reference: `x402-${accepted.escrowId}`,
+          paymentId: `x402-${accepted.escrowId}`,
+          status: "pending",
+        };
+      }
+
       await escrowStore.attachPayment({
         escrowId: accepted.escrowId,
-        paymentReference: reference,
-        paymentProvider: "x402",
+        paymentReference: paymentResult.reference,
+        paymentProvider: usdcChannel,
         status: "PENDING_PAYMENT",
+        paymentMetadata: {
+          paymentId: paymentResult.paymentId,
+          details: paymentResult.details || null,
+        },
       });
-      payment = { provider: "x402", reference, settlementPolicy: "autonomous_usdc_release" };
+      payment = {
+        provider: usdcChannel,
+        reference: paymentResult.reference,
+        paymentId: paymentResult.paymentId,
+        settlementPolicy: "autonomous_usdc_release",
+      };
     }
     const updated = await buildEscrowDetail(req.params.escrowId);
     if (updated?.escrow && payment) {
@@ -369,6 +398,21 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
         usdcHighValueAmount: settings.usdcHighValueReviewAmount,
       }
     );
+    if (updated.currency === "USDC" && updated.status === "RELEASED" && updated.paymentReference) {
+      try {
+        const paymentProvider = updated.paymentProvider || "x402";
+        if (paymentProvider === "sap") {
+          const sap = paymentRouter.getSapAgent();
+          if (!sap) throw new Error("Synapse SAP agent is not configured");
+          await sap.releaseEscrow(updated.paymentReference);
+        } else {
+          await paymentRouter.settleUsdcPayment(updated.paymentReference);
+        }
+      } catch (err: any) {
+        captureOperationalError("Autonomous USDC release transaction failed", err);
+      }
+    }
+
     await notifyEscrowParticipants(
       updated,
       participantLifecycleMessage(

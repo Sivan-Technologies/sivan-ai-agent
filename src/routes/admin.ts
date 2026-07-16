@@ -19,6 +19,7 @@ import {
   opsStore,
   settingsStore,
   reconciliationStore,
+  paymentRouter,
 } from "../context";
 import {
   refreshEscrowPaymentLifecycleForRead,
@@ -258,6 +259,21 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
       return res.status(202).json({ escrow, payoutQuote, payout: payoutResult });
     }
+    if (escrow.currency === "USDC" && escrow.paymentReference) {
+      try {
+        const paymentProvider = escrow.paymentProvider || "x402";
+        if (paymentProvider === "sap") {
+          const sap = paymentRouter.getSapAgent();
+          if (!sap) throw new Error("Synapse SAP agent is not configured");
+          await sap.releaseEscrow(escrow.paymentReference);
+        } else {
+          await paymentRouter.settleUsdcPayment(escrow.paymentReference);
+        }
+      } catch (err: any) {
+        throw new Error(`On-chain USDC release failed: ${err.message || String(err)}`);
+      }
+    }
+
     const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, {
       ...parsed.data,
       manualPayoutReference: payoutResult?.reference || parsed.data.manualPayoutReference || "",

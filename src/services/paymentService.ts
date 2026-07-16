@@ -133,6 +133,29 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
       payment.expiresAt ? `Payment details expire: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
+  if (escrow.currency === "USDC") {
+    const depositAddress =
+      payment.depositAddress ||
+      payment.paymentMetadata?.details?.depositAddress ||
+      payment.details?.depositAddress ||
+      payment.paymentMetadata?.depositAddress ||
+      payment.details?.address ||
+      (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
+      "SivanUSDCPlatformDepositWalletAddressPlaceholder";
+
+    return [
+      `Payment instructions for ${escrow.escrowId}`,
+      `Total to pay: ${total} USDC`,
+      `Service amount: ${escrowAmount} USDC`,
+      `Sivan fee: ${displayedFee}`,
+      "",
+      `Please deposit the total USDC amount to Sivan's secure deposit wallet:`,
+      `Address: ${depositAddress}`,
+      `Network: ${config.x402.network || "Solana Devnet"}`,
+      `Payment reference: ${payment.reference}`,
+    ].join("\n");
+  }
+
   return [
     `Payment instructions for ${escrow.escrowId}`,
     `Payment reference: ${payment.reference}`,
