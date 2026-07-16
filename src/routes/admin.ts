@@ -20,6 +20,7 @@ import {
   settingsStore,
   reconciliationStore,
   paymentRouter,
+  disputeAnalyst,
 } from "../context";
 import {
   refreshEscrowPaymentLifecycleForRead,
@@ -440,6 +441,29 @@ router.post("/admin/escrows/:escrowId/dispute/resolve", requireAdminAuth, logAdm
       error: err.message || err,
     });
     res.status(400).json({ error: err.message || "Dispute resolution failed" });
+  }
+});
+
+router.get("/admin/escrows/:escrowId/ai-dispute-analysis", requireAdminAuth, async (req, res) => {
+  try {
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) {
+      return res.status(404).json({ error: "Escrow not found" });
+    }
+
+    if (escrow.aiDisputeRecommendation) {
+      try {
+        const cached = JSON.parse(escrow.aiDisputeRecommendation);
+        return res.status(200).json({ source: "cache", recommendation: cached });
+      } catch {
+        // Fall back to dynamic analysis if cache parsing fails
+      }
+    }
+
+    const recommendation = await disputeAnalyst.analyzeDispute(req.params.escrowId);
+    res.status(200).json({ source: "ai_analysis", recommendation });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "AI dispute analysis failed" });
   }
 });
 

@@ -92,6 +92,7 @@ export interface EscrowRecord {
   releasedBy?: string;
   releasedAt?: string;
   feePayer: "buyer" | "seller" | "split";
+  aiDisputeRecommendation?: string;
   createdByChannel: string;
   createdAt: string;
   updatedAt: string;
@@ -354,6 +355,7 @@ export class EscrowStore {
       releasedBy: row.released_by || undefined,
       releasedAt: row.released_at || undefined,
       feePayer: row.fee_payer || "buyer",
+      aiDisputeRecommendation: row.ai_dispute_recommendation || undefined,
       createdByChannel: row.created_by_channel,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -604,6 +606,7 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
     this.ensureSqliteColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
+    this.ensureSqliteColumn("escrows", "ai_dispute_recommendation", "TEXT");
     this.ensureSqliteColumn("transactions", "processor_fee", "REAL");
 
     this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
@@ -650,6 +653,7 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
       await this.ensurePostgresColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
+      await this.ensurePostgresColumn("escrows", "ai_dispute_recommendation", "TEXT");
       await this.ensurePostgresColumn("transactions", "processor_fee", "DOUBLE PRECISION");
 
       await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
@@ -2407,6 +2411,24 @@ export class EscrowStore {
       LIMIT 1
     `, [pattern]);
     return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  public async saveAiDisputeRecommendation(escrowId: string, recommendationJson: string): Promise<void> {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrows
+        SET ai_dispute_recommendation = @recommendationJson, updated_at = @now
+        WHERE escrow_id = @escrowId
+      `).run({ escrowId, recommendationJson, now });
+      return;
+    }
+    await this.pool!.query(`
+      UPDATE escrows
+      SET ai_dispute_recommendation = $1, updated_at = $2
+      WHERE escrow_id = $3
+    `, [recommendationJson, now, escrowId]);
   }
 
   public async close(): Promise<void> {

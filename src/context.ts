@@ -9,6 +9,7 @@ import { ProductionOpsStore } from "./services/productionOpsStore";
 import { ReconciliationStore } from "./services/reconciliationStore";
 import { AbusePreventionService } from "./services/abusePrevention";
 import { AgentOrchestrator } from "./services/agentOrchestrator";
+import { DisputeAnalystService } from "./services/disputeAnalyst";
 import { createNairaPaymentProvider } from "./services/nairaPaymentProvider";
 import { MonnifyClient } from "./services/monnifyClient";
 import { FlutterwaveClient } from "./services/flutterwaveClient";
@@ -23,6 +24,7 @@ export const escrowStore = new EscrowStore(config.app.databaseUrl, config.app.da
 export const opsStore = new ProductionOpsStore(config.app.databaseUrl, config.app.databaseProvider);
 export const reconciliationStore = new ReconciliationStore(config.app.databaseUrl, config.app.databaseProvider);
 export const abusePrevention = new AbusePreventionService(escrowStore, opsStore, settingsStore);
+export const disputeAnalyst = new DisputeAnalystService(escrowStore, aceData);
 
 export const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 export const monnifyPaymentProvider = createNairaPaymentProvider("monnify");

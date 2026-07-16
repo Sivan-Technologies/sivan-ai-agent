@@ -46,4 +46,34 @@ export class AceDataClient {
     const data = await this.callService("/v1/data/extract", { text });
     return { service: "data-extraction", output: data };
   }
+
+  public async analyzeImagePrompt(imageUrl: string, prompt: string): Promise<AceDataResult> {
+    console.log("[AceData] Running multimodal image analysis");
+    const data = await this.callService("/v1/chat/completions", {
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: imageUrl } }
+          ]
+        }
+      ],
+      max_tokens: 1000
+    });
+    return { service: "multimodal-analysis", output: data };
+  }
+
+  public async analyzeTextPrompt(prompt: string): Promise<AceDataResult> {
+    console.log("[AceData] Running custom text-only analysis");
+    const data = await this.callService("/v1/chat/completions", {
+      model: "gpt-4o",
+      messages: [
+        { role: "user", content: prompt }
+      ],
+      max_tokens: 1000
+    });
+    return { service: "text-analysis", output: data };
+  }
 }
