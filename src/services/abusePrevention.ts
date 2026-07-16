@@ -1,5 +1,6 @@
 import { EscrowStore } from "./escrowStore";
 import { ProductionOpsStore } from "./productionOpsStore";
+import { SettingsStore } from "./settingsStore";
 
 export interface AbuseDecision {
   allowed: boolean;
@@ -16,7 +17,11 @@ function severity(score: number): AbuseDecision["severity"] {
 }
 
 export class AbusePreventionService {
-  constructor(private escrowStore: EscrowStore, private opsStore: ProductionOpsStore) {}
+  constructor(
+    private escrowStore: EscrowStore,
+    private opsStore: ProductionOpsStore,
+    private settingsStore?: SettingsStore
+  ) {}
 
   public async evaluateEscrowCreate(input: {
     buyerWhatsapp: string;
@@ -31,11 +36,13 @@ export class AbusePreventionService {
   }): Promise<AbuseDecision> {
     const reasons: string[] = [];
     let riskScore = 0;
+    const settings = this.settingsStore ? await this.settingsStore.getSettings() : null;
+
     const blockScore = Number(process.env.ABUSE_BLOCK_SCORE || "95");
     const reviewScore = Number(process.env.ABUSE_REVIEW_SCORE || "60");
     const velocityLimit = Number(process.env.ABUSE_ESCROW_VELOCITY_LIMIT || "8");
-    const highAmountNaira = Number(process.env.ABUSE_HIGH_AMOUNT_NAIRA || "1000000");
-    const highAmountUsdc = Number(process.env.ABUSE_HIGH_AMOUNT_USDC || "5000");
+    const highAmountNaira = settings?.nairaHighValueReviewAmount ?? Number(process.env.ABUSE_HIGH_AMOUNT_NAIRA || "1000000");
+    const highAmountUsdc = settings?.usdcHighValueReviewAmount ?? Number(process.env.ABUSE_HIGH_AMOUNT_USDC || "5000");
 
     const [recent, buyer, actions] = await Promise.all([
       this.escrowStore.listEscrows(250),

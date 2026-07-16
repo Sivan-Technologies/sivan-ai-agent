@@ -22,7 +22,7 @@ export const settingsStore = new SettingsStore(config.app.databaseUrl, config.ap
 export const escrowStore = new EscrowStore(config.app.databaseUrl, config.app.databaseProvider);
 export const opsStore = new ProductionOpsStore(config.app.databaseUrl, config.app.databaseProvider);
 export const reconciliationStore = new ReconciliationStore(config.app.databaseUrl, config.app.databaseProvider);
-export const abusePrevention = new AbusePreventionService(escrowStore, opsStore);
+export const abusePrevention = new AbusePreventionService(escrowStore, opsStore, settingsStore);
 
 export const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
 export const monnifyPaymentProvider = createNairaPaymentProvider("monnify");
