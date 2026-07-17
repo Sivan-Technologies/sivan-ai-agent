@@ -124,6 +124,8 @@ export interface EscrowEventRecord {
   eventType: string;
   reason?: string;
   metadata?: string;
+  hash?: string;
+  previousHash?: string;
   createdAt: string;
 }
 
@@ -406,6 +408,8 @@ export class EscrowStore {
       eventType: row.event_type,
       reason: row.reason || undefined,
       metadata: row.metadata || undefined,
+      hash: row.hash || undefined,
+      previousHash: row.previous_hash || undefined,
       createdAt: row.created_at,
     };
   }
@@ -530,6 +534,8 @@ export class EscrowStore {
         event_type TEXT NOT NULL,
         reason TEXT,
         metadata TEXT,
+        hash TEXT,
+        previous_hash TEXT,
         created_at TEXT NOT NULL
       );
 
@@ -607,6 +613,8 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
     this.ensureSqliteColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
     this.ensureSqliteColumn("escrows", "ai_dispute_recommendation", "TEXT");
+    this.ensureSqliteColumn("escrow_events", "hash", "TEXT");
+    this.ensureSqliteColumn("escrow_events", "previous_hash", "TEXT");
     this.ensureSqliteColumn("transactions", "processor_fee", "REAL");
 
     this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
@@ -654,6 +662,8 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
       await this.ensurePostgresColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
       await this.ensurePostgresColumn("escrows", "ai_dispute_recommendation", "TEXT");
+      await this.ensurePostgresColumn("escrow_events", "hash", "TEXT");
+      await this.ensurePostgresColumn("escrow_events", "previous_hash", "TEXT");
       await this.ensurePostgresColumn("transactions", "processor_fee", "DOUBLE PRECISION");
 
       await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
@@ -2128,7 +2138,7 @@ export class EscrowStore {
     }
   }
 
-  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt" | "metadata"> & { metadata?: any }): Promise<string> {
+  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt" | "metadata" | "hash" | "previousHash"> & { metadata?: any }): Promise<string> {
     await this.initializeSchema();
     const eventId = id("event");
     const createdAt = new Date().toISOString();
@@ -2137,16 +2147,72 @@ export class EscrowStore {
         ? input.metadata
         : JSON.stringify(input.metadata)
       : null;
+
+    // Fetch the previous event hash for this escrow to link the chain
+    let previousHash = "0000000000000000000000000000000000000000000000000000000000000000";
+    if (this.provider === "sqlite") {
+      const lastEvent = this.sqlite!.prepare(`SELECT hash FROM escrow_events WHERE escrow_id = @escrowId ORDER BY created_at DESC LIMIT 1`).get({ escrowId: input.escrowId }) as { hash?: string } | undefined;
+      if (lastEvent?.hash) {
+        previousHash = lastEvent.hash;
+      }
+    } else {
+      const lastEventRes = await this.pool!.query(`SELECT hash FROM escrow_events WHERE escrow_id = $1 ORDER BY created_at DESC LIMIT 1`, [input.escrowId]);
+      if (lastEventRes.rows.length > 0 && lastEventRes.rows[0].hash) {
+        previousHash = lastEventRes.rows[0].hash;
+      }
+    }
+
+    // Compute the unique SHA-256 cryptographic hash for this event
+    const hashPayload = [
+      previousHash,
+      input.escrowId,
+      input.actor,
+      input.actorRole,
+      input.channel,
+      input.previousStatus || "",
+      input.nextStatus || "",
+      input.eventType,
+      input.reason || "",
+      metadata || "",
+      createdAt
+    ].join("|");
+
+    const hash = crypto.createHash("sha256").update(hashPayload).digest("hex");
+
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, created_at)
-        VALUES (@eventId, @escrowId, @actor, @actorRole, @channel, @previousStatus, @nextStatus, @eventType, @reason, @metadata, @createdAt)
-      `).run({ ...input, eventId, previousStatus: input.previousStatus || null, nextStatus: input.nextStatus || null, reason: input.reason || null, metadata, createdAt });
+        INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, hash, previous_hash, created_at)
+        VALUES (@eventId, @escrowId, @actor, @actorRole, @channel, @previousStatus, @nextStatus, @eventType, @reason, @metadata, @hash, @previousHash, @createdAt)
+      `).run({ 
+        ...input, 
+        eventId, 
+        previousStatus: input.previousStatus || null, 
+        nextStatus: input.nextStatus || null, 
+        reason: input.reason || null, 
+        metadata, 
+        hash, 
+        previousHash, 
+        createdAt 
+      });
     } else {
       await this.pool!.query(
-        `INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [eventId, input.escrowId, input.actor, input.actorRole, input.channel, input.previousStatus || null, input.nextStatus || null, input.eventType, input.reason || null, metadata, createdAt]
+        `INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, hash, previous_hash, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          eventId, 
+          input.escrowId, 
+          input.actor, 
+          input.actorRole, 
+          input.channel, 
+          input.previousStatus || null, 
+          input.nextStatus || null, 
+          input.eventType, 
+          input.reason || null, 
+          metadata, 
+          hash, 
+          previousHash, 
+          createdAt
+        ]
       );
     }
     return eventId;
@@ -2429,6 +2495,59 @@ export class EscrowStore {
       SET ai_dispute_recommendation = $1, updated_at = $2
       WHERE escrow_id = $3
     `, [recommendationJson, now, escrowId]);
+  }
+
+  public async verifyEscrowAuditTrail(escrowId: string): Promise<{ verified: boolean; invalidEventId?: string; error?: string }> {
+    await this.initializeSchema();
+    let events: EscrowEventRecord[] = [];
+    if (this.provider === "sqlite") {
+      events = this.sqlite!.prepare(`SELECT * FROM escrow_events WHERE escrow_id = @escrowId ORDER BY created_at ASC`).all({ escrowId }).map((row) => this.mapEvent(row));
+    } else {
+      const result = await this.pool!.query(`SELECT * FROM escrow_events WHERE escrow_id = $1 ORDER BY created_at ASC`, [escrowId]);
+      events = result.rows.map((row) => this.mapEvent(row));
+    }
+
+    let expectedPreviousHash = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    for (const event of events) {
+      // 1. Verify previous hash link
+      if (event.previousHash !== expectedPreviousHash) {
+        return {
+          verified: false,
+          invalidEventId: event.eventId,
+          error: `Hash chain broken at event ${event.eventId}. Expected previous hash ${expectedPreviousHash}, got ${event.previousHash}.`
+        };
+      }
+
+      // 2. Recompute current hash
+      const hashPayload = [
+        event.previousHash,
+        event.escrowId,
+        event.actor,
+        event.actorRole,
+        event.channel,
+        event.previousStatus || "",
+        event.nextStatus || "",
+        event.eventType,
+        event.reason || "",
+        event.metadata || "",
+        event.createdAt
+      ].join("|");
+
+      const calculatedHash = crypto.createHash("sha256").update(hashPayload).digest("hex");
+
+      if (event.hash !== calculatedHash) {
+        return {
+          verified: false,
+          invalidEventId: event.eventId,
+          error: `Hash mismatch at event ${event.eventId}. Calculated ${calculatedHash}, stored ${event.hash}.`
+        };
+      }
+
+      expectedPreviousHash = event.hash ?? "";
+    }
+
+    return { verified: true };
   }
 
   public async close(): Promise<void> {

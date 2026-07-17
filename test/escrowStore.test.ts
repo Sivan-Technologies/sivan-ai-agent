@@ -493,4 +493,55 @@ describe("EscrowStore", () => {
     expect(transactions.map((transaction) => transaction.status)).toContain("manual_dispute_release");
     expect(ledgerEntries.map((entry) => entry.entryType)).toContain("release");
   });
+
+  it("verifies cryptographic audit trails and detects manual database tampering", async () => {
+    const escrowStore = freshStore();
+    const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000021", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000022", "seller");
+    
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 15000,
+      currency: "NAIRA",
+      purpose: "Cryptographic test deed",
+      createdByChannel: "whatsapp_dm",
+    });
+
+    await escrowStore.addEvent({
+      escrowId: escrow.escrowId,
+      actor: buyer.whatsappNumber,
+      actorRole: "buyer",
+      channel: "whatsapp_dm",
+      previousStatus: "CREATED",
+      nextStatus: "PENDING_ACCEPTANCE",
+      eventType: "escrow_created",
+      reason: "Agreement created via WhatsApp",
+    });
+
+    await escrowStore.addEvent({
+      escrowId: escrow.escrowId,
+      actor: seller.whatsappNumber,
+      actorRole: "seller",
+      channel: "whatsapp_dm",
+      previousStatus: "PENDING_ACCEPTANCE",
+      nextStatus: "PENDING_PAYMENT",
+      eventType: "escrow_accepted",
+      reason: "Agreement accepted by seller",
+    });
+
+    // 1. Verify that the untouched chain passes verification successfully
+    const auditResBefore = await escrowStore.verifyEscrowAuditTrail(escrow.escrowId);
+    expect(auditResBefore.verified).toBe(true);
+
+    // 2. Manually alter the database event record (simulating database tampering)
+    const db = (escrowStore as any).sqlite;
+    db.prepare("UPDATE escrow_events SET actor = 'hacker_whatsapp' WHERE event_type = 'escrow_accepted'").run();
+
+    // 3. Verify that the altered chain fails verification and identifies the break
+    const auditResAfter = await escrowStore.verifyEscrowAuditTrail(escrow.escrowId);
+    expect(auditResAfter.verified).toBe(false);
+    expect(auditResAfter.error).toContain("Hash mismatch at event");
+  });
 });

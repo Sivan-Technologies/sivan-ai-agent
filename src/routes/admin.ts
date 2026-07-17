@@ -791,4 +791,18 @@ router.get("/admin/audit-history", requireAdminAuth, async (req, res) => {
   }
 });
 
+router.get("/admin/escrow/:escrowId/verify-audit-trail", requireAdminAuth, async (req, res) => {
+  try {
+    const { escrowId } = req.params;
+    if (!escrowId) {
+      return res.status(400).json({ error: "escrowId parameter is required" });
+    }
+    const result = await escrowStore.verifyEscrowAuditTrail(escrowId);
+    res.status(200).json(result);
+  } catch (err: any) {
+    captureOperationalError("Failed to verify audit trail", err);
+    res.status(500).json({ error: err.message || "Failed to verify audit trail" });
+  }
+});
+
 export default router;
