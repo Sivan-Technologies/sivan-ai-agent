@@ -598,7 +598,8 @@ export class EscrowStore {
 
   private initializeSchemaSync() {
     this.sqlite!.exec(this.schemaSql("REAL"));
-    this.ensureSqliteColumn("users", "email", "TEXT UNIQUE");
+    this.ensureSqliteColumn("users", "email", "TEXT");
+    this.sqlite!.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);");
     this.ensureSqliteColumn("users", "password_hash", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_encrypted", "TEXT");
