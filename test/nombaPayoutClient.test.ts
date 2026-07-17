@@ -210,12 +210,14 @@ describe("NombaPayoutClient", () => {
     expect(mockedAxios.post).toHaveBeenLastCalledWith(
       "https://sandbox.nomba.com/v1/checkout/order",
       expect.objectContaining({
-        amount: 10000,
-        currency: "NGN",
-        customerEmail: "buyer@example.com",
-        merchantTxRef: "sandbox-nomba-SIV-123",
-        allowedPaymentMethods: ["Transfer"],
-        redirectUrl: "https://sivan-escrow-agent-test.onrender.com/callback",
+        order: {
+          amount: 10000,
+          currency: "NGN",
+          customerEmail: "buyer@example.com",
+          merchantTxRef: "sandbox-nomba-SIV-123",
+          allowedPaymentMethods: ["Transfer"],
+          redirectUrl: "https://sivan-escrow-agent-test.onrender.com/callback",
+        }
       }),
       expect.objectContaining({
         headers: expect.objectContaining({

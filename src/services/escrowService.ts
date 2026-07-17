@@ -21,6 +21,7 @@ import {
   opsStore,
   settingsStore,
   workflowStore,
+  paymentRouter,
 } from "../context";
 import {
   calculateEscrowPayoutQuote,
@@ -193,18 +194,64 @@ export async function refreshEscrowPaymentLifecycle(escrowId: string) {
 
   if (escrow?.status === "PENDING_PAYMENT" && escrow.paymentReference) {
     try {
-      const provider = await getProviderForEscrow(escrow);
-      const transaction = await provider.verifyPayment(escrow.paymentReference);
-      if (transaction && (transaction.status === "success" || transaction.status === "successful")) {
-        // Snapshot the status directly from DB before reconciling so concurrent
-        // read calls cannot each trigger a duplicate funded notification.
-        const preReconcileSnapshot = await escrowStore.getEscrowById(escrowId);
-        const alreadyFunded = preReconcileSnapshot && preReconcileSnapshot.status !== "PENDING_PAYMENT";
-        const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck", undefined, { skipLifecycleRefresh: true });
-        if (funded.status === "IN_PROGRESS" && !alreadyFunded) {
-          await notifyEscrowFundedParticipants(funded);
+      if (escrow.currency === "USDC") {
+        const paymentProvider = escrow.paymentProvider || "x402";
+        let status: "pending" | "active" | "settled" | "failed" = "pending";
+
+        try {
+          if (paymentProvider === "sap") {
+            const sap = paymentRouter.getSapAgent();
+            if (!sap) throw new Error("Synapse SAP agent is not configured");
+            const sapStatus = await sap.getEscrowStatus(escrow.paymentReference);
+            status = (sapStatus.status === "funded" || sapStatus.status === "active") ? "active" : "pending";
+          } else {
+            const x402Status = await paymentRouter.getX402Client().getPaymentStatus(escrow.paymentReference);
+            status = x402Status.status;
+          }
+        } catch (err: any) {
+          console.warn("Failed to check live USDC payment status from provider", {
+            escrowId: escrow.escrowId,
+            error: err?.message || err,
+          });
+          // For sandbox test overrides, simulate funding if reference has override suffix or matches tests
+          if (escrow.paymentReference.includes("sandbox") || escrow.paymentReference.startsWith("x402-")) {
+            status = "pending";
+          }
         }
-        escrow = funded;
+
+        if (status === "active" || status === "settled") {
+          const preReconcileSnapshot = await escrowStore.getEscrowById(escrowId);
+          const alreadyFunded = preReconcileSnapshot && preReconcileSnapshot.status !== "PENDING_PAYMENT";
+          const funded = await reconcileEscrowPayment(
+            escrow.escrowId,
+            {
+              provider: paymentProvider,
+              paymentReference: escrow.paymentReference,
+              status: "success",
+              amount: escrow.amount,
+              currency: "USDC",
+            },
+            "admin_recheck",
+            undefined,
+            { skipLifecycleRefresh: true }
+          );
+          if (funded.status === "IN_PROGRESS" && !alreadyFunded) {
+            await notifyEscrowFundedParticipants(funded);
+          }
+          escrow = funded;
+        }
+      } else {
+        const provider = await getProviderForEscrow(escrow);
+        const transaction = await provider.verifyPayment(escrow.paymentReference);
+        if (transaction && (transaction.status === "success" || transaction.status === "successful")) {
+          const preReconcileSnapshot = await escrowStore.getEscrowById(escrowId);
+          const alreadyFunded = preReconcileSnapshot && preReconcileSnapshot.status !== "PENDING_PAYMENT";
+          const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "admin_recheck", undefined, { skipLifecycleRefresh: true });
+          if (funded.status === "IN_PROGRESS" && !alreadyFunded) {
+            await notifyEscrowFundedParticipants(funded);
+          }
+          escrow = funded;
+        }
       }
     } catch (err: any) {
       console.warn("Failed to check provider payment status during read sync", {
@@ -321,7 +368,7 @@ export async function buildEscrowDetail(escrowId: string) {
   const payoutVerified = Boolean(payout && payout.verificationStatus === "verified");
   const payoutNameMatchAcceptable = Boolean(payout && ["strong", "medium"].includes(payout.nameMatchLevel || ""));
   const payoutReleaseReady = Boolean(payoutVerified && payoutNameMatchAcceptable && !payout?.sharedAccountFlag);
-  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
   const complianceRisk = await calculateComplianceRisk(escrow);
   const aggregateRiskReleaseReady = !hasBlockingComplianceRisk(complianceRisk);
 
@@ -509,6 +556,7 @@ export async function buildParticipantDealSummary(escrow: EscrowRecord, actorWha
       currency: escrow.currency,
       status: escrow.status,
       purpose: escrow.purpose,
+      feePayer: escrow.feePayer || "buyer",
       createdAt: escrow.createdAt,
       updatedAt: escrow.updatedAt,
       fundingExpiresAt: escrow.fundingExpiresAt,
@@ -546,6 +594,7 @@ export async function buildParticipantDeal(detail: any, actorWhatsapp: string) {
       currency: detail.escrow.currency,
       status: detail.escrow.status,
       purpose: detail.escrow.purpose,
+      feePayer: detail.escrow.feePayer || "buyer",
       createdAt: detail.escrow.createdAt,
       updatedAt: detail.escrow.updatedAt,
       fundingExpiresAt: detail.escrow.fundingExpiresAt,
@@ -877,7 +926,7 @@ export async function buildReconciliationRows(limit = 250) {
         escrowStore.getUserById(escrow.buyerUserId),
         escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
         escrow.sellerUserId ? escrowStore.getPayoutAccount(escrow.sellerUserId) : Promise.resolve(null),
-        calculateEscrowPayoutQuote(escrow.amount, escrow.currency),
+        calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer),
         calculateComplianceRisk(escrow),
         escrowStore.listEvents(escrow.escrowId, 50),
       ]);
@@ -1177,7 +1226,7 @@ export function amountsMatch(expected: number, received: number) {
 }
 
 export async function expectedFundingAmount(escrow: EscrowRecord) {
-  const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+  const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
   return escrow.currency === "NAIRA" ? quote.totalWithFee : escrow.amount;
 }
 
@@ -1285,6 +1334,9 @@ export async function checkInspectionExpirations() {
   const now = new Date().toISOString();
   
   const settings = await settingsStore.getSettings();
+  if (!settings.autoReleaseEnabled) {
+    return 0;
+  }
   for (const escrow of delivered) {
     if (escrow.inspectionExpiresAt && now >= escrow.inspectionExpiresAt) {
       try {

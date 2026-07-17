@@ -496,7 +496,12 @@ export class NombaPaymentProvider implements PaymentProvider {
   }
 
   public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
-    const result = await this.client.requeryTransfer(paymentReference);
+    // Nomba checkout references are prefixed with "nomba-". Use the checkout order
+    // endpoint to verify them. Payout transfer references go via requeryTransfer.
+    const isCheckout = paymentReference.startsWith("nomba-") || paymentReference.startsWith("sandbox-nomba-");
+    const result = isCheckout
+      ? await this.client.requeryCheckoutOrder(paymentReference)
+      : await this.client.requeryTransfer(paymentReference);
     const status = result.status === "succeeded" ? "success" : result.status;
     return {
       provider: this.id,

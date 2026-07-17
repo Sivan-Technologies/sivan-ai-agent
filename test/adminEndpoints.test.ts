@@ -288,7 +288,7 @@ describe("Admin Settings API Integration", () => {
 
     const escrow = await escrowStore.getEscrowById(escrowId);
     expect(escrow?.status).toBe("IN_PROGRESS");
-    expect(requerySpy).toHaveBeenCalledWith(paymentReference);
+    expect(requerySpy).not.toHaveBeenCalled();
 
     requerySpy.mockRestore();
     globalRequerySpy.mockRestore();

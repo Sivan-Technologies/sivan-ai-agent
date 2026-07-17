@@ -109,6 +109,10 @@ export class NombaPayoutClient {
   private accessToken?: string;
   private tokenExpiresAt = 0;
 
+  public getBaseUrl() {
+    return this.baseUrl;
+  }
+
   constructor(platformMode?: "test" | "live" | "maintenance") {
     if (platformMode === "live") {
       this.clientId = config.nomba.liveClientId || config.nomba.clientId;
@@ -320,12 +324,14 @@ export class NombaPayoutClient {
   }): Promise<{ checkoutLink: string; orderReference: string; raw: any }> {
     try {
       const payload = {
-        amount: input.amount,
-        currency: "NGN",
-        customerEmail: input.customerEmail,
-        merchantTxRef: input.paymentReference,
-        allowedPaymentMethods: ["Transfer"],
-        redirectUrl: input.redirectUrl || config.flutterwave.callbackUrl,
+        order: {
+          amount: input.amount,
+          currency: "NGN",
+          customerEmail: input.customerEmail,
+          merchantTxRef: input.paymentReference,
+          allowedPaymentMethods: ["Transfer"],
+          redirectUrl: input.redirectUrl || config.flutterwave.callbackUrl,
+        }
       };
 
       const res = await axios.post(
@@ -354,6 +360,41 @@ export class NombaPayoutClient {
       };
     } catch (err) {
       throw new Error(`Nomba checkout order creation failed: ${extractAxiosMessage(err)}`);
+    }
+  }
+
+  public async requeryCheckoutOrder(orderReference: string): Promise<NombaPayoutResult> {
+    try {
+      const res = await axios.get(
+        `${this.baseUrl}/v1/checkout/order/${encodeURIComponent(orderReference)}`,
+        {
+          headers: await this.authHeaders(),
+          timeout: this.timeoutMs,
+        }
+      );
+      const response = res.data;
+      const data = response?.data || {};
+      const txn = data.transaction || data;
+      const status = normalizeTransferStatus(
+        txn.status || txn.paymentStatus || data.status || response.status
+      );
+      const amount = Number(txn.amount || data.amount || 0);
+      const merchantTxRef = String(
+        txn.merchantTxRef || txn.meta?.merchantTxRef || data.merchantTxRef || orderReference
+      );
+      const transactionId = String(txn.id || txn.transactionId || orderReference);
+      return {
+        merchantTxRef,
+        transactionId,
+        status,
+        amount,
+        currency: "NAIRA",
+        fee: txn.fee === undefined ? undefined : Number(txn.fee),
+        message: response?.message || response?.description || String(status),
+        raw: response,
+      };
+    } catch (err) {
+      throw new Error(`Nomba checkout order requery failed: ${extractAxiosMessage(err)}`);
     }
   }
 

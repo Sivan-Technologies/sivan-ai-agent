@@ -136,7 +136,7 @@ describe("Nomba Pay-in & Payout E2E Lifecycle", () => {
     // Verify database escrow status progressed to IN_PROGRESS
     const escrowAfterWebhook = await escrowStore.getEscrowById(escrowId);
     expect(escrowAfterWebhook?.status).toBe("IN_PROGRESS");
-    expect(requerySpy).toHaveBeenCalledWith(paymentReference);
+    expect(requerySpy).not.toHaveBeenCalled();
 
     // 5. Submit Delivery Proof
     const deliveryProofRes = await request(app)

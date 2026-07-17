@@ -58,6 +58,7 @@ export const escrowCreateSchema = z.object({
   ),
   channel: z.enum(["whatsapp_dm", "whatsapp_group", "admin", "api"]).default("api"),
   clientRequestId: z.string().trim().min(8).max(120).optional(),
+  feePayer: z.enum(["buyer", "seller", "split"]).default("buyer"),
 });
 
 export const userProfileSchema = z.object({
@@ -157,9 +158,11 @@ export const adminSettingsSchema = z.object({
   reconciliationWorkerEnabled: z.coerce.boolean().optional(),
   queueWorkerEnabled: z.coerce.boolean().optional(),
   stuckEscrowAlertMinutes: z.coerce.number().int().positive().optional(),
+  autoReleaseEnabled: z.coerce.boolean().optional(),
+  deliveryInspectionWindowDays: z.coerce.number().int().min(1).max(30).optional(),
   // Disaster Recovery
-  outageStatusPageUrl: z.string().trim().max(500).optional(),
-  outageContacts: z.string().trim().max(500).optional(),
+  outageStatusPageUrl: z.string().trim().optional(),
+  outageContacts: z.string().trim().min(5).max(250).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 

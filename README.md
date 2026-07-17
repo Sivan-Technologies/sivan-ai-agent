@@ -23,6 +23,9 @@ Today. Paystack confirms payment through a signed webhook before the backend run
 - Prevent duplicate Paystack webhooks from double-running task execution.
 - Execute AI task work through the Ace Data Cloud integration path.
 - Send task/payment updates back to the WhatsApp bot.
+- ✅ **WhatsApp Interactive Buttons (UI/UX Upgrade)**: Native Twilio WhatsApp Content Templates instead of text fallbacks, allowing users to click buttons (`[ Accept deal ]`, `[ Pay now ]`, `[ Mark complete ]`, etc.) directly inside WhatsApp.
+- ✅ **Support dynamic, multi-party fee allocation models**: Buyer Pays (Amount + Fee), Seller Pays (Amount - Fee), or 50/50 Split.
+- ✅ **Enforce dynamic, admin-configurable dispute auto-release timers** with an ON/OFF toggle and adjustable delivery inspection window.
 - Provide protected admin endpoints for tasks, webhook events, fee settings, and audit history.
 - Run a React admin dashboard for internal monitoring.
 - Manage first-class buyer/seller escrow records with payout readiness checks.

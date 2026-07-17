@@ -103,7 +103,7 @@ export function createSandboxPaymentInstruction(
       // keep default
     }
   }
-  const authorizationUrl = `${host}/sandbox-pay?reference=${reference}`;
+  const authorizationUrl = `https://sivantech.online/pay?reference=${reference}`;
 
   return {
     reference,

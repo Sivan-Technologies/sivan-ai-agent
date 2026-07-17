@@ -32,6 +32,8 @@ export interface UserRecord {
   whatsappNumber: string;
   firstName?: string;
   lastName?: string;
+  email?: string;
+  passwordHash?: string;
   roleHistory: string[];
   createdAt: string;
   updatedAt: string;
@@ -91,6 +93,8 @@ export interface EscrowRecord {
   payoutNotes?: string;
   releasedBy?: string;
   releasedAt?: string;
+  feePayer: "buyer" | "seller" | "split";
+  aiDisputeRecommendation?: string;
   createdByChannel: string;
   createdAt: string;
   updatedAt: string;
@@ -122,6 +126,8 @@ export interface EscrowEventRecord {
   eventType: string;
   reason?: string;
   metadata?: string;
+  hash?: string;
+  previousHash?: string;
   createdAt: string;
 }
 
@@ -289,6 +295,8 @@ export class EscrowStore {
       whatsappNumber: row.whatsapp_number,
       firstName: row.first_name || undefined,
       lastName: row.last_name || undefined,
+      email: row.email || undefined,
+      passwordHash: row.password_hash || undefined,
       roleHistory: JSON.parse(row.role_history || "[]"),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -352,6 +360,8 @@ export class EscrowStore {
       payoutNotes: row.payout_notes || undefined,
       releasedBy: row.released_by || undefined,
       releasedAt: row.released_at || undefined,
+      feePayer: row.fee_payer || "buyer",
+      aiDisputeRecommendation: row.ai_dispute_recommendation || undefined,
       createdByChannel: row.created_by_channel,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -402,6 +412,8 @@ export class EscrowStore {
       eventType: row.event_type,
       reason: row.reason || undefined,
       metadata: row.metadata || undefined,
+      hash: row.hash || undefined,
+      previousHash: row.previous_hash || undefined,
       createdAt: row.created_at,
     };
   }
@@ -437,9 +449,18 @@ export class EscrowStore {
         whatsapp_number TEXT NOT NULL UNIQUE,
         first_name TEXT,
         last_name TEXT,
+        email TEXT UNIQUE,
+        password_hash TEXT,
         role_history TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pairing_tokens (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS payout_accounts (
@@ -494,6 +515,7 @@ export class EscrowStore {
         released_by TEXT,
         released_at TEXT,
         client_request_id TEXT,
+        fee_payer TEXT NOT NULL DEFAULT 'buyer',
         created_by_channel TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -525,6 +547,8 @@ export class EscrowStore {
         event_type TEXT NOT NULL,
         reason TEXT,
         metadata TEXT,
+        hash TEXT,
+        previous_hash TEXT,
         created_at TEXT NOT NULL
       );
 
@@ -574,6 +598,9 @@ export class EscrowStore {
 
   private initializeSchemaSync() {
     this.sqlite!.exec(this.schemaSql("REAL"));
+    this.ensureSqliteColumn("users", "email", "TEXT");
+    this.sqlite!.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);");
+    this.ensureSqliteColumn("users", "password_hash", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_encrypted", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_last4", "TEXT");
@@ -600,6 +627,10 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "provider_payment_status", "TEXT");
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
+    this.ensureSqliteColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
+    this.ensureSqliteColumn("escrows", "ai_dispute_recommendation", "TEXT");
+    this.ensureSqliteColumn("escrow_events", "hash", "TEXT");
+    this.ensureSqliteColumn("escrow_events", "previous_hash", "TEXT");
     this.ensureSqliteColumn("transactions", "processor_fee", "REAL");
 
     this.sqlite!.exec("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
@@ -619,6 +650,8 @@ export class EscrowStore {
       this.initializeSchemaSync();
     } else {
       await this.pool!.query(this.schemaSql("DOUBLE PRECISION"));
+      await this.ensurePostgresColumn("users", "email", "TEXT UNIQUE");
+      await this.ensurePostgresColumn("users", "password_hash", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "bank_code", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_encrypted", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_last4", "TEXT");
@@ -645,6 +678,10 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "provider_payment_status", "TEXT");
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
+      await this.ensurePostgresColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
+      await this.ensurePostgresColumn("escrows", "ai_dispute_recommendation", "TEXT");
+      await this.ensurePostgresColumn("escrow_events", "hash", "TEXT");
+      await this.ensurePostgresColumn("escrow_events", "previous_hash", "TEXT");
       await this.ensurePostgresColumn("transactions", "processor_fee", "DOUBLE PRECISION");
 
       await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
@@ -791,14 +828,29 @@ export class EscrowStore {
     return this.mapUser(result.rows[0]);
   }
 
-  public async updateUserProfile(userId: string, firstName: string, lastName: string): Promise<UserRecord | null> {
+  public async updateUserProfile(userId: string, firstName?: string, lastName?: string, email?: string, passwordHash?: string): Promise<UserRecord | null> {
     await this.initializeSchema();
     const now = new Date().toISOString();
     if (this.provider === "sqlite") {
-      this.sqlite!.prepare(`UPDATE users SET first_name = @firstName, last_name = @lastName, updated_at = @now WHERE user_id = @userId`)
-        .run({ userId, firstName, lastName, now });
+      this.sqlite!.prepare(`
+        UPDATE users 
+        SET first_name = COALESCE(@firstName, first_name), 
+            last_name = COALESCE(@lastName, last_name), 
+            email = COALESCE(@email, email),
+            password_hash = COALESCE(@passwordHash, password_hash),
+            updated_at = @now 
+        WHERE user_id = @userId
+      `).run({ userId, firstName: firstName || null, lastName: lastName || null, email: email || null, passwordHash: passwordHash || null, now });
     } else {
-      await this.pool!.query(`UPDATE users SET first_name = $1, last_name = $2, updated_at = $3 WHERE user_id = $4`, [firstName, lastName, now, userId]);
+      await this.pool!.query(`
+        UPDATE users 
+        SET first_name = COALESCE($1, first_name), 
+            last_name = COALESCE($2, last_name), 
+            email = COALESCE($3, email),
+            password_hash = COALESCE($4, password_hash),
+            updated_at = $5 
+        WHERE user_id = $6
+      `, [firstName || null, lastName || null, email || null, passwordHash || null, now, userId]);
     }
     return this.getUserById(userId);
   }
@@ -1015,21 +1067,23 @@ export class EscrowStore {
     currency: EscrowCurrency;
     purpose: string;
     createdByChannel: string;
+    feePayer?: "buyer" | "seller" | "split";
   }): Promise<EscrowRecord> {
     await this.initializeSchema();
     const now = new Date().toISOString();
     const escrowId = `SIV-${Date.now().toString().slice(-6)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
     const status: EscrowStatus = input.sellerUserId ? "PENDING_ACCEPTANCE" : "PENDING_PROFILE";
     const settlementPolicy: SettlementPolicy = input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release";
+    const feePayer = input.feePayer || "buyer";
 
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
         INSERT INTO escrows (
           escrow_id, buyer_user_id, seller_user_id, seller_whatsapp, amount, currency,
-          purpose, status, settlement_policy, client_request_id, created_by_channel, created_at, updated_at
+          purpose, status, settlement_policy, client_request_id, fee_payer, created_by_channel, created_at, updated_at
         ) VALUES (
           @escrowId, @buyerUserId, @sellerUserId, @sellerWhatsapp, @amount, @currency,
-          @purpose, @status, @settlementPolicy, @clientRequestId, @createdByChannel, @now, @now
+          @purpose, @status, @settlementPolicy, @clientRequestId, @feePayer, @createdByChannel, @now, @now
         )
       `).run({
         ...input,
@@ -1039,14 +1093,15 @@ export class EscrowStore {
         clientRequestId: input.clientRequestId || null,
         sellerUserId: input.sellerUserId || null,
         sellerWhatsapp: input.sellerWhatsapp || null,
+        feePayer,
         now,
       });
     } else {
       await this.pool!.query(
         `INSERT INTO escrows (
           escrow_id, buyer_user_id, seller_user_id, seller_whatsapp, amount, currency,
-          purpose, status, settlement_policy, client_request_id, created_by_channel, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          purpose, status, settlement_policy, client_request_id, fee_payer, created_by_channel, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           escrowId,
           input.buyerUserId,
@@ -1058,6 +1113,7 @@ export class EscrowStore {
           status,
           settlementPolicy,
           input.clientRequestId || null,
+          feePayer,
           input.createdByChannel,
           now,
           now,
@@ -1752,7 +1808,18 @@ export class EscrowStore {
         throw new Error(`Escrow cannot be marked delivered from status ${escrow.status}`);
       }
       const deliveredAt = new Date().toISOString();
-      const inspectionDays = Number(process.env.DELIVERY_INSPECTION_WINDOW_DAYS || "3");
+      let inspectionDays = 3;
+      if (this.provider === "sqlite") {
+        const row = this.sqlite!.prepare("SELECT delivery_inspection_window_days FROM platform_settings LIMIT 1").get();
+        if (row && (row as any).delivery_inspection_window_days !== undefined) {
+          inspectionDays = Number((row as any).delivery_inspection_window_days);
+        }
+      } else {
+        const result = await this.pool!.query("SELECT delivery_inspection_window_days FROM platform_settings LIMIT 1");
+        if (result.rows.length > 0 && result.rows[0].delivery_inspection_window_days !== undefined) {
+          inspectionDays = Number(result.rows[0].delivery_inspection_window_days);
+        }
+      }
       const inspectionExpiresAt = new Date(Date.now() + inspectionDays * 24 * 60 * 60 * 1000).toISOString();
 
       await this.transitionEscrow(escrowId, "DELIVERED", {
@@ -2104,7 +2171,7 @@ export class EscrowStore {
     }
   }
 
-  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt" | "metadata"> & { metadata?: any }): Promise<string> {
+  public async addEvent(input: Omit<EscrowEventRecord, "eventId" | "createdAt" | "metadata" | "hash" | "previousHash"> & { metadata?: any }): Promise<string> {
     await this.initializeSchema();
     const eventId = id("event");
     const createdAt = new Date().toISOString();
@@ -2113,16 +2180,72 @@ export class EscrowStore {
         ? input.metadata
         : JSON.stringify(input.metadata)
       : null;
+
+    // Fetch the previous event hash for this escrow to link the chain
+    let previousHash = "0000000000000000000000000000000000000000000000000000000000000000";
+    if (this.provider === "sqlite") {
+      const lastEvent = this.sqlite!.prepare(`SELECT hash FROM escrow_events WHERE escrow_id = @escrowId ORDER BY created_at DESC LIMIT 1`).get({ escrowId: input.escrowId }) as { hash?: string } | undefined;
+      if (lastEvent?.hash) {
+        previousHash = lastEvent.hash;
+      }
+    } else {
+      const lastEventRes = await this.pool!.query(`SELECT hash FROM escrow_events WHERE escrow_id = $1 ORDER BY created_at DESC LIMIT 1`, [input.escrowId]);
+      if (lastEventRes.rows.length > 0 && lastEventRes.rows[0].hash) {
+        previousHash = lastEventRes.rows[0].hash;
+      }
+    }
+
+    // Compute the unique SHA-256 cryptographic hash for this event
+    const hashPayload = [
+      previousHash,
+      input.escrowId,
+      input.actor,
+      input.actorRole,
+      input.channel,
+      input.previousStatus || "",
+      input.nextStatus || "",
+      input.eventType,
+      input.reason || "",
+      metadata || "",
+      createdAt
+    ].join("|");
+
+    const hash = crypto.createHash("sha256").update(hashPayload).digest("hex");
+
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, created_at)
-        VALUES (@eventId, @escrowId, @actor, @actorRole, @channel, @previousStatus, @nextStatus, @eventType, @reason, @metadata, @createdAt)
-      `).run({ ...input, eventId, previousStatus: input.previousStatus || null, nextStatus: input.nextStatus || null, reason: input.reason || null, metadata, createdAt });
+        INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, hash, previous_hash, created_at)
+        VALUES (@eventId, @escrowId, @actor, @actorRole, @channel, @previousStatus, @nextStatus, @eventType, @reason, @metadata, @hash, @previousHash, @createdAt)
+      `).run({ 
+        ...input, 
+        eventId, 
+        previousStatus: input.previousStatus || null, 
+        nextStatus: input.nextStatus || null, 
+        reason: input.reason || null, 
+        metadata, 
+        hash, 
+        previousHash, 
+        createdAt 
+      });
     } else {
       await this.pool!.query(
-        `INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [eventId, input.escrowId, input.actor, input.actorRole, input.channel, input.previousStatus || null, input.nextStatus || null, input.eventType, input.reason || null, metadata, createdAt]
+        `INSERT INTO escrow_events (event_id, escrow_id, actor, actor_role, channel, previous_status, next_status, event_type, reason, metadata, hash, previous_hash, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        [
+          eventId, 
+          input.escrowId, 
+          input.actor, 
+          input.actorRole, 
+          input.channel, 
+          input.previousStatus || null, 
+          input.nextStatus || null, 
+          input.eventType, 
+          input.reason || null, 
+          metadata, 
+          hash, 
+          previousHash, 
+          createdAt
+        ]
       );
     }
     return eventId;
@@ -2387,6 +2510,207 @@ export class EscrowStore {
       LIMIT 1
     `, [pattern]);
     return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  public async saveAiDisputeRecommendation(escrowId: string, recommendationJson: string): Promise<void> {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE escrows
+        SET ai_dispute_recommendation = @recommendationJson, updated_at = @now
+        WHERE escrow_id = @escrowId
+      `).run({ escrowId, recommendationJson, now });
+      return;
+    }
+    await this.pool!.query(`
+      UPDATE escrows
+      SET ai_dispute_recommendation = $1, updated_at = $2
+      WHERE escrow_id = $3
+    `, [recommendationJson, now, escrowId]);
+  }
+
+  public async verifyEscrowAuditTrail(escrowId: string): Promise<{ verified: boolean; invalidEventId?: string; error?: string }> {
+    await this.initializeSchema();
+    let events: EscrowEventRecord[] = [];
+    if (this.provider === "sqlite") {
+      events = this.sqlite!.prepare(`SELECT * FROM escrow_events WHERE escrow_id = @escrowId ORDER BY created_at ASC`).all({ escrowId }).map((row) => this.mapEvent(row));
+    } else {
+      const result = await this.pool!.query(`SELECT * FROM escrow_events WHERE escrow_id = $1 ORDER BY created_at ASC`, [escrowId]);
+      events = result.rows.map((row) => this.mapEvent(row));
+    }
+
+    let expectedPreviousHash = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    for (const event of events) {
+      // 1. Verify previous hash link
+      if (event.previousHash !== expectedPreviousHash) {
+        return {
+          verified: false,
+          invalidEventId: event.eventId,
+          error: `Hash chain broken at event ${event.eventId}. Expected previous hash ${expectedPreviousHash}, got ${event.previousHash}.`
+        };
+      }
+
+      // 2. Recompute current hash
+      const hashPayload = [
+        event.previousHash,
+        event.escrowId,
+        event.actor,
+        event.actorRole,
+        event.channel,
+        event.previousStatus || "",
+        event.nextStatus || "",
+        event.eventType,
+        event.reason || "",
+        event.metadata || "",
+        event.createdAt
+      ].join("|");
+
+      const calculatedHash = crypto.createHash("sha256").update(hashPayload).digest("hex");
+
+      if (event.hash !== calculatedHash) {
+        return {
+          verified: false,
+          invalidEventId: event.eventId,
+          error: `Hash mismatch at event ${event.eventId}. Calculated ${calculatedHash}, stored ${event.hash}.`
+        };
+      }
+
+      expectedPreviousHash = event.hash ?? "";
+    }
+
+    return { verified: true };
+  }
+
+  public async findUserByEmail(email: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const normalized = email.toLowerCase().trim();
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE email = @email`).get({ email: normalized }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE email = $1`, [normalized]);
+    return result.rows.length > 0 ? this.mapUser(result.rows[0]) : null;
+  }
+
+  public async createUserWithEmail(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<UserRecord> {
+    await this.initializeSchema();
+    const userId = id("user");
+    // Placeholder whatsapp_number to satisfy NOT NULL and UNIQUE constraints safely
+    const whatsappPlaceholder = `web:${userId}`;
+    const now = new Date().toISOString();
+    const roles = JSON.stringify(["user"]);
+    const normalized = email.toLowerCase().trim();
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO users (user_id, whatsapp_number, email, password_hash, first_name, last_name, role_history, created_at, updated_at)
+        VALUES (@userId, @whatsappPlaceholder, @email, @passwordHash, @firstName, @lastName, @roles, @now, @now)
+      `).run({ userId, whatsappPlaceholder, email: normalized, passwordHash, firstName: firstName || null, lastName: lastName || null, roles, now });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO users (user_id, whatsapp_number, email, password_hash, first_name, last_name, role_history, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [userId, whatsappPlaceholder, normalized, passwordHash, firstName || null, lastName || null, roles, now, now]
+      );
+    }
+
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE user_id = @userId`).get({ userId }))!;
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
+    return this.mapUser(result.rows[0])!;
+  }
+
+  public async generatePairingToken(userId: string): Promise<string> {
+    await this.initializeSchema();
+    // Generate code: SVN-XXXX-XX
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const nums = "0123456789";
+    let codePart = "";
+    for (let i = 0; i < 4; i++) codePart += chars.charAt(Math.floor(Math.random() * chars.length));
+    let numPart = "";
+    for (let i = 0; i < 2; i++) numPart += nums.charAt(Math.floor(Math.random() * nums.length));
+    const token = `SVN-${codePart}-${numPart}`;
+
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO pairing_tokens (token, user_id, created_at, expires_at)
+        VALUES (@token, @userId, @now, @expiresAt)
+      `).run({ token, userId, now, expiresAt });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO pairing_tokens (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
+        [token, userId, now, expiresAt]
+      );
+    }
+    return token;
+  }
+
+  public async usePairingToken(token: string, whatsappNumber: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const tokenClean = token.toUpperCase().trim();
+    let tokenRow: { user_id: string; expires_at: string } | null = null;
+
+    if (this.provider === "sqlite") {
+      tokenRow = this.sqlite!.prepare(`SELECT * FROM pairing_tokens WHERE token = @token`).get({ token: tokenClean }) as any;
+    } else {
+      const res = await this.pool!.query(`SELECT * FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+      if (res.rows.length > 0) tokenRow = res.rows[0] as any;
+    }
+
+    if (!tokenRow) return null;
+
+    // Check expiry
+    if (new Date().toISOString() > tokenRow.expires_at) {
+      // Delete expired token
+      if (this.provider === "sqlite") {
+        this.sqlite!.prepare(`DELETE FROM pairing_tokens WHERE token = @token`).run({ token: tokenClean });
+      } else {
+        await this.pool!.query(`DELETE FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+      }
+      return null;
+    }
+
+    const userId = tokenRow.user_id;
+    const now = new Date().toISOString();
+
+    // Perform database operations to update user whatsapp_number and clean token
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`UPDATE users SET whatsapp_number = @whatsappNumber, updated_at = @now WHERE user_id = @userId`).run({ whatsappNumber, now, userId });
+      this.sqlite!.prepare(`DELETE FROM pairing_tokens WHERE token = @token`).run({ token: tokenClean });
+    } else {
+      await this.pool!.query(`UPDATE users SET whatsapp_number = $1, updated_at = $2 WHERE user_id = $3`, [whatsappNumber, now, userId]);
+      await this.pool!.query(`DELETE FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+    }
+
+    // Return the updated user
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE user_id = @userId`).get({ userId }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
+    return this.mapUser(result.rows[0]);
+  }
+
+  public async unlinkWhatsApp(userId: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const placeholder = `web:${userId}`;
+    const now = new Date().toISOString();
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`UPDATE users SET whatsapp_number = @placeholder, updated_at = @now WHERE user_id = @userId`).run({ placeholder, now, userId });
+    } else {
+      await this.pool!.query(`UPDATE users SET whatsapp_number = $1, updated_at = $2 WHERE user_id = $3`, [placeholder, now, userId]);
+    }
+
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE user_id = @userId`).get({ userId }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
+    return this.mapUser(result.rows[0]);
   }
 
   public async close(): Promise<void> {

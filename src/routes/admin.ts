@@ -19,6 +19,8 @@ import {
   opsStore,
   settingsStore,
   reconciliationStore,
+  paymentRouter,
+  disputeAnalyst,
 } from "../context";
 import {
   refreshEscrowPaymentLifecycleForRead,
@@ -215,7 +217,7 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
         complianceRisk: risk,
       });
     }
-    const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency);
+    const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
     const payoutProvider = escrow.currency === "NAIRA" ? getPayoutProviderForEscrow(escrow, config.databaseMode) : null;
     const payoutAccount = escrow.sellerUserId
       ? payoutProvider?.id === "manual_bank_transfer"
@@ -258,6 +260,21 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
       return res.status(202).json({ escrow, payoutQuote, payout: payoutResult });
     }
+    if (escrow.currency === "USDC" && escrow.paymentReference) {
+      try {
+        const paymentProvider = escrow.paymentProvider || "x402";
+        if (paymentProvider === "sap") {
+          const sap = paymentRouter.getSapAgent();
+          if (!sap) throw new Error("Synapse SAP agent is not configured");
+          await sap.releaseEscrow(escrow.paymentReference);
+        } else {
+          await paymentRouter.settleUsdcPayment(escrow.paymentReference);
+        }
+      } catch (err: any) {
+        throw new Error(`On-chain USDC release failed: ${err.message || String(err)}`);
+      }
+    }
+
     const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, {
       ...parsed.data,
       manualPayoutReference: payoutResult?.reference || parsed.data.manualPayoutReference || "",
@@ -427,6 +444,29 @@ router.post("/admin/escrows/:escrowId/dispute/resolve", requireAdminAuth, logAdm
   }
 });
 
+router.get("/admin/escrows/:escrowId/ai-dispute-analysis", requireAdminAuth, async (req, res) => {
+  try {
+    const escrow = await escrowStore.getEscrowById(req.params.escrowId);
+    if (!escrow) {
+      return res.status(404).json({ error: "Escrow not found" });
+    }
+
+    if (escrow.aiDisputeRecommendation) {
+      try {
+        const cached = JSON.parse(escrow.aiDisputeRecommendation);
+        return res.status(200).json({ source: "cache", recommendation: cached });
+      } catch {
+        // Fall back to dynamic analysis if cache parsing fails
+      }
+    }
+
+    const recommendation = await disputeAnalyst.analyzeDispute(req.params.escrowId);
+    res.status(200).json({ source: "ai_analysis", recommendation });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "AI dispute analysis failed" });
+  }
+});
+
 router.get("/admin/webhooks", requireAdminAuth, async (req, res) => {
   const parsed = limitQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -561,6 +601,8 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       reconciliationWorkerEnabled: updates.reconciliationWorkerEnabled ?? current.reconciliationWorkerEnabled,
       queueWorkerEnabled: updates.queueWorkerEnabled ?? current.queueWorkerEnabled,
       stuckEscrowAlertMinutes: updates.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
+      autoReleaseEnabled: updates.autoReleaseEnabled ?? current.autoReleaseEnabled,
+      deliveryInspectionWindowDays: updates.deliveryInspectionWindowDays ?? current.deliveryInspectionWindowDays,
       outageStatusPageUrl: updates.outageStatusPageUrl ?? current.outageStatusPageUrl,
       outageContacts: updates.outageContacts ?? current.outageContacts,
       expectedVersion: Number(updates.expectedVersion || 1),
@@ -637,6 +679,43 @@ router.get("/admin/payment-providers", requireAdminAuth, async (_req, res) => {
   }
 });
 
+router.post("/admin/payment-providers/test-connection", requireAdminAuth, logAdminAction("test_payment_provider_connection"), async (req, res) => {
+  try {
+    const settings = await settingsStore.getSettings();
+    const provider = String(req.body.provider || settings.activePaymentProvider).trim().toLowerCase();
+
+    if (provider === "flutterwave") {
+      const { FlutterwaveClient } = await import("../services/flutterwaveClient.js");
+      const client = new FlutterwaveClient();
+      const today = new Date().toISOString().slice(0, 10);
+      await client.listTransactions({ from: today, to: today, perPage: 1 });
+      return res.status(200).json({
+        status: "ok",
+        provider: "flutterwave",
+        message: "Flutterwave credentials verification succeeded! Connection check passed.",
+      });
+    }
+
+    if (provider === "nomba") {
+      const { NombaPayoutClient } = await import("../services/nombaPayoutClient.js");
+      const client = new NombaPayoutClient(settings.platformMode);
+      await client.listBanks();
+      return res.status(200).json({
+        status: "ok",
+        provider: "nomba",
+        message: "Nomba credentials verification succeeded! Connection check passed.",
+      });
+    }
+
+    return res.status(400).json({ error: `Connection check is not implemented for provider: ${provider}` });
+  } catch (err: any) {
+    res.status(400).json({
+      status: "error",
+      error: err.message || err,
+    });
+  }
+});
+
 router.post("/admin/payment-providers", requireAdminAuth, logAdminAction("update_payment_providers"), async (req, res) => {
   try {
     const parsed = paymentProviderSettingsSchema.safeParse(req.body);
@@ -709,6 +788,20 @@ router.get("/admin/audit-history", requireAdminAuth, async (req, res) => {
   } catch (err: any) {
     captureOperationalError("Failed to fetch audit history", err);
     res.status(500).json({ error: err.message || "Failed to fetch audit history" });
+  }
+});
+
+router.get("/admin/escrow/:escrowId/verify-audit-trail", requireAdminAuth, async (req, res) => {
+  try {
+    const { escrowId } = req.params;
+    if (!escrowId) {
+      return res.status(400).json({ error: "escrowId parameter is required" });
+    }
+    const result = await escrowStore.verifyEscrowAuditTrail(escrowId);
+    res.status(200).json(result);
+  } catch (err: any) {
+    captureOperationalError("Failed to verify audit trail", err);
+    res.status(500).json({ error: err.message || "Failed to verify audit trail" });
   }
 });
 

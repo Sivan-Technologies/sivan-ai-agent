@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { Pool } from "pg";
+import crypto from "crypto";
 
 export interface WorkflowTaskRecord {
   taskId: string;
@@ -134,6 +135,18 @@ export class WorkflowStore {
         payload TEXT NOT NULL,
         received_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS sivan_unified_webhook_logs (
+        id TEXT PRIMARY KEY,
+        service_name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_event_id TEXT,
+        payment_reference TEXT,
+        event_category TEXT,
+        event_type TEXT,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -173,8 +186,24 @@ export class WorkflowStore {
         received_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS sivan_unified_webhook_logs (
+        id TEXT PRIMARY KEY,
+        service_name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_event_id TEXT,
+        payment_reference TEXT,
+        event_category TEXT,
+        event_type TEXT,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_workflow_tasks_payment_reference ON workflow_tasks(payment_reference);
       CREATE INDEX IF NOT EXISTS idx_webhook_events_received_at ON webhook_events(received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_unified_webhook_logs_service ON sivan_unified_webhook_logs(service_name);
+      CREATE INDEX IF NOT EXISTS idx_unified_webhook_logs_provider ON sivan_unified_webhook_logs(provider);
+      CREATE INDEX IF NOT EXISTS idx_unified_webhook_logs_payment_ref ON sivan_unified_webhook_logs(payment_reference);
+      CREATE INDEX IF NOT EXISTS idx_unified_webhook_logs_created_at ON sivan_unified_webhook_logs(created_at DESC);
     `);
     this.initialized = true;
   }
@@ -350,17 +379,41 @@ export class WorkflowStore {
   public async addWebhookEvent(eventId: string, paymentReference: string, eventType: string, payload: string): Promise<void> {
     await this.initializeSchema();
     const receivedAt = new Date().toISOString();
+    const uuid = crypto.randomUUID();
+    const providerParts = eventType.split(":");
+    const provider = providerParts[0] || "unknown";
+    const subEventType = providerParts.slice(1).join(":") || eventType;
+
+    let jsonPayload: any = {};
+    try {
+      jsonPayload = JSON.parse(payload);
+    } catch {
+      jsonPayload = { raw: payload };
+    }
+
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
         INSERT OR IGNORE INTO webhook_events (event_id, payment_reference, event_type, payload, received_at)
         VALUES (@eventId, @paymentReference, @eventType, @payload, @receivedAt)
       `).run({ eventId, paymentReference, eventType, payload, receivedAt });
+
+      this.sqlite!.prepare(`
+        INSERT OR IGNORE INTO sivan_unified_webhook_logs (id, service_name, provider, provider_event_id, payment_reference, event_category, event_type, payload, created_at)
+        VALUES (@uuid, 'sivan-escrow-agent', @provider, @eventId, @paymentReference, NULL, @subEventType, @payload, @receivedAt)
+      `).run({ uuid, provider, eventId, paymentReference, subEventType, payload, receivedAt });
     } else {
       await this.pool!.query(
         `INSERT INTO webhook_events (event_id, payment_reference, event_type, payload, received_at)
          VALUES ($1,$2,$3,$4,$5)
          ON CONFLICT (event_id) DO NOTHING`,
         [eventId, paymentReference, eventType, payload, receivedAt]
+      );
+
+      await this.pool!.query(
+        `INSERT INTO sivan_unified_webhook_logs (id, service_name, provider, provider_event_id, payment_reference, event_category, event_type, payload, created_at)
+         VALUES ($1,'sivan-escrow-agent',$2,$3,$4,NULL,$5,$6,$7)
+         ON CONFLICT (id) DO NOTHING`,
+        [uuid, provider, eventId, paymentReference, subEventType, jsonPayload, receivedAt]
       );
     }
   }
