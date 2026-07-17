@@ -32,6 +32,8 @@ export interface UserRecord {
   whatsappNumber: string;
   firstName?: string;
   lastName?: string;
+  email?: string;
+  passwordHash?: string;
   roleHistory: string[];
   createdAt: string;
   updatedAt: string;
@@ -293,6 +295,8 @@ export class EscrowStore {
       whatsappNumber: row.whatsapp_number,
       firstName: row.first_name || undefined,
       lastName: row.last_name || undefined,
+      email: row.email || undefined,
+      passwordHash: row.password_hash || undefined,
       roleHistory: JSON.parse(row.role_history || "[]"),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -445,9 +449,18 @@ export class EscrowStore {
         whatsapp_number TEXT NOT NULL UNIQUE,
         first_name TEXT,
         last_name TEXT,
+        email TEXT UNIQUE,
+        password_hash TEXT,
         role_history TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pairing_tokens (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS payout_accounts (
@@ -585,6 +598,8 @@ export class EscrowStore {
 
   private initializeSchemaSync() {
     this.sqlite!.exec(this.schemaSql("REAL"));
+    this.ensureSqliteColumn("users", "email", "TEXT UNIQUE");
+    this.ensureSqliteColumn("users", "password_hash", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_encrypted", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_last4", "TEXT");
@@ -634,6 +649,8 @@ export class EscrowStore {
       this.initializeSchemaSync();
     } else {
       await this.pool!.query(this.schemaSql("DOUBLE PRECISION"));
+      await this.ensurePostgresColumn("users", "email", "TEXT UNIQUE");
+      await this.ensurePostgresColumn("users", "password_hash", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "bank_code", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_encrypted", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_last4", "TEXT");
@@ -810,14 +827,29 @@ export class EscrowStore {
     return this.mapUser(result.rows[0]);
   }
 
-  public async updateUserProfile(userId: string, firstName: string, lastName: string): Promise<UserRecord | null> {
+  public async updateUserProfile(userId: string, firstName?: string, lastName?: string, email?: string, passwordHash?: string): Promise<UserRecord | null> {
     await this.initializeSchema();
     const now = new Date().toISOString();
     if (this.provider === "sqlite") {
-      this.sqlite!.prepare(`UPDATE users SET first_name = @firstName, last_name = @lastName, updated_at = @now WHERE user_id = @userId`)
-        .run({ userId, firstName, lastName, now });
+      this.sqlite!.prepare(`
+        UPDATE users 
+        SET first_name = COALESCE(@firstName, first_name), 
+            last_name = COALESCE(@lastName, last_name), 
+            email = COALESCE(@email, email),
+            password_hash = COALESCE(@passwordHash, password_hash),
+            updated_at = @now 
+        WHERE user_id = @userId
+      `).run({ userId, firstName: firstName || null, lastName: lastName || null, email: email || null, passwordHash: passwordHash || null, now });
     } else {
-      await this.pool!.query(`UPDATE users SET first_name = $1, last_name = $2, updated_at = $3 WHERE user_id = $4`, [firstName, lastName, now, userId]);
+      await this.pool!.query(`
+        UPDATE users 
+        SET first_name = COALESCE($1, first_name), 
+            last_name = COALESCE($2, last_name), 
+            email = COALESCE($3, email),
+            password_hash = COALESCE($4, password_hash),
+            updated_at = $5 
+        WHERE user_id = $6
+      `, [firstName || null, lastName || null, email || null, passwordHash || null, now, userId]);
     }
     return this.getUserById(userId);
   }
@@ -2548,6 +2580,136 @@ export class EscrowStore {
     }
 
     return { verified: true };
+  }
+
+  public async findUserByEmail(email: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const normalized = email.toLowerCase().trim();
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE email = @email`).get({ email: normalized }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE email = $1`, [normalized]);
+    return result.rows.length > 0 ? this.mapUser(result.rows[0]) : null;
+  }
+
+  public async createUserWithEmail(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<UserRecord> {
+    await this.initializeSchema();
+    const userId = id("user");
+    // Placeholder whatsapp_number to satisfy NOT NULL and UNIQUE constraints safely
+    const whatsappPlaceholder = `web:${userId}`;
+    const now = new Date().toISOString();
+    const roles = JSON.stringify(["user"]);
+    const normalized = email.toLowerCase().trim();
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO users (user_id, whatsapp_number, email, password_hash, first_name, last_name, role_history, created_at, updated_at)
+        VALUES (@userId, @whatsappPlaceholder, @email, @passwordHash, @firstName, @lastName, @roles, @now, @now)
+      `).run({ userId, whatsappPlaceholder, email: normalized, passwordHash, firstName: firstName || null, lastName: lastName || null, roles, now });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO users (user_id, whatsapp_number, email, password_hash, first_name, last_name, role_history, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [userId, whatsappPlaceholder, normalized, passwordHash, firstName || null, lastName || null, roles, now, now]
+      );
+    }
+
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE user_id = @userId`).get({ userId }))!;
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
+    return this.mapUser(result.rows[0])!;
+  }
+
+  public async generatePairingToken(userId: string): Promise<string> {
+    await this.initializeSchema();
+    // Generate code: SVN-XXXX-XX
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const nums = "0123456789";
+    let codePart = "";
+    for (let i = 0; i < 4; i++) codePart += chars.charAt(Math.floor(Math.random() * chars.length));
+    let numPart = "";
+    for (let i = 0; i < 2; i++) numPart += nums.charAt(Math.floor(Math.random() * nums.length));
+    const token = `SVN-${codePart}-${numPart}`;
+
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO pairing_tokens (token, user_id, created_at, expires_at)
+        VALUES (@token, @userId, @now, @expiresAt)
+      `).run({ token, userId, now, expiresAt });
+    } else {
+      await this.pool!.query(
+        `INSERT INTO pairing_tokens (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
+        [token, userId, now, expiresAt]
+      );
+    }
+    return token;
+  }
+
+  public async usePairingToken(token: string, whatsappNumber: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const tokenClean = token.toUpperCase().trim();
+    let tokenRow: { user_id: string; expires_at: string } | null = null;
+
+    if (this.provider === "sqlite") {
+      tokenRow = this.sqlite!.prepare(`SELECT * FROM pairing_tokens WHERE token = @token`).get({ token: tokenClean }) as any;
+    } else {
+      const res = await this.pool!.query(`SELECT * FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+      if (res.rows.length > 0) tokenRow = res.rows[0] as any;
+    }
+
+    if (!tokenRow) return null;
+
+    // Check expiry
+    if (new Date().toISOString() > tokenRow.expires_at) {
+      // Delete expired token
+      if (this.provider === "sqlite") {
+        this.sqlite!.prepare(`DELETE FROM pairing_tokens WHERE token = @token`).run({ token: tokenClean });
+      } else {
+        await this.pool!.query(`DELETE FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+      }
+      return null;
+    }
+
+    const userId = tokenRow.user_id;
+    const now = new Date().toISOString();
+
+    // Perform database operations to update user whatsapp_number and clean token
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`UPDATE users SET whatsapp_number = @whatsappNumber, updated_at = @now WHERE user_id = @userId`).run({ whatsappNumber, now, userId });
+      this.sqlite!.prepare(`DELETE FROM pairing_tokens WHERE token = @token`).run({ token: tokenClean });
+    } else {
+      await this.pool!.query(`UPDATE users SET whatsapp_number = $1, updated_at = $2 WHERE user_id = $3`, [whatsappNumber, now, userId]);
+      await this.pool!.query(`DELETE FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+    }
+
+    // Return the updated user
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE user_id = @userId`).get({ userId }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
+    return this.mapUser(result.rows[0]);
+  }
+
+  public async unlinkWhatsApp(userId: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const placeholder = `web:${userId}`;
+    const now = new Date().toISOString();
+
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`UPDATE users SET whatsapp_number = @placeholder, updated_at = @now WHERE user_id = @userId`).run({ placeholder, now, userId });
+    } else {
+      await this.pool!.query(`UPDATE users SET whatsapp_number = $1, updated_at = $2 WHERE user_id = $3`, [placeholder, now, userId]);
+    }
+
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE user_id = @userId`).get({ userId }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
+    return this.mapUser(result.rows[0]);
   }
 
   public async close(): Promise<void> {
