@@ -7,6 +7,7 @@ import * as Sentry from "@sentry/node";
 import crypto from "crypto";
 import { config, validateConfig } from "./config";
 import { info, error } from "./lib/logger";
+import { requestStorage } from "./utils/logger";
 import { settingsStore, initializeDatabaseSchemas } from "./context";
 import { captureOperationalError } from "./services/monitoring";
 import { runPaymentLifecycleSweep } from "./services/escrowService";
@@ -26,6 +27,15 @@ validateConfig();
 initializeDatabaseSchemas();
 
 const app = express();
+
+app.use((req: any, res, next) => {
+  const reqId = req.headers["x-sivan-request-id"] || `siv-req-${crypto.randomUUID()}`;
+  req.requestId = reqId;
+  res.setHeader("x-sivan-request-id", reqId);
+  requestStorage.run(reqId, () => {
+    next();
+  });
+});
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || "1"));
 
 function safeSecretEquals(a: string, b: string) {
