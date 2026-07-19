@@ -1,10 +1,10 @@
-# Sivan Escrow Agent
+# Sivan AI Agent
 
-Sivan Escrow Agent is a WhatsApp-first escrow and AI task orchestration system for trust-based freelance and service payments.
+Sivan Agent is a WhatsApp-first escrow and AI task orchestration system for trust-based freelance and service payments.
 
 The project is designed for people who already negotiate work through WhatsApp, Telegram, Discord, and informal communities, but need a safer way to collect money before work starts and confirm payment before releasing execution.
 
-Today, the strongest proven live flow is Nigerian Naira collection through Paystack using **bank transfer only**. Paystack confirms payment through a signed webhook before the backend runs the AI/SAP work. Monnify is now implemented as a contained provider-neutral bank-transfer adapter with paid sandbox transfer verification passed; signed webhook delivery into deployed Sivan is the remaining proof before it should be used for real users. Flutterwave is implemented as an emergency bank-transfer backup adapter, but still needs a low-value backup proof. USDC/x402 and SAP paths are wired into the architecture, but still need live production credentials and deeper end-to-end verification before they should be treated as production-ready.
+Today. Paystack confirms payment through a signed webhook before the backend runs the AI/SAP work. Monnify is now implemented as a contained provider-neutral bank-transfer adapter with paid sandbox transfer verification passed; signed webhook delivery into deployed Sivan is the remaining proof before it should be used for real users. Flutterwave is implemented as an emergency bank-transfer backup adapter, but still needs a low-value backup proof. USDC/x402 and SAP paths are wired into the architecture, but still need live production credentials and deeper end-to-end verification before they should be treated as production-ready.
 
 ## What Sivan Can Do Today
 
