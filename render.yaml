@@ -45,7 +45,7 @@ services:
       - key: NOTIFICATION_SECRET
         sync: false
       - key: NOTIFICATION_URL
-        value: https://sivan-whatsapp-bot-test.onrender.com
+        value: https://test-sivan.sivantech.online
       - key: PAYOUT_VERIFICATION_TEST_MODE
         value: "true"
       - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
@@ -144,7 +144,7 @@ services:
       - key: NOTIFICATION_SECRET
         sync: false
       - key: NOTIFICATION_URL
-        value: https://sivan-whatsapp-bot-live.onrender.com
+        value: https://api.sivantech.online
       - key: ACTIVE_PAYMENT_PROVIDER
         value: nomba
       - key: BACKUP_PAYMENT_PROVIDER
