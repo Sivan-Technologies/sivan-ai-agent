@@ -57,7 +57,7 @@ import {
 } from "../services/monitoring";
 import { info, warn, error } from "../lib/logger";
 import { EscrowRecord, EscrowTransactionRecord } from "../services/escrowStore";
-import { searchTransactionReferences } from "../services/transactionReferences";
+import { getTransactionTrace, searchTransactionReferences } from "../services/transactionReferences";
 
 const router = Router();
 
@@ -129,7 +129,8 @@ router.get("/admin/escrows/:escrowId/events", requireAdminAuth, async (req, res)
     escrowStore.listTransactions(req.params.escrowId),
     opsStore.searchSupportCases(req.params.escrowId, 25),
   ]);
-  res.status(200).json({ escrowId: req.params.escrowId, events, transactions, supportCases });
+  const transactionTrace = await getTransactionTrace("escrow", req.params.escrowId);
+  res.status(200).json({ escrowId: req.params.escrowId, events, transactions, supportCases, transactionTrace });
 });
 
 router.get("/admin/reconciliation", requireAdminAuth, async (req, res) => {
