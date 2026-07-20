@@ -30,6 +30,7 @@ import {
   fundingDeadlineForEscrow,
 } from "./paymentService";
 import type { NormalizedPaymentEvent } from "./paymentEventNormalizer";
+import { getTransactionTrace, syncEscrowTransactionReferences } from "./transactionReferences";
 
 let lastAbuseTrendAlertAt = 0;
 
@@ -361,6 +362,8 @@ export async function buildEscrowDetail(escrowId: string) {
     escrowStore.listEvents(escrow.escrowId, 100),
     escrowStore.listLedgerEntries(escrow.escrowId),
   ]);
+  await syncEscrowTransactionReferences(escrow, transactions);
+  const transactionTrace = await getTransactionTrace('escrow', escrow.escrowId);
   const resolvedEvents = await resolveR2MediaUrls(events);
   const payout = escrow.sellerUserId ? await escrowStore.getPayoutAccount(escrow.sellerUserId) : null;
   const buyerProfileComplete = Boolean(buyer?.firstName && buyer?.lastName);
@@ -373,6 +376,7 @@ export async function buildEscrowDetail(escrowId: string) {
   const aggregateRiskReleaseReady = !hasBlockingComplianceRisk(complianceRisk);
 
   return {
+    transactionTrace,
     escrow,
     buyer,
     seller,
