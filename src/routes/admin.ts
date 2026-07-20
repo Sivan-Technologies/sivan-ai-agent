@@ -57,8 +57,15 @@ import {
 } from "../services/monitoring";
 import { info, warn, error } from "../lib/logger";
 import { EscrowRecord, EscrowTransactionRecord } from "../services/escrowStore";
+import { searchTransactionReferences } from "../services/transactionReferences";
 
 const router = Router();
+
+router.get("/admin/search", requireAdminAuth, async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  const referenceResults = await searchTransactionReferences(q, 50);
+  res.status(200).json({ query: q, results: referenceResults.map((item) => ({ type: "transaction_reference", id: item.referenceId, title: item.referenceValue, subtitle: `${item.provider} · ${item.referenceType} · ${item.resourceType}:${item.resourceId}`, record: item })) });
+});
 
 router.get("/admin/tasks", requireAdminAuth, async (req, res) => {
   const tasks = await workflowStore.getAllTasks();

@@ -131,6 +131,22 @@ export interface EscrowEventRecord {
   createdAt: string;
 }
 
+
+export interface TransactionReferenceRecord {
+  referenceId: string;
+  sivanTransactionId: string;
+  resourceType: string;
+  resourceId: string;
+  provider: string;
+  referenceType: string;
+  referenceValue: string;
+  direction: 'inbound' | 'outbound' | 'internal' | 'provider' | 'settlement' | 'refund';
+  status?: string;
+  metadata?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LedgerEntryRecord {
   ledgerEntryId: string;
   escrowId: string;
@@ -385,6 +401,24 @@ export class EscrowStore {
     };
   }
 
+
+  private mapTransactionReference(row: any): TransactionReferenceRecord {
+    return {
+      referenceId: row.reference_id,
+      sivanTransactionId: row.sivan_transaction_id,
+      resourceType: row.resource_type,
+      resourceId: row.resource_id,
+      provider: row.provider,
+      referenceType: row.reference_type,
+      referenceValue: row.reference_value,
+      direction: row.direction,
+      status: row.status || undefined,
+      metadata: row.metadata || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   private mapLedgerEntry(row: any): LedgerEntryRecord {
     return {
       ledgerEntryId: row.ledger_entry_id,
@@ -454,6 +488,22 @@ export class EscrowStore {
         role_history TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS transaction_references (
+        reference_id TEXT PRIMARY KEY,
+        sivan_transaction_id TEXT NOT NULL,
+        resource_type TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        reference_type TEXT NOT NULL,
+        reference_value TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        status TEXT,
+        metadata TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(provider, reference_type, reference_value, resource_type, resource_id)
       );
 
       CREATE TABLE IF NOT EXISTS pairing_tokens (
@@ -2711,6 +2761,49 @@ export class EscrowStore {
     }
     const result = await this.pool!.query(`SELECT * FROM users WHERE user_id = $1`, [userId]);
     return this.mapUser(result.rows[0]);
+  }
+
+
+  public async listTransactionReferences(resourceType?: string, resourceId?: string): Promise<TransactionReferenceRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      const rows = resourceType && resourceId
+        ? this.sqlite!.prepare(`SELECT * FROM transaction_references WHERE resource_type = @resourceType AND resource_id = @resourceId ORDER BY created_at ASC`).all({ resourceType, resourceId })
+        : this.sqlite!.prepare(`SELECT * FROM transaction_references ORDER BY created_at ASC`).all();
+      return rows.map((row) => this.mapTransactionReference(row));
+    }
+    const result = resourceType && resourceId
+      ? await this.pool!.query(`SELECT * FROM transaction_references WHERE resource_type = $1 AND resource_id = $2 ORDER BY created_at ASC`, [resourceType, resourceId])
+      : await this.pool!.query(`SELECT * FROM transaction_references ORDER BY created_at ASC`);
+    return result.rows.map((row) => this.mapTransactionReference(row));
+  }
+
+  public async upsertTransactionReference(record: TransactionReferenceRecord): Promise<TransactionReferenceRecord> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        INSERT INTO transaction_references (reference_id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)
+        VALUES (@referenceId, @sivanTransactionId, @resourceType, @resourceId, @provider, @referenceType, @referenceValue, @direction, @status, @metadata, @createdAt, @updatedAt)
+        ON CONFLICT(provider, reference_type, reference_value, resource_type, resource_id) DO UPDATE SET
+          sivan_transaction_id=excluded.sivan_transaction_id,
+          direction=excluded.direction,
+          status=excluded.status,
+          metadata=excluded.metadata,
+          updated_at=excluded.updated_at
+      `).run(record);
+    } else {
+      await this.pool!.query(`
+        INSERT INTO transaction_references (reference_id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT(provider, reference_type, reference_value, resource_type, resource_id) DO UPDATE SET
+          sivan_transaction_id=excluded.sivan_transaction_id,
+          direction=excluded.direction,
+          status=excluded.status,
+          metadata=excluded.metadata,
+          updated_at=excluded.updated_at
+      `, [record.referenceId, record.sivanTransactionId, record.resourceType, record.resourceId, record.provider, record.referenceType, record.referenceValue, record.direction, record.status || null, record.metadata || null, record.createdAt, record.updatedAt]);
+    }
+    return record;
   }
 
   public async close(): Promise<void> {
