@@ -91,7 +91,7 @@ app.use((req, _res, next) => {
 
 // Maintenance Mode Gate
 app.use(async (req, res, next) => {
-  if (!req.path.startsWith("/api/") || req.path === "/api/health") return next();
+  if (!req.path.startsWith("/api/") || req.path === "/api/health" || req.path === "/health") return next();
   if (!hasValidStaticServiceAuth(req)) return next();
   try {
     const settings = await settingsStore.getSettings();

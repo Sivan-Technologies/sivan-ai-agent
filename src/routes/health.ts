@@ -6,9 +6,12 @@ import { buildOperationalVisibility } from "../services/monitoring";
 
 const router = Router();
 
-router.get("/api/health", (req, res) => {
+const healthHandler = (req: any, res: any) => {
   res.status(200).json({ status: "ok", uptime: process.uptime(), databaseMode: config.databaseMode });
-});
+};
+
+router.get("/health", healthHandler);
+router.get("/api/health", healthHandler);
 
 router.get("/health/readiness", async (req, res) => {
   try {

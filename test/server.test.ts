@@ -20,6 +20,12 @@ describe("server basic endpoints", () => {
     expect(res.body.status).toBe("ok");
   });
 
+  it("returns root health ok for gateway and Render probes", async () => {
+    const res = await request(app).get("/health");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ok");
+  });
+
   it("returns readiness ok", async () => {
     const res = await request(app).get("/health/readiness");
     expect(res.status).toBe(200);
