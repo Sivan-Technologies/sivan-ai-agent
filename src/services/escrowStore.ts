@@ -2790,7 +2790,12 @@ export class EscrowStore {
           status=excluded.status,
           metadata=excluded.metadata,
           updated_at=excluded.updated_at
-      `).run(record);
+      `).run({
+        ...record,
+        status: record.status || null,
+        metadata: record.metadata || null,
+      });
+
     } else {
       await this.pool!.query(`
         INSERT INTO transaction_references (reference_id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)

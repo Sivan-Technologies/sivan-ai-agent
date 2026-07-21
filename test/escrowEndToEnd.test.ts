@@ -3,7 +3,7 @@ import path from "path";
 import request from "supertest";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 
-const TEST_DB_PATH = path.resolve(__dirname, "../data/test-escrow-e2e.db");
+const TEST_DB_PATH = path.resolve(__dirname, `../data/test-escrow-e2e-${Date.now()}-${Math.random().toString(36).substring(7)}.db`);
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.CORE_API_SECRET = "test-core-secret";
@@ -13,9 +13,6 @@ process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "1234567890";
 
-if (fs.existsSync(TEST_DB_PATH)) {
-  fs.unlinkSync(TEST_DB_PATH);
-}
 
 const app = (await import("../src/server")).default;
 const { escrowStore } = await import("../src/context");
