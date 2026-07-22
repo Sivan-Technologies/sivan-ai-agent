@@ -185,7 +185,8 @@ export const config = {
     frontendUrl: envValue("FRONTEND_URL"),
     webhookUrl: envValue("WEBHOOK_URL"),
     notificationUrl: envValue("NOTIFICATION_URL"),
-    notificationSecret: envValue("NOTIFICATION_SECRET"),
+    notificationSecret: envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET", "sivan_notify_test_secret")),
+
   },
   storage: {
     r2AccessKeyId: envValue("R2_ACCESS_KEY_ID"),
