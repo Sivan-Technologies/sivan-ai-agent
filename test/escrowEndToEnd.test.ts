@@ -9,9 +9,13 @@ process.env.DATABASE_PROVIDER = "sqlite";
 process.env.CORE_API_SECRET = "test-core-secret";
 process.env.ADMIN_API_KEY = "test-admin-key";
 process.env.NOTIFICATION_URL = "";
-process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
+process.env.NODE_ENV = "test";
+process.env.SYNAPSE_X402_TEST_FACILITATOR_URL = "";
+process.env.SYNAPSE_X402_FACILITATOR_URL = "";
+process.env.X402_RPC_URL = "";
 process.env.PAYOUT_VERIFICATION_TEST_MODE = "true";
 process.env.PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS = "1234567890";
+
 
 
 const app = (await import("../src/server")).default;
