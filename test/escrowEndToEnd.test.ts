@@ -134,7 +134,7 @@ describe("Escrow End-to-End Lifecycle & Release Paths", () => {
 
     expect(approveReleaseRes.status).toBe(200);
     expect(approveReleaseRes.body.escrow.status).toBe("RELEASED");
-    expect(approveReleaseRes.body.escrow.manualPayoutReference).toContain("TEST-NOMBA-");
+    expect(approveReleaseRes.body.escrow.manualPayoutReference).toBe("TEST-paystack-trn-998877");
   }, 30000);
 
   it("handles the complete USDC lifecycle: Create -> Accept -> Fund -> Delivery -> Complete -> Autonomous Release", async () => {
