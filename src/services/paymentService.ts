@@ -9,6 +9,7 @@ import {
   monnifyClient,
   palmpayClient,
   flutterwaveClient,
+  paymentRouter,
 } from "../context";
 import { createNairaPaymentProvider } from "./nairaPaymentProvider";
 import { NombaPayoutClient } from "./nombaPayoutClient";
@@ -273,8 +274,97 @@ export async function createNairaPaymentInstruction(escrow: EscrowRecord, option
   };
 }
 
-export async function activeNairaPaymentInstructionForEscrow(detail: any) {
+export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
+  const usdcChannel = process.env.USDC_CHANNEL || "x402";
+  const recipient = config.sap.agentPublicKey || "sivan-escrow-agent";
+  let paymentResult: any;
+
+  try {
+    if (usdcChannel === "sap") {
+      paymentResult = await paymentRouter.processUsdcSapEscrow(escrow.amount, recipient);
+    } else {
+      paymentResult = await paymentRouter.processUsdcEscrow(escrow.amount, recipient);
+    }
+  } catch (err: any) {
+    paymentResult = {
+      reference: `x402-${escrow.escrowId}`,
+      paymentId: `x402-${escrow.escrowId}`,
+      status: "pending",
+    };
+  }
+
+  const fundingExpiresAt = escrow.fundingExpiresAt || await fundingDeadlineForEscrow(escrow);
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
+
+  await escrowStore.attachPayment({
+    escrowId: escrow.escrowId,
+    paymentReference: paymentResult.reference,
+    paymentProvider: usdcChannel,
+    status: "PENDING_PAYMENT",
+    paymentMetadata: {
+      paymentId: paymentResult.paymentId,
+      details: paymentResult.details || null,
+      escrowAmount: escrow.amount,
+      platformFeeAmount: payoutQuote.platformFeeAmount,
+      totalPayable: payoutQuote.totalWithFee,
+      fundingExpiresAt,
+    },
+    fundingExpiresAt,
+    regenerate: Boolean(options.regenerate),
+  });
+
+  const depositAddress =
+    paymentResult.details?.depositAddress ||
+    paymentResult.details?.address ||
+    (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
+    "SivanUSDCPlatformDepositWalletAddressPlaceholder";
+
+  return {
+    provider: usdcChannel,
+    reference: paymentResult.reference,
+    paymentId: paymentResult.paymentId,
+    depositAddress,
+    network: config.x402.network || "Solana Devnet",
+    escrowAmount: escrow.amount,
+    platformFeeAmount: payoutQuote.platformFeeAmount,
+    totalPayable: payoutQuote.totalWithFee,
+    fundingExpiresAt,
+  };
+}
+
+export async function createPaymentInstructionForEscrow(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
+  if (escrow.currency === "USDC") {
+    return createUsdcPaymentInstruction(escrow, options);
+  }
+  return createNairaPaymentInstruction(escrow, options);
+}
+
+export async function activePaymentInstructionForEscrow(detail: any) {
   if (!detail?.escrow.paymentReference) return null;
+
+  if (detail.escrow.currency === "USDC") {
+    const rawMetadata = detail.escrow.paymentMetadata || {};
+    const depositAddress =
+      rawMetadata.depositAddress ||
+      rawMetadata.details?.depositAddress ||
+      rawMetadata.details?.address ||
+      (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
+      "SivanUSDCPlatformDepositWalletAddressPlaceholder";
+
+    return {
+      provider: detail.escrow.paymentProvider || "x402",
+      reference: detail.escrow.paymentReference,
+      paymentId: rawMetadata.paymentId || detail.escrow.paymentReference,
+      depositAddress,
+      network: config.x402.network || "Solana Devnet",
+      escrowAmount: detail.escrow.amount,
+      platformFeeAmount: detail.payoutQuote?.platformFeeAmount || 0,
+      totalPayable: detail.payoutQuote?.totalWithFee || detail.escrow.amount,
+      fundingExpiresAt: detail.escrow.fundingExpiresAt,
+      reusedActiveInstruction: true,
+    };
+  }
+
   const transaction = await escrowStore.getTransactionByReference(detail.escrow.paymentReference);
   if (!transaction || transaction.status === "expired") return null;
   let rawPayload: any = {};
@@ -305,11 +395,15 @@ export async function activeNairaPaymentInstructionForEscrow(detail: any) {
     expiresAt: detail.escrow.activePaymentExpiresAt || rawPayload.expiresAt,
     expiresInSeconds: rawPayload.expiresInSeconds,
     escrowAmount: detail.escrow.amount,
-    platformFeeAmount: detail.payoutQuote.platformFeeAmount,
-    totalPayable: detail.payoutQuote.totalWithFee,
+    platformFeeAmount: detail.payoutQuote?.platformFeeAmount || 0,
+    totalPayable: detail.payoutQuote?.totalWithFee || detail.escrow.amount,
     fundingExpiresAt: detail.escrow.fundingExpiresAt,
     reusedActiveInstruction: true,
   };
+}
+
+export async function activeNairaPaymentInstructionForEscrow(detail: any) {
+  return activePaymentInstructionForEscrow(detail);
 }
 
 export async function calculateComplianceRisk(escrow: EscrowRecord): Promise<ComplianceRisk> {

@@ -23,6 +23,8 @@ import {
 import {
   createNairaPaymentInstruction,
   activeNairaPaymentInstructionForEscrow,
+  createPaymentInstructionForEscrow,
+  activePaymentInstructionForEscrow,
   formatFundingInstruction,
   fundingDeadlineForEscrow,
   calculateEscrowPayoutQuote,
@@ -215,16 +217,13 @@ router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, as
     if (detail.buyer?.whatsappNumber !== parsed.data.actorWhatsapp) {
       return res.status(403).json({ error: "Only the escrow buyer can request payment details" });
     }
-    if (detail.escrow.currency !== "NAIRA") {
-      return res.status(409).json({ error: "Payment instruction regeneration is available only for Naira escrows" });
-    }
     if (detail.escrow.status === "EXPIRED") {
       return res.status(409).json({ error: "This escrow has expired. Create a new escrow to continue." });
     }
     if (detail.escrow.status !== "PENDING_PAYMENT") {
       return res.status(409).json({ error: `Payment details are not available while escrow is ${detail.escrow.status}` });
     }
-    const activeInstruction = await activeNairaPaymentInstructionForEscrow(detail);
+    const activeInstruction = await activePaymentInstructionForEscrow(detail);
     if (activeInstruction) {
       return res.status(200).json({
         escrow: detail,
@@ -232,7 +231,7 @@ router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, as
       });
     }
 
-    const payment = await createNairaPaymentInstruction(detail.escrow, {
+    const payment = await createPaymentInstructionForEscrow(detail.escrow, {
       regenerate: true,
       buyerWhatsapp: parsed.data.actorWhatsapp,
     });
