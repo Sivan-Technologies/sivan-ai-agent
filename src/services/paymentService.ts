@@ -32,6 +32,17 @@ function deriveAgentBaseUrl(): string {
     : "https://sivan-escrow-agent-test.onrender.com";
 }
 
+export async function getFormattedCryptoNetworkLabel(): Promise<string> {
+  const settings = await settingsStore.getSettings();
+  const netName = (settings.cryptoNetwork || "solana").toUpperCase();
+  const netMode = (settings.networkMode || "devnet").toUpperCase();
+  if (netName === "SOLANA") return `Solana ${netMode === "MAINNET" ? "Mainnet" : "Devnet"}`;
+  if (netName === "AVALANCHE") return `Avalanche ${netMode === "MAINNET" ? "Mainnet C-Chain" : "Fuji Testnet"}`;
+  if (netName === "ETHEREUM") return `Ethereum ${netMode === "MAINNET" ? "Mainnet" : "Sepolia Testnet"}`;
+  if (netName === "ARBITRUM") return `Arbitrum ${netMode === "MAINNET" ? "One Mainnet" : "Sepolia Testnet"}`;
+  return `${settings.cryptoNetwork || "Solana"} ${settings.networkMode || "Devnet"}`;
+}
+
 export function createProviderForId(provider?: string, platformMode?: "test" | "live" | "maintenance") {
   if (!provider) {
     throw new Error(
@@ -319,12 +330,14 @@ export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options
     (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
     "SivanUSDCPlatformDepositWalletAddressPlaceholder";
 
+  const networkLabel = await getFormattedCryptoNetworkLabel();
+
   return {
     provider: usdcChannel,
     reference: paymentResult.reference,
     paymentId: paymentResult.paymentId,
     depositAddress,
-    network: config.x402.network || "Solana Devnet",
+    network: networkLabel,
     escrowAmount: escrow.amount,
     platformFeeAmount: payoutQuote.platformFeeAmount,
     totalPayable: payoutQuote.totalWithFee,
@@ -351,12 +364,14 @@ export async function activePaymentInstructionForEscrow(detail: any) {
       (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
       "SivanUSDCPlatformDepositWalletAddressPlaceholder";
 
+    const networkLabel = await getFormattedCryptoNetworkLabel();
+
     return {
       provider: detail.escrow.paymentProvider || "x402",
       reference: detail.escrow.paymentReference,
       paymentId: rawMetadata.paymentId || detail.escrow.paymentReference,
       depositAddress,
-      network: config.x402.network || "Solana Devnet",
+      network: networkLabel,
       escrowAmount: detail.escrow.amount,
       platformFeeAmount: detail.payoutQuote?.platformFeeAmount || 0,
       totalPayable: detail.payoutQuote?.totalWithFee || detail.escrow.amount,

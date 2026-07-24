@@ -45,6 +45,8 @@ export interface PlatformSettings {
   deliveryInspectionWindowDays: number;
   outageStatusPageUrl: string;
   outageContacts: string;
+  cryptoNetwork: "solana" | "avalanche" | "ethereum" | "arbitrum";
+  networkMode: "devnet" | "mainnet";
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -155,6 +157,8 @@ export class SettingsStore {
       deliveryInspectionWindowDays: Number(row.delivery_inspection_window_days ?? 3),
       outageStatusPageUrl: row.outage_status_page_url || "",
       outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
+      cryptoNetwork: ["solana", "avalanche", "ethereum", "arbitrum"].includes(row.crypto_network) ? row.crypto_network : (process.env.CRYPTO_NETWORK as any) || "solana",
+      networkMode: ["devnet", "mainnet"].includes(row.network_mode) ? row.network_mode : (process.env.NETWORK_MODE as any) || "devnet",
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -241,6 +245,8 @@ export class SettingsStore {
       "delivery_inspection_window_days INTEGER NOT NULL DEFAULT 3",
       "outage_status_page_url TEXT NOT NULL DEFAULT ''",
       "outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai'",
+      "crypto_network TEXT NOT NULL DEFAULT 'solana'",
+      "network_mode TEXT NOT NULL DEFAULT 'devnet'",
     ];
     for (const column of columns) {
       try {
@@ -387,6 +393,8 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS delivery_inspection_window_days INTEGER NOT NULL DEFAULT 3;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_status_page_url TEXT NOT NULL DEFAULT '';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS crypto_network TEXT NOT NULL DEFAULT 'solana';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS network_mode TEXT NOT NULL DEFAULT 'devnet';
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
@@ -490,6 +498,8 @@ export class SettingsStore {
     deliveryInspectionWindowDays?: number;
     outageStatusPageUrl?: string;
     outageContacts?: string;
+    cryptoNetwork?: "solana" | "avalanche" | "ethereum" | "arbitrum";
+    networkMode?: "devnet" | "mainnet";
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
@@ -497,6 +507,8 @@ export class SettingsStore {
     const resolved: PlatformSettings & { expectedVersion: number; updatedBy: string } = {
       ...current,
       ...settings,
+      cryptoNetwork: settings.cryptoNetwork ?? current.cryptoNetwork,
+      networkMode: settings.networkMode ?? current.networkMode,
       nairaNewUserLimit: settings.nairaNewUserLimit ?? current.nairaNewUserLimit,
       nairaTrustedUserLimit: settings.nairaTrustedUserLimit ?? current.nairaTrustedUserLimit,
       nairaEstablishedUserLimit: settings.nairaEstablishedUserLimit ?? current.nairaEstablishedUserLimit,
@@ -574,6 +586,12 @@ export class SettingsStore {
     if (resolved.nairaPaymentMethod !== "bank_transfer") {
       throw new Error("Sivan only supports bank-transfer Naira payments");
     }
+    if (!["solana", "avalanche", "ethereum", "arbitrum"].includes(resolved.cryptoNetwork)) {
+      throw new Error("Crypto network must be solana, avalanche, ethereum, or arbitrum");
+    }
+    if (!["devnet", "mainnet"].includes(resolved.networkMode)) {
+      throw new Error("Network mode must be devnet or mainnet");
+    }
     for (const [label, provider] of [
       ["active payment provider", resolved.activePaymentProvider],
       ["backup payment provider", resolved.backupPaymentProvider],
@@ -636,6 +654,8 @@ export class SettingsStore {
             delivery_inspection_window_days = @deliveryInspectionWindowDays,
             outage_status_page_url = @outageStatusPageUrl,
             outage_contacts = @outageContacts,
+            crypto_network = @cryptoNetwork,
+            network_mode = @networkMode,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
@@ -694,10 +714,12 @@ export class SettingsStore {
              delivery_inspection_window_days = $38,
              outage_status_page_url = $39,
              outage_contacts = $40,
-             version = $41,
-             updated_at = $42,
-             updated_by = $43
-         WHERE id = 'default' AND version = $44`,
+             crypto_network = $41,
+             network_mode = $42,
+             version = $43,
+             updated_at = $44,
+             updated_by = $45
+         WHERE id = 'default' AND version = $46`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -739,6 +761,8 @@ export class SettingsStore {
           resolved.deliveryInspectionWindowDays,
           resolved.outageStatusPageUrl,
           resolved.outageContacts,
+          resolved.cryptoNetwork,
+          resolved.networkMode,
           newVersion,
           now,
           resolved.updatedBy,

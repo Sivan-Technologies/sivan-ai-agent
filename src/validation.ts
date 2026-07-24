@@ -163,6 +163,9 @@ export const adminSettingsSchema = z.object({
   // Disaster Recovery
   outageStatusPageUrl: z.string().trim().optional(),
   outageContacts: z.string().trim().min(5).max(250).optional(),
+  // Crypto Network & Mode Controls
+  cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum"]).optional(),
+  networkMode: z.enum(["devnet", "mainnet"]).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 

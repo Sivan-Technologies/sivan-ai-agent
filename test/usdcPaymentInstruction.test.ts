@@ -9,29 +9,30 @@ process.env.ADMIN_API_KEY = "test-admin-key";
 process.env.NODE_ENV = "test";
 process.env.SYNAPSE_X402_FACILITATOR_URL = "";
 
-const app = (await import("../src/server")).default;
 const { paymentRouter } = await import("../src/context");
+
+// Mock paymentRouter methods BEFORE importing server app
+paymentRouter.processUsdcEscrow = async (amount: number) => ({
+  method: "USDC",
+  status: "pending",
+  reference: `x402-ref-${Date.now()}`,
+  paymentId: `x402-pid-${Date.now()}`,
+  details: {
+    depositAddress: "SolanaUsdcTestDepositAddress1111111111111111",
+    network: "Solana Devnet",
+  },
+});
+
+paymentRouter.getX402Client = () => ({
+  getPaymentStatus: async () => ({ status: "pending" }),
+  createPaymentFacility: async () => ({ status: "pending", paymentId: "mock-pid", facilitatorId: "mock-ref" }),
+  settlePayment: async () => ({ status: "completed" }),
+} as any);
+
+const app = (await import("../src/server")).default;
 
 describe("USDC Payment Instruction Endpoint", () => {
   it("should successfully generate and retrieve payment instructions for an accepted USDC escrow without Naira restriction error", async () => {
-    // Mock paymentRouter methods for clean offline execution
-    paymentRouter.processUsdcEscrow = async (amount: number) => ({
-      method: "USDC",
-      status: "pending",
-      reference: `x402-ref-${Date.now()}`,
-      paymentId: `x402-pid-${Date.now()}`,
-      details: {
-        depositAddress: "SolanaUsdcTestDepositAddress1111111111111111",
-        network: "Solana Devnet",
-      },
-    });
-
-    paymentRouter.getX402Client = () => ({
-      getPaymentStatus: async () => ({ status: "pending" }),
-      createPaymentFacility: async () => ({ status: "pending", paymentId: "mock-pid", facilitatorId: "mock-ref" }),
-      settlePayment: async () => ({ status: "completed" }),
-    } as any);
-
     const buyerWhatsapp = "whatsapp:+2348011112222";
     const sellerWhatsapp = "whatsapp:+2348033334444";
 

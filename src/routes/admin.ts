@@ -613,6 +613,8 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       deliveryInspectionWindowDays: updates.deliveryInspectionWindowDays ?? current.deliveryInspectionWindowDays,
       outageStatusPageUrl: updates.outageStatusPageUrl ?? current.outageStatusPageUrl,
       outageContacts: updates.outageContacts ?? current.outageContacts,
+      cryptoNetwork: updates.cryptoNetwork ?? current.cryptoNetwork,
+      networkMode: updates.networkMode ?? current.networkMode,
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });

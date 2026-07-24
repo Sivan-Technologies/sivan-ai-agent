@@ -84,6 +84,7 @@ export async function sendOrQueueWhatsAppNotification(params: {
   context?: Record<string, any>;
   media?: string[];
 }) {
+  if (process.env.NODE_ENV === "test") return;
   try {
     await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard, params.media);
   } catch (err) {
