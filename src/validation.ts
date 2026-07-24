@@ -185,6 +185,8 @@ export const paymentProviderSettingsSchema = z.object({
   backupPaymentProvider: nairaPaymentProviderIdSchema,
   emergencyPaymentProvider: nairaPaymentProviderIdSchema,
   paymentProviderFallbackEnabled: z.coerce.boolean().default(false),
+  cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum"]).optional(),
+  networkMode: z.enum(["devnet", "mainnet"]).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 
