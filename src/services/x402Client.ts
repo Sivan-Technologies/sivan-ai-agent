@@ -35,6 +35,25 @@ export class X402Client {
       timeout: 30000,
       headers: this.getHeaders(),
     });
+
+    this.axiosInstance.interceptors.request.use(async (reqConfig) => {
+      try {
+        const { settingsStore } = await import("../context.js");
+        const settings = await settingsStore.getSettings();
+        const netName = (settings.cryptoNetwork || "solana").toLowerCase();
+        const netMode = (settings.networkMode || "devnet").toLowerCase();
+        let formattedNetwork = `${netName}-${netMode}`;
+        if (netName === "avalanche" && netMode === "devnet") formattedNetwork = "avalanche-fuji";
+        if (netName === "ethereum" && netMode === "devnet") formattedNetwork = "ethereum-sepolia";
+        if (netName === "arbitrum" && netMode === "mainnet") formattedNetwork = "arbitrum-one";
+        if (netName === "arbitrum" && netMode === "devnet") formattedNetwork = "arbitrum-sepolia";
+
+        reqConfig.headers["X-Synapse-Network"] = formattedNetwork;
+      } catch {
+        // Fallback to static env configuration
+      }
+      return reqConfig;
+    });
   }
 
   private getHeaders(): Record<string, string> {
