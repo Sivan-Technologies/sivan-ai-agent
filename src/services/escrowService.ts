@@ -30,6 +30,7 @@ import {
   fundingDeadlineForEscrow,
 } from "./paymentService";
 import type { NormalizedPaymentEvent } from "./paymentEventNormalizer";
+import { isSandboxPaymentReference } from "./payoutVerificationTestMode";
 import { getTransactionTrace, syncEscrowTransactionReferences } from "./transactionReferences";
 
 let lastAbuseTrendAlertAt = 0;
@@ -242,6 +243,9 @@ export async function refreshEscrowPaymentLifecycle(escrowId: string) {
           escrow = funded;
         }
       } else {
+        if (isSandboxPaymentReference(escrow.paymentReference)) {
+          return escrow;
+        }
         const provider = await getProviderForEscrow(escrow);
         const transaction = await provider.verifyPayment(escrow.paymentReference);
         if (transaction && (transaction.status === "success" || transaction.status === "successful")) {

@@ -20,7 +20,7 @@
     "verify:palmpay": "ts-node src/scripts/palmpay-proof.ts",
     "verify:nomba-transfer": "ts-node src/scripts/nomba-transfer-proof.ts",
     "set-active-provider": "ts-node src/scripts/set-active-provider.ts",
-    "test": "vitest"
+    "test": "vitest --pool=forks"
   },
   "author": "",
   "license": "MIT",
