@@ -122,27 +122,29 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
 
   if (payment.authorizationUrl) {
     return [
-      `Payment instructions for ${escrow.escrowId}`,
-      `Total to pay: ${currency} ${total}`,
-      `Service amount: ${currency} ${escrowAmount}`,
-      `Sivan fee: ${displayedFee}`,
+      `📋 *Payment Instructions* for agreement *${escrow.escrowId}*`,
       "",
-      `Complete payment through licensed provider: ${payment.authorizationUrl}`,
-      payment.expiresAt ? `Payment link expires: ${payment.expiresAt}` : null,
+      `Complete payment through our licensed provider:`,
+      payment.authorizationUrl,
+      payment.expiresAt ? `⏰ Payment link expires: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
   if (payment.accountNumber) {
     return [
-      `Payment instructions for ${escrow.escrowId}`,
-      `Transfer ${currency} ${total}`,
-      `Bank: ${payment.bankName || "assigned bank"}`,
-      `Account number: ${payment.accountNumber}`,
-      `Account name: ${payment.accountName || "Sivan payment collection"}`,
-      `Reference: ${payment.reference}`,
+      `📋 *Payment Instructions* for agreement *${escrow.escrowId}*`,
       "",
-      `Service amount: ${currency} ${escrowAmount}`,
-      `Sivan fee: ${displayedFee}`,
-      payment.expiresAt ? `Payment details expire: ${payment.expiresAt}` : null,
+      `*Please transfer the exact amount to fund the agreement:*`,
+      `💵 *Amount to Pay:* ${currency} ${total}`,
+      `🏦 *Bank:* ${payment.bankName || "assigned bank"}`,
+      `🔢 *Account Number:* \`${payment.accountNumber}\` (Tap to copy)`,
+      `👤 *Account Name:* ${payment.accountName || "Sivan payment collection"}`,
+      `🔑 *Reference:* \`${payment.reference}\` (Tap to copy)`,
+      "",
+      `---`,
+      `*Breakdown:*`,
+      `• Service amount: ${currency} ${escrowAmount}`,
+      `• Sivan fee: ${displayedFee}`,
+      payment.expiresAt ? `⏰ Details expire: ${payment.expiresAt}` : null,
     ].filter(Boolean).join("\n");
   }
   if (escrow.currency === "USDC") {
@@ -155,25 +157,38 @@ export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
       (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
       "SivanUSDCPlatformDepositWalletAddressPlaceholder";
 
+    const networkName = (config.x402.network || "Solana Devnet")
+      .split("-")
+      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
     return [
-      `Payment instructions for ${escrow.escrowId}`,
-      `Total to pay: ${total} USDC`,
-      `Service amount: ${escrowAmount} USDC`,
-      `Sivan fee: ${displayedFee}`,
+      `📋 *Payment Instructions* for agreement *${escrow.escrowId}*`,
       "",
-      `Please deposit the total USDC amount to Sivan's secure deposit wallet:`,
-      `Address: ${depositAddress}`,
-      `Network: ${config.x402.network || "Solana Devnet"}`,
-      `Payment reference: ${payment.reference}`,
+      `*Please deposit the exact USDC amount to Sivan's secure deposit wallet:*`,
+      `💵 *Total to Pay:* ${total} USDC`,
+      `🔗 *Network:* ${networkName}`,
+      `📮 *Deposit Address:* \`${depositAddress}\` (Tap to copy)`,
+      `🔑 *Payment Reference:* \`${payment.reference}\` (Tap to copy)`,
+      "",
+      `---`,
+      `*Breakdown:*`,
+      `• Service amount: ${escrowAmount} USDC`,
+      `• Sivan fee: ${displayedFee}`,
     ].join("\n");
   }
 
   return [
-    `Payment instructions for ${escrow.escrowId}`,
-    `Payment reference: ${payment.reference}`,
-    `Total to pay: ${currency} ${total}`,
-    `Service amount: ${currency} ${escrowAmount}`,
-    `Sivan fee: ${displayedFee}`,
+    `📋 *Payment Instructions* for agreement *${escrow.escrowId}*`,
+    "",
+    `*Please fund the agreement:*`,
+    `💵 *Total to Pay:* ${currency} ${total}`,
+    `🔑 *Payment Reference:* \`${payment.reference}\` (Tap to copy)`,
+    "",
+    `---`,
+    `*Breakdown:*`,
+    `• Service amount: ${currency} ${escrowAmount}`,
+    `• Sivan fee: ${displayedFee}`,
   ].join("\n");
 }
 
