@@ -1,11 +1,31 @@
-import { describe, expect, it } from "vitest";
+import path from "path";
+import fs from "fs";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { calculateEscrowPayoutQuote } from "../src/services/paymentService";
 import { expectedFundingAmount } from "../src/services/escrowService";
 import { formatFundingInstruction } from "../src/services/paymentService";
 import { EscrowRecord } from "../src/services/escrowStore";
+
+// ── Test database isolation ───────────────────────────────────────────────────
+// Force SQLite so this test never tries to connect to the live Neon instance.
+// Must be set before any import that resolves src/context.
+const TEST_DB_PATH = path.resolve(__dirname, "../data/test-fee-allocation.db");
+if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
+process.env.DATABASE_URL = TEST_DB_PATH;
+process.env.DATABASE_PROVIDER = "sqlite";
+process.env.DATABASE_MODE = "test";
+process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-feealloc";
+process.env.ACTIVE_PAYMENT_PROVIDER = "flutterwave";
+
 import { settingsStore } from "../src/context";
 
 describe("Dynamic Fee Allocation Calculations", () => {
+  afterAll(() => {
+    if (fs.existsSync(TEST_DB_PATH)) {
+      try { fs.unlinkSync(TEST_DB_PATH); } catch { /* SQLite may still be open */ }
+    }
+  });
+
   it("calculates quotes correctly when buyer pays Naira fees", async () => {
     const settings = await settingsStore.getSettings();
     const percentFee = Math.round((10000 * settings.nairaFeePercent) / 100);
@@ -112,20 +132,25 @@ describe("Dynamic Fee Allocation Calculations", () => {
       feePayer: "split",
     } as EscrowRecord;
 
+    // Use accountNumber path — that's the code path that includes fee breakdown.
+    // (The authorizationUrl path returns early without the fee line by design.)
     const paymentMeta = {
       totalPayable: 10400,
       platformFeeAmount: 400,
-      authorizationUrl: "https://sivantech.online/pay?reference=ref1",
+      accountNumber: "1234567890",
+      bankName: "Access Bank",
+      accountName: "Sivan Collection",
+      reference: "ref1",
     };
 
     const buyerInstruction = formatFundingInstruction(buyerEscrow, paymentMeta);
     expect(buyerInstruction).toContain("Sivan fee: NGN 400");
     expect(buyerInstruction).not.toContain("split");
 
-    const sellerInstruction = formatFundingInstruction(sellerEscrow, { ...paymentMeta, totalPayable: 10000 });
+    const sellerInstruction = formatFundingInstruction(sellerEscrow, { ...paymentMeta, totalPayable: 10000, platformFeeAmount: 0 });
     expect(sellerInstruction).toContain("Sivan fee: NGN 0 (paid by seller)");
 
-    const splitInstruction = formatFundingInstruction(splitEscrow, { ...paymentMeta, totalPayable: 10200 });
+    const splitInstruction = formatFundingInstruction(splitEscrow, { ...paymentMeta, totalPayable: 10200, platformFeeAmount: 400 });
     expect(splitInstruction).toContain("Sivan fee: NGN 200 (50/50 split)");
   });
 });

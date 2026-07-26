@@ -24,7 +24,7 @@ function envNumber(key: string, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-const databaseProvider = envValue("DATABASE_PROVIDER", "sqlite");
+const databaseProvider = envValue("DATABASE_PROVIDER", "postgres");
 const databaseMode = (envValue("DATABASE_MODE", "test").toLowerCase() === "live" ? "live" : "test") as "test" | "live";
 const defaultDatabaseUrl = path.resolve(process.cwd(), "data", "sivan-escrow-agent.db");
 const databaseUrl =
