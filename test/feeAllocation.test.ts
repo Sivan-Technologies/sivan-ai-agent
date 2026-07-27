@@ -1,3 +1,4 @@
+process.env.NODE_ENV = "test";
 import path from "path";
 import fs from "fs";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
