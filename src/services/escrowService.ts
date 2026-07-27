@@ -159,13 +159,16 @@ export function escrowCreatedMessage(escrow: EscrowRecord, role: "buyer" | "sell
   ].join("\n");
 }
 
-export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord) {
+export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, options: { notifyBuyer?: boolean; notifySeller?: boolean } = {}) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   if (!detail) return;
   const buyerWhatsapp = detail.buyer?.whatsappNumber;
   const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
+  const notifyBuyer = options.notifyBuyer ?? false;
+  const notifySeller = options.notifySeller ?? true;
+
   await Promise.all([
-    buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
+    notifyBuyer && buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
       sendOrQueueWhatsAppNotification({
         to: buyerWhatsapp,
         message: escrowCreatedMessage(detail.escrow, "buyer"),
@@ -177,7 +180,7 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord) {
         } : undefined,
       })
     ) : Promise.resolve(),
-    sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
+    notifySeller && sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
       sendOrQueueWhatsAppNotification({
         to: sellerWhatsapp,
         message: escrowCreatedMessage(detail.escrow, "seller"),
