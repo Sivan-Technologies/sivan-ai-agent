@@ -1,0 +1,63 @@
+name: Sivan Service Agreement Agent CI
+
+on:
+  push:
+    branches:
+      - main
+      - airspexta
+  pull_request:
+    branches:
+      - main
+      - airspexta
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sivan-escrow-agent-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-regression:
+    name: Typecheck, build & full Vitest E2E suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_PROVIDER: json
+      PAYMENT_PROVIDER: nomba
+      BRIDGE_MOCK_MODE: "true"
+      WHATSAPP_PROVIDER: twilio
+      TWILIO_ACCOUNT_SID: ACtest00000000000000000000000000000
+      TWILIO_AUTH_TOKEN: test_auth_token_00000000000000000000
+      TWILIO_WHATSAPP_NUMBER: whatsapp:+14155238886
+      BOT_NOTIFY_SECRET: ci_notify_secret
+      ADMIN_API_KEY: ci_admin_api_key
+      ESCROW_SERVICE_SECRET: ci_escrow_service_secret
+      SIVAN_AI_API_KEY: ci_sivan_ai_api_key
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Full Vitest test suite (63 tests across 12 files)
+        run: npm test -- --run
