@@ -43,6 +43,7 @@ build/Release
 .env
 .env.*
 !.env.example
+!.env*.example
 
 # Local database and machine files
 data/*.db
@@ -52,3 +53,6 @@ Microsoft/
 
 # Duplicate sibling project copy
 whatsapp-bot/
+
+# local database / runtime data
+.data/
