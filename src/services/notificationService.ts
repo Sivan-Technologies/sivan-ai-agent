@@ -2,10 +2,68 @@ import { config } from "../config";
 import { WorkflowTaskRecord } from "./workflowStore";
 
 export async function notifyWhatsAppBot(to: string, message: string, dealCard?: any) {
+  // Fan out to every channel the user might be reachable on. A user who linked
+  // Telegram and a user who linked WhatsApp are the SAME Sivan account, keyed
+  // by phone, so we do not know here which app they will open. Each channel
+  // decides for itself whether it can reach that number.
+  await Promise.all([
+    notifyWhatsAppBotStrict(to, message, dealCard).catch((error) => {
+      console.error("Failed to notify WhatsApp bot", error);
+    }),
+    notifyTelegramBot(to, message, dealCard),
+  ]);
+}
+
+/**
+ * Push an update to the Telegram layer.
+ *
+ * Deliberately its own function with its own URL and secret rather than a
+ * second call site of the WhatsApp one. The two layers are separate
+ * deployments that can be rotated, redeployed and turned off independently,
+ * and sharing NOTIFICATION_URL would mean one of them silently receiving the
+ * other's traffic.
+ *
+ * PAYLOAD DIFFERS. The WhatsApp layer takes { to, message }. The Telegram
+ * layer takes { phone, message } and resolves the phone to a chat id from its
+ * own linked identities, because a Telegram bot cannot message a phone number
+ * - only a chat that has started it.
+ *
+ * Never throws. A notification is an enhancement to an escrow action that has
+ * already succeeded; failing to deliver one must not roll back a payment.
+ */
+export async function notifyTelegramBot(to: string, message: string, dealCard?: any) {
+  const notifyUrl = config.app.telegramNotificationUrl;
+  if (!notifyUrl) return; // Telegram layer not deployed. Nothing to do.
+
+  const secret = config.app.telegramNotificationSecret;
+
   try {
-    await notifyWhatsAppBotStrict(to, message, dealCard);
+    const response = await fetch(`${notifyUrl.replace(/\/$/, "")}/api/notify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(secret ? { "x-notify-secret": secret } : {}),
+      },
+      body: JSON.stringify({
+        // The Telegram layer's own field name; it looks the phone up in its
+        // linked identities to find a chat it is allowed to message.
+        phone: to,
+        message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
+        ...(dealCard ? { dealCard } : {}),
+      }),
+    });
+
+    // 404 is the normal, expected answer for a user who has never linked
+    // Telegram - which is most users. Logging it as an error would bury real
+    // failures in noise.
+    if (response.status === 404) return;
+
+    if (!response.ok) {
+      const payload = await response.text();
+      console.error(`Telegram notify failed: ${response.status} ${payload}`);
+    }
   } catch (error) {
-    console.error("Failed to notify WhatsApp bot", error);
+    console.error("Failed to notify Telegram bot", error);
   }
 }
 

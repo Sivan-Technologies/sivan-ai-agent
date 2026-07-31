@@ -46,6 +46,10 @@ services:
         sync: false
       - key: NOTIFICATION_URL
         value: https://test-sivan.sivantech.online
+      - key: TELEGRAM_NOTIFICATION_URL
+        sync: false
+      - key: TELEGRAM_NOTIFICATION_SECRET
+        sync: false
       - key: PAYOUT_VERIFICATION_TEST_MODE
         value: "true"
       - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
@@ -145,6 +149,10 @@ services:
         sync: false
       - key: NOTIFICATION_URL
         value: https://api.sivantech.online
+      - key: TELEGRAM_NOTIFICATION_URL
+        sync: false
+      - key: TELEGRAM_NOTIFICATION_SECRET
+        sync: false
       - key: ACTIVE_PAYMENT_PROVIDER
         value: nomba
       - key: BACKUP_PAYMENT_PROVIDER
