@@ -56,7 +56,11 @@ function safeSecretEquals(a: string, b: string) {
 
 function twilioDebuggerSecretValid(req: express.Request) {
   const configured = process.env.TWILIO_DEBUGGER_WEBHOOK_SECRET || "";
-  if (!configured) return process.env.NODE_ENV !== "production";
+  // Fail closed. An unset secret previously left this endpoint open in every
+  // non-production deploy (and whenever NODE_ENV was simply unset). The caller
+  // surfaces a 503 in that case, so a missing secret is reported as a
+  // configuration error rather than silently accepting unauthenticated events.
+  if (!configured) return false;
   const provided = String(req.query.secret || req.headers["x-sivan-twilio-debugger-secret"] || "");
   return Boolean(provided) && safeSecretEquals(provided, configured);
 }

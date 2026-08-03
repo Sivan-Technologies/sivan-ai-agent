@@ -3,8 +3,11 @@ import crypto from "crypto";
 import { warn } from "../lib/logger";
 import { getRequestIp, isIpAllowed } from "./ipAllowlist";
 
+// Requires an explicit `development` NODE_ENV rather than "anything that is not
+// production", so an unset or misspelled NODE_ENV fails closed instead of
+// silently enabling the local auth bypass.
 function allowInsecureLocalAuth() {
-  return process.env.NODE_ENV !== "production" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
+  return process.env.NODE_ENV === "development" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
 }
 
 function safeEquals(a: string, b: string) {

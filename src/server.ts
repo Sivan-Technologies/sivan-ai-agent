@@ -61,9 +61,16 @@ function hasValidStaticServiceAuth(req: express.Request) {
   );
 }
 
+// The permissive wildcard is reserved for explicit local development. Gating it
+// on `NODE_ENV !== "production"` previously meant an unset or misspelled
+// NODE_ENV (a common container misconfiguration) served `Access-Control-Allow-
+// Origin: *` from a real deployment, letting any site call this API from a
+// victim's browser.
 const corsOrigin = process.env.FRONTEND_URL;
-if (!corsOrigin && process.env.NODE_ENV === "production") {
-  throw new Error("FRONTEND_URL must be specified in production; CORS wildcard is disabled.");
+if (!corsOrigin && process.env.NODE_ENV !== "development") {
+  throw new Error(
+    "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
+  );
 }
 app.use(cors({ origin: corsOrigin || "*" }));
 
@@ -122,9 +129,18 @@ app.use(sandboxRouter);
 // Sentry Error Handler
 Sentry.setupExpressErrorHandler(app);
 
-app.use((err: any, _req: any, res: any, _next: any) => {
+app.use((err: any, req: any, res: any, _next: any) => {
+  // Log the full detail server-side, but never echo raw exception text back to
+  // the caller. Unhandled errors here originate from the database driver,
+  // payment provider SDKs and other internals, so their messages can disclose
+  // schema, query fragments, upstream URLs or credentials. The request id and
+  // Sentry event id give support everything needed to correlate a report.
   error("Unhandled error in HTTP pipeline", err && (err.message || err));
-  res.status(500).json({ error: err?.message || "internal server error", eventId: res.sentry || null });
+  res.status(500).json({
+    error: "internal server error",
+    requestId: req?.requestId || null,
+    eventId: res.sentry || null,
+  });
 });
 
 // Background intervals — started based on database settings

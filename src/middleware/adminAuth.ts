@@ -1,10 +1,21 @@
 import { Request, Response, NextFunction } from "express";
-import { error, warn } from "../lib/logger";
+import crypto from "crypto";
+import { error, info, warn } from "../lib/logger";
 import jwt from "jsonwebtoken";
 import { getRequestIp, isIpAllowed } from "./ipAllowlist";
+import { ADMIN_JWT_ALGORITHMS, ADMIN_JWT_AUDIENCE, ADMIN_JWT_ISSUER } from "../lib/adminJwtClaims";
 
+// Requires an explicit `development` NODE_ENV rather than "anything that is not
+// production", so an unset or misspelled NODE_ENV fails closed instead of
+// silently enabling the local auth bypass.
 function allowInsecureLocalAuth() {
-  return process.env.NODE_ENV !== "production" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
+  return process.env.NODE_ENV === "development" && process.env.ALLOW_INSECURE_LOCAL_AUTH === "true";
+}
+
+function safeEquals(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
 /**
@@ -31,7 +42,14 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
 
     const token = authHeader.slice("Bearer ".length).trim();
     try {
-      const payload = jwt.verify(token, adminJwtSecret) as any;
+      // Pin the algorithm and require the issuer/audience minted by
+      // telegram-admin-auth, so a token issued for another service that happens
+      // to share this secret is not accepted here.
+      const payload = jwt.verify(token, adminJwtSecret, {
+        algorithms: ADMIN_JWT_ALGORITHMS,
+        issuer: ADMIN_JWT_ISSUER,
+        audience: ADMIN_JWT_AUDIENCE,
+      }) as any;
       (req as any).adminUser = payload.adminIdentifier || payload.sub || "admin";
       return next();
     } catch (err) {
@@ -51,12 +69,15 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
     return next();
   }
 
-  const providedKey = req.headers["x-admin-key"] as string;
-  if (!providedKey || providedKey !== adminApiKey) {
+  const providedKey = req.headers["x-admin-key"];
+  if (typeof providedKey !== "string" || !safeEquals(providedKey, adminApiKey)) {
     return res.status(401).json({ error: "Unauthorized: invalid or missing admin key" });
   }
 
-  (req as any).adminUser = req.headers["x-admin-user"] || "unknown";
+  // The static-key path proves possession of ADMIN_API_KEY but not the identity
+  // of the caller. Deriving the audit identity from a client-supplied header
+  // would let any key holder forge attribution, so record the credential used.
+  (req as any).adminUser = "static-key";
   next();
 }
 
@@ -67,7 +88,7 @@ export function logAdminAction(actionName: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const adminUser = (req as any).adminUser || "unknown";
     const ip = getRequestIp(req) || "unknown";
-    console.log(`[ADMIN_ACTION] ${actionName} by ${adminUser} from ${ip}`);
+    info(`[ADMIN_ACTION] ${actionName}`, { actionName, adminUser, ip });
     next();
   };
 }
