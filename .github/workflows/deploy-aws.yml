@@ -1,0 +1,33 @@
+name: Deploy Sivan Escrow Agent to AWS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to AWS Lightsail
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH to AWS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AWS_SSH_HOST }}
+          username: ${{ secrets.AWS_SSH_USER }}
+          key: ${{ secrets.AWS_SSH_KEY }}
+          script: |
+            export PATH="$PATH:/home/ubuntu/.nvm/versions/node/v20.19.3/bin:/usr/bin"
+            cd /var/www/sivan/sivan-escrow-agent
+            echo "📥 Pulling latest main code..."
+            git pull origin main
+            echo "📦 Installing dependencies..."
+            npm install
+            echo "🔨 Building TypeScript..."
+            npm run build
+            echo "🔄 Reloading PM2 process (zero downtime)..."
+            pm2 reload escrow-agent || pm2 start dist/index.js --name escrow-agent
+            pm2 save
+            echo "✅ Sivan Escrow Agent deployed successfully on AWS!"
