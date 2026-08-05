@@ -65,14 +65,30 @@ function hasValidStaticServiceAuth(req: express.Request) {
 // on `NODE_ENV !== "production"` previously meant an unset or misspelled
 // NODE_ENV (a common container misconfiguration) served `Access-Control-Allow-
 // Origin: *` from a real deployment, letting any site call this API from a
-// victim's browser.
+// victim's browser. The wildcard is now only reachable with an explicit
+// NODE_ENV=development.
+
+// Anywhere else, an unset FRONTEND_URL denies cross-origin requests outright
+// (`origin: false` sends no Access-Control-Allow-Origin header) rather than
+// falling back to `*`.
+//
+// This is validated at startup by assertCorsOriginConfigured() rather than at
+// module import, so that importing this module - as the test suite does - does
+// not require the variable to be set. An import-time throw took the whole
+// suite down with it.
 const corsOrigin = process.env.FRONTEND_URL;
-if (!corsOrigin && process.env.NODE_ENV !== "development") {
-  throw new Error(
-    "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
-  );
+const isDevelopment = process.env.NODE_ENV === "development";
+
+export function assertCorsOriginConfigured(): void {
+  if (!corsOrigin && !isDevelopment) {
+    throw new Error(
+      "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
+    );
+  }
 }
-app.use(cors({ origin: corsOrigin || "*" }));
+
+app.use(cors({ origin: corsOrigin || (isDevelopment ? "*" : false) }));
+
 
 // Basic rate limiting to protect public endpoints.
 const limiter = rateLimit({
@@ -184,7 +200,11 @@ export default app;
 
 // Start the server when run directly
 if (require.main === module) {
+  // Refuse to boot a real deployment that would serve a permissive CORS policy.
+  // Checked here rather than at import so the test suite can load this module.
+  assertCorsOriginConfigured();
   app.listen(port, () => {
     info(`Webhook server listening on port ${port}`);
   });
 }
+
