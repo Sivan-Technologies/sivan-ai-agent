@@ -106,6 +106,56 @@ describe("Telegram notification channel", () => {
     expect(telegramCalls()[0].body.phone).toBe("+2348012345678");
   });
 
+  it("sends telegramId when we know it, so delivery does not depend on a phone", async () => {
+    const { notifyTelegramBot } = await import("../src/services/notificationService");
+
+    await notifyTelegramBot("+2348012345678", "Funds released.", undefined, "778899");
+
+    const sent = telegramCalls();
+    expect(sent).toHaveLength(1);
+    // The id is the reliable route: the layer uses it as the chat id directly
+    // instead of scanning its identity store for a matching phone.
+    expect(sent[0].body.telegramId).toBe("778899");
+    // The phone still rides along for users linked before we recorded ids.
+    expect(sent[0].body.phone).toBe("+2348012345678");
+  });
+
+  it("reaches a Telegram user who has no phone at all", async () => {
+    const { notifyTelegramBot } = await import("../src/services/notificationService");
+
+    // A web signup that linked Telegram has no WhatsApp number. Before the id
+    // was sent, this person was unreachable: the only handle we had was one the
+    // Telegram layer could not resolve.
+    await notifyTelegramBot("", "Your escrow expired.", undefined, "778899");
+
+    const sent = telegramCalls();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.telegramId).toBe("778899");
+    // No blank phone, which would make the layer scan for an empty string.
+    expect(sent[0].body.phone).toBeUndefined();
+  });
+
+  it("does not call the layer when there is no handle to address", async () => {
+    const { notifyTelegramBot } = await import("../src/services/notificationService");
+
+    await notifyTelegramBot("", "nobody to send this to");
+
+    expect(telegramCalls()).toHaveLength(0);
+  });
+
+  it("carries the telegramId through the both-channels fan-out", async () => {
+    const { notifyWhatsAppBot } = await import("../src/services/notificationService");
+
+    await notifyWhatsAppBot("+2348012345678", "Funds released.", undefined, "778899");
+
+    // The id must survive the fan-out, otherwise the Telegram leg silently
+    // falls back to phone resolution and the fix does not reach production.
+    expect(telegramCalls()[0].body.telegramId).toBe("778899");
+    // WhatsApp has no concept of a Telegram id and must not receive one.
+    expect(whatsappCalls()[0].body.telegramId).toBeUndefined();
+  });
+
+
   it("treats 404 as normal - most users have never linked Telegram", async () => {
     const { notifyTelegramBot } = await import("../src/services/notificationService");
     responder = (url) =>

@@ -6,6 +6,8 @@ import { uploadEvidenceUrlToR2, getPresignedDownloadUrl } from "./storageService
 import {
   notifyWhatsAppBot,
   notifyWhatsAppBotStrict,
+  notifyTelegramBot,
+
   getWhatsAppProviderStatus,
   switchWhatsAppProvider,
 } from "./notificationService";
@@ -71,10 +73,32 @@ export function queueWhatsAppNotification(params: {
   dealCard?: any;
   context?: Record<string, any>;
   media?: string[];
+  telegramUserId?: string;
 }) {
   void sendOrQueueWhatsAppNotification(params);
 }
 
+/**
+ * Deliver one participant notification.
+ *
+ * Sends on BOTH channels rather than only WhatsApp. Until this took a
+ * telegramUserId, every escrow lifecycle notification went through
+ * notifyWhatsAppBotStrict alone, so a user who had linked Telegram was never
+ * told their escrow moved unless they also watched WhatsApp.
+ *
+ * The two legs are deliberately not symmetrical:
+ *
+ *   - WhatsApp is awaited and its failure is queued for retry, because that is
+ *     the channel we promise delivery on.
+ *   - Telegram is fire-and-forget. notifyTelegramBot never throws, and a
+ *     Telegram failure must not enqueue a retry job that would re-send the
+ *     WhatsApp message too.
+ *
+ * `to` is skipped when it is not a real WhatsApp address. Accounts created
+ * through the web carry a `web:<userId>` placeholder in whatsapp_number, and
+ * sending that to the WhatsApp API fails every time - which would enqueue a
+ * retry that can never succeed and would fill the job table with poison.
+ */
 export async function sendOrQueueWhatsAppNotification(params: {
   to: string;
   message: string;
@@ -83,11 +107,23 @@ export async function sendOrQueueWhatsAppNotification(params: {
   dealCard?: any;
   context?: Record<string, any>;
   media?: string[];
+  telegramUserId?: string;
 }) {
   if (process.env.NODE_ENV === "test") return;
+
+  void notifyTelegramBot(
+    params.to?.startsWith("whatsapp:") ? params.to : "",
+    params.message,
+    params.dealCard,
+    params.telegramUserId
+  );
+
+  if (!params.to?.startsWith("whatsapp:")) return;
+
   try {
     await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard, params.media);
   } catch (err) {
+
     const context = {
       escrowId: params.escrowId,
       to: params.to,
@@ -470,19 +506,55 @@ export async function disputeHistoryForEscrow(escrowId: string) {
   };
 }
 
+/**
+ * Tell both sides of an escrow that something changed.
+ *
+ * Addresses PEOPLE, not phone numbers. The previous version collected
+ * whatsappNumber strings and dropped the falsy ones, so a participant with a
+ * Telegram handle and no phone produced no target at all: no message, no error,
+ * and the counterparty still got theirs. One side saw a live deal, the other
+ * heard nothing.
+ *
+ * escrow.sellerWhatsapp is kept as a recipient in its own right because a
+ * seller who has been invited but never registered has no user row yet - a bare
+ * number is all we have for them. It is skipped when it duplicates a phone we
+ * already resolved from a user record.
+ */
 export async function notifyEscrowParticipants(escrow: EscrowRecord, message: string) {
   const [buyer, seller] = await Promise.all([
     escrowStore.getUserById(escrow.buyerUserId),
     escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
   ]);
-  const targets = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.sellerWhatsapp].filter(Boolean) as string[];
-  Array.from(new Set(targets)).forEach((target) => queueWhatsAppNotification({
-    to: target,
+
+  const recipients: Array<{ to: string; telegramUserId?: string }> = [];
+  const seen = new Set<string>();
+
+  const add = (to?: string | null, telegramUserId?: string | null) => {
+    // A recipient needs at least one reachable handle.
+    if (!to && !telegramUserId) return;
+    // Dedupe on whichever handle identifies them. The buyer and seller of the
+    // same escrow are different accounts, so a collision here means the same
+    // person listed twice (user record plus raw sellerWhatsapp).
+    const key = telegramUserId ? `tg:${telegramUserId}` : `wa:${to}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (to) seen.add(`wa:${to}`);
+    recipients.push({ to: to || "", telegramUserId: telegramUserId || undefined });
+  };
+
+  add(buyer?.whatsappNumber, buyer?.telegramUserId);
+  add(seller?.whatsappNumber, seller?.telegramUserId);
+  add(escrow.sellerWhatsapp);
+
+  recipients.forEach((recipient) => queueWhatsAppNotification({
+    to: recipient.to,
+    telegramUserId: recipient.telegramUserId,
     message,
     reason: "escrow_participant_update",
     escrowId: escrow.escrowId,
   }));
 }
+
 
 export function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, nextLine: string) {
   const currency = displayCurrency(escrow.currency);
