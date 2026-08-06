@@ -25,6 +25,13 @@ import {
 } from "../services/monitoring";
 import { warn } from "../lib/logger";
 import { EscrowRecord } from "../services/escrowStore";
+import {
+  hashPassword,
+  verifyPassword,
+  unusablePasswordHash,
+  validateNewPassword,
+} from "../lib/password";
+
 
 const router = Router();
 
@@ -198,28 +205,38 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
   }
 });
 
-import crypto from "crypto";
-
-function hashPassword(password: string): string {
-  return crypto.createHash("sha256").update(password + (process.env.JWT_SECRET || "sivan_salt")).digest("hex");
-}
-
 router.post("/api/users/signup", requireCoreApiAuth, async (req, res) => {
+
   try {
     const { email, password, firstName, lastName } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
     }
+
+    // `provisionOnly` creates an account that exists but cannot be logged into
+    // with a password. Service-to-service callers that only need a profile row
+    // (the admin hub's liaison provisioning, for example) use this instead of
+    // inventing a placeholder password that then works as a real credential.
+    const provisionOnly = req.body?.provisionOnly === true;
+
+    if (!provisionOnly) {
+      const invalid = validateNewPassword(password);
+      if (invalid) {
+        return res.status(400).json({ error: "INVALID_PASSWORD", message: invalid });
+      }
+    }
+
     const existing = await escrowStore.findUserByEmail(email);
     if (existing) {
       return res.status(409).json({ error: "EMAIL_ALREADY_EXISTS", message: "User with this email already exists" });
     }
-    const passwordHash = hashPassword(password);
+
+    const passwordHash = provisionOnly ? await unusablePasswordHash() : await hashPassword(password);
     const user = await escrowStore.createUserWithEmail(email, passwordHash, firstName, lastName);
     res.status(201).json(user);
   } catch (err: any) {
     captureOperationalError("User signup failed", err);
-    res.status(500).json({ error: err.message || "Signup failed" });
+    res.status(500).json({ error: "SIGNUP_FAILED", message: "Signup failed" });
   }
 });
 
@@ -230,18 +247,42 @@ router.post("/api/users/login", requireCoreApiAuth, async (req, res) => {
       return res.status(400).json({ error: "Email and password are required" });
     }
     const user = await escrowStore.findUserByEmail(email);
-    if (!user || !user.passwordHash) {
+
+    const { valid, needsRehash } = await verifyPassword(password, user?.passwordHash);
+    if (!user || !valid) {
       return res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Invalid email or password" });
     }
-    if (user.passwordHash !== hashPassword(password)) {
-      return res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Invalid email or password" });
+
+    // Transparent migration: a credential still stored under the legacy
+    // SHA-256 scheme (or older scrypt parameters) is upgraded on the first
+    // successful login, while the user is already authenticated and the
+    // plaintext is in hand. A failure here must not fail the login - the
+    // credential that just verified is still valid - so it is logged and the
+    // next login retries.
+    if (needsRehash) {
+      try {
+        await escrowStore.updateUserProfile(
+          user.userId,
+          undefined,
+          undefined,
+          undefined,
+          await hashPassword(password),
+        );
+      } catch (rehashErr: any) {
+        warn("Password rehash after login failed; credential left on the previous scheme", {
+          userId: user.userId,
+          error: rehashErr?.message || String(rehashErr),
+        });
+      }
     }
+
     res.status(200).json(user);
   } catch (err: any) {
     captureOperationalError("User login failed", err);
-    res.status(500).json({ error: err.message || "Login failed" });
+    res.status(500).json({ error: "LOGIN_FAILED", message: "Login failed" });
   }
 });
+
 
 router.post("/api/users/whatsapp/pair-code", requireCoreApiAuth, async (req, res) => {
   try {
@@ -306,8 +347,13 @@ router.post("/api/users/link-email", requireCoreApiAuth, async (req, res) => {
       }
       return res.status(409).json({ error: "EMAIL_ALREADY_LINKED", message: "This email is already linked to another Sivan account." });
     }
-    const tempPasswordHash = crypto.createHash("sha256").update(crypto.randomBytes(32)).digest("hex");
+    // Linking an email to an existing WhatsApp account does not create a
+    // password credential. Store an unusable hash rather than a placeholder,
+    // so the account cannot be logged into until the user deliberately sets a
+    // password through the normal flow.
+    const tempPasswordHash = await unusablePasswordHash();
     const updated = await escrowStore.updateUserProfile(user.userId, undefined, undefined, normalizedEmail, tempPasswordHash);
+
     res.status(200).json(updated);
   } catch (err: any) {
     captureOperationalError("Failed to link email to user profile", err);
