@@ -34,6 +34,11 @@ export interface UserRecord {
   lastName?: string;
   email?: string;
   passwordHash?: string;
+  /** Telegram numeric id, once linked. A handle on this account, not an identity. */
+  telegramUserId?: string;
+  /** Display only - Telegram usernames are reassignable. Never match on this. */
+  telegramUsername?: string;
+  telegramVerifiedAt?: string;
   roleHistory: string[];
   createdAt: string;
   updatedAt: string;
@@ -313,6 +318,9 @@ export class EscrowStore {
       lastName: row.last_name || undefined,
       email: row.email || undefined,
       passwordHash: row.password_hash || undefined,
+      telegramUserId: row.telegram_user_id || undefined,
+      telegramUsername: row.telegram_username || undefined,
+      telegramVerifiedAt: row.telegram_verified_at || undefined,
       roleHistory: JSON.parse(row.role_history || "[]"),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -486,6 +494,21 @@ export class EscrowStore {
         email TEXT UNIQUE,
         password_hash TEXT,
         role_history TEXT NOT NULL DEFAULT '[]',
+        -- Telegram handle for this account. NOT a second identity: the account
+        -- is still user_id, and this is one more way to reach it, exactly as
+        -- whatsapp_number is. Mirrors migration 044 in sivan-payment.
+        --
+        -- Nullable because most users have no Telegram, and deliberately NOT
+        -- declared UNIQUE inline: SQLite cannot add a UNIQUE column via ALTER
+        -- TABLE, so an existing database could never gain the constraint that
+        -- way. Uniqueness is a partial index created in initializeSchema()
+        -- instead, which both engines accept and which applies to new and
+        -- existing databases alike.
+        telegram_user_id TEXT,
+        -- Display only. Telegram usernames are reassignable, so a stale handle
+        -- can point at a different person - never resolve identity from this.
+        telegram_username TEXT,
+        telegram_verified_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -651,6 +674,13 @@ export class EscrowStore {
     this.ensureSqliteColumn("users", "email", "TEXT");
     this.sqlite!.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);");
     this.ensureSqliteColumn("users", "password_hash", "TEXT");
+    this.ensureSqliteColumn("users", "telegram_user_id", "TEXT");
+    this.ensureSqliteColumn("users", "telegram_username", "TEXT");
+    this.ensureSqliteColumn("users", "telegram_verified_at", "TEXT");
+    // A Telegram account may not be claimed by two Sivan users. Partial, so the
+    // many users with no Telegram are not treated as colliding on NULL.
+    // Mirrors idx_customer_identity_links_active_telegram in payment's 044.
+    this.sqlite!.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_telegram_user_id ON users(telegram_user_id) WHERE telegram_user_id IS NOT NULL;");
     this.ensureSqliteColumn("payout_accounts", "bank_code", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_encrypted", "TEXT");
     this.ensureSqliteColumn("payout_accounts", "account_number_last4", "TEXT");
@@ -702,6 +732,12 @@ export class EscrowStore {
       await this.pool!.query(this.schemaSql("DOUBLE PRECISION"));
       await this.ensurePostgresColumn("users", "email", "TEXT UNIQUE");
       await this.ensurePostgresColumn("users", "password_hash", "TEXT");
+      await this.ensurePostgresColumn("users", "telegram_user_id", "TEXT");
+      await this.ensurePostgresColumn("users", "telegram_username", "TEXT");
+      await this.ensurePostgresColumn("users", "telegram_verified_at", "TEXT");
+      // See the SQLite branch for why this is a partial index rather than a
+      // UNIQUE column. Kept identical across both engines deliberately.
+      await this.pool!.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_telegram_user_id ON users(telegram_user_id) WHERE telegram_user_id IS NOT NULL");
       await this.ensurePostgresColumn("payout_accounts", "bank_code", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_encrypted", "TEXT");
       await this.ensurePostgresColumn("payout_accounts", "account_number_last4", "TEXT");
@@ -876,6 +912,112 @@ export class EscrowStore {
       [variants]
     );
     return this.mapUser(result.rows[0]);
+  }
+
+  /**
+   * Resolve an account from its Telegram id.
+   *
+   * Matches ONLY on telegram_user_id - the value Telegram authenticates on
+   * every update. Never falls back to username (reassignable) or to a phone
+   * number (a user's Telegram SIM is frequently not their WhatsApp SIM, and
+   * matching on it is exactly what created duplicate accounts).
+   *
+   * Returns null when the Telegram account is not linked. Callers must treat
+   * that as "not linked yet" and NOT create an account - a channel handle may
+   * attach to an account, never create one.
+   */
+  public async findUserByTelegramId(telegramUserId: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const normalized = String(telegramUserId).trim();
+    if (!normalized) return null;
+    if (this.provider === "sqlite") {
+      return this.mapUser(this.sqlite!.prepare(`SELECT * FROM users WHERE telegram_user_id = @telegramUserId LIMIT 1`).get({ telegramUserId: normalized }));
+    }
+    const result = await this.pool!.query(`SELECT * FROM users WHERE telegram_user_id = $1 LIMIT 1`, [normalized]);
+    return this.mapUser(result.rows[0]);
+  }
+
+  /**
+   * Attach a Telegram account to the account that owns a pairing token.
+   *
+   * The security model has two independent proofs and needs both:
+   *   - the token proves control of the Sivan account (it was issued to a
+   *     signed-in session)
+   *   - telegramUserId is asserted by Telegram itself, not by the user
+   *
+   * Neither side can forge the other, which is why this is safe where
+   * trusting a self-reported phone number was not.
+   *
+   * Returns null for an unknown or expired token so the caller can show one
+   * indistinguishable "invalid or expired code" message - distinguishing them
+   * would let an attacker probe which codes exist.
+   */
+  public async linkTelegramAccount(token: string, telegramUserId: string, telegramUsername?: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const tokenClean = token.toUpperCase().trim();
+    const normalizedTelegramId = String(telegramUserId).trim();
+    if (!normalizedTelegramId) throw new Error("telegramUserId is required to link a Telegram account");
+
+    let tokenRow: { user_id: string; expires_at: string } | null = null;
+    if (this.provider === "sqlite") {
+      tokenRow = this.sqlite!.prepare(`SELECT * FROM pairing_tokens WHERE token = @token`).get({ token: tokenClean }) as any;
+    } else {
+      const res = await this.pool!.query(`SELECT * FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+      if (res.rows.length > 0) tokenRow = res.rows[0] as any;
+    }
+    if (!tokenRow) return null;
+
+    if (new Date().toISOString() > tokenRow.expires_at) {
+      if (this.provider === "sqlite") {
+        this.sqlite!.prepare(`DELETE FROM pairing_tokens WHERE token = @token`).run({ token: tokenClean });
+      } else {
+        await this.pool!.query(`DELETE FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+      }
+      return null;
+    }
+
+    const userId = tokenRow.user_id;
+
+    // Checked explicitly rather than left to the unique index, so the user gets
+    // an explanation instead of an opaque constraint violation. The index still
+    // backs this up against a race between two concurrent redemptions.
+    const existingLink = await this.findUserByTelegramId(normalizedTelegramId);
+    if (existingLink && existingLink.userId !== userId) {
+      throw new Error("This Telegram account is already linked to another Sivan account. Unlink it there first.");
+    }
+
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE users
+        SET telegram_user_id = @telegramUserId, telegram_username = @telegramUsername,
+            telegram_verified_at = @now, updated_at = @now
+        WHERE user_id = @userId
+      `).run({ telegramUserId: normalizedTelegramId, telegramUsername: telegramUsername || null, now, userId });
+      this.sqlite!.prepare(`DELETE FROM pairing_tokens WHERE token = @token`).run({ token: tokenClean });
+    } else {
+      await this.pool!.query(
+        `UPDATE users SET telegram_user_id = $1, telegram_username = $2, telegram_verified_at = $3, updated_at = $3 WHERE user_id = $4`,
+        [normalizedTelegramId, telegramUsername || null, now, userId]
+      );
+      await this.pool!.query(`DELETE FROM pairing_tokens WHERE token = $1`, [tokenClean]);
+    }
+    return this.getUserById(userId);
+  }
+
+  /**
+   * Detach Telegram from an account. Nulls the id so the partial unique index
+   * releases it, letting the same Telegram account be linked elsewhere later.
+   */
+  public async unlinkTelegram(userId: string): Promise<UserRecord | null> {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`UPDATE users SET telegram_user_id = NULL, telegram_username = NULL, telegram_verified_at = NULL, updated_at = @now WHERE user_id = @userId`).run({ now, userId });
+    } else {
+      await this.pool!.query(`UPDATE users SET telegram_user_id = NULL, telegram_username = NULL, telegram_verified_at = NULL, updated_at = $1 WHERE user_id = $2`, [now, userId]);
+    }
+    return this.getUserById(userId);
   }
 
   public async updateUserProfile(userId: string, firstName?: string, lastName?: string, email?: string, passwordHash?: string): Promise<UserRecord | null> {
