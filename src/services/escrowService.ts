@@ -577,15 +577,80 @@ export function whatsappIdentityMatches(left?: string | null, right?: string | n
   return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
 }
 
-export async function roleForEscrowParticipant(escrow: EscrowRecord, actorWhatsapp: string): Promise<"buyer" | "seller" | null> {
-  const [buyer, seller] = await Promise.all([
-    escrowStore.getUserById(escrow.buyerUserId),
-    escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
-  ]);
-  if (whatsappIdentityMatches(buyer?.whatsappNumber, actorWhatsapp)) return "buyer";
-  if (whatsappIdentityMatches(seller?.whatsappNumber, actorWhatsapp) || whatsappIdentityMatches(escrow.sellerWhatsapp, actorWhatsapp)) return "seller";
+/**
+ * Thrown when a caller supplies both an actorWhatsapp and an actorUserId that
+ * belong to different accounts. Ambiguous authorization input is refused rather
+ * than resolved by precedence: silently preferring one would let a caller pass a
+ * handle they own alongside an id they do not.
+ */
+export class ConflictingActorError extends Error {
+  constructor() {
+    super("actorWhatsapp and actorUserId identify different accounts");
+    this.name = "ConflictingActorError";
+  }
+}
+
+/**
+ * Which account is acting, given either handle.
+ *
+ * actorWhatsapp cannot express a Telegram-only actor: the whatsappAddress regex
+ * in validation.ts accepts digits only, and that strictness is deliberate - it
+ * is what stops a `web:<userId>` placeholder from being replayed as a
+ * credential. So a second field is threaded through instead of widening the
+ * first, and both are resolved here to the userId the escrow actually keys on.
+ *
+ * Returns null when nothing was supplied or the handle matches no account, which
+ * callers already treat as "not a participant".
+ */
+export async function resolveActorUserId(
+  actorWhatsapp?: string | null,
+  actorUserId?: string | null
+): Promise<string | null> {
+  if (actorUserId) {
+    const byId = await escrowStore.getUserById(actorUserId);
+    if (!byId) return null;
+    if (actorWhatsapp && !whatsappIdentityMatches(byId.whatsappNumber, actorWhatsapp)) {
+      throw new ConflictingActorError();
+    }
+    return byId.userId;
+  }
+
+  if (!actorWhatsapp) return null;
+  const byPhone = await escrowStore.findUserByWhatsapp(actorWhatsapp);
+  return byPhone ? byPhone.userId : null;
+
+}
+
+/**
+ * Which side of this escrow the actor is on, or null if neither.
+ *
+ * Compares userId - the key the escrow is actually built on - rather than
+ * phone digits. The phone comparison it replaces returned null for any
+ * participant without a phone, locking a Telegram-linked user out of their own
+ * escrow: linking succeeded at the payment layer and authorization still
+ * refused them here.
+ *
+ * escrow.sellerWhatsapp is still matched on its own because an invited seller
+ * who never registered has no user row yet - a bare number is all we have.
+ */
+export async function roleForEscrowParticipant(
+  escrow: EscrowRecord,
+  actorWhatsapp?: string | null,
+  actorUserId?: string | null
+): Promise<"buyer" | "seller" | null> {
+  const resolvedUserId = await resolveActorUserId(actorWhatsapp, actorUserId);
+
+  if (resolvedUserId) {
+    if (escrow.buyerUserId === resolvedUserId) return "buyer";
+    if (escrow.sellerUserId === resolvedUserId) return "seller";
+  }
+
+  // Invited-but-unregistered seller: no user row to resolve, match the raw number.
+  if (actorWhatsapp && whatsappIdentityMatches(escrow.sellerWhatsapp, actorWhatsapp)) return "seller";
+
   return null;
 }
+
 
 export function participantDealStatus(status: EscrowRecord["status"]) {
   const labels: Record<EscrowRecord["status"], string> = {
@@ -630,9 +695,14 @@ export function participantDealActions(detail: any, role: "buyer" | "seller"): P
   return participantDealActionsForEscrow(detail.escrow, role);
 }
 
-export async function buildParticipantDealSummary(escrow: EscrowRecord, actorWhatsapp: string) {
-  const role = await roleForEscrowParticipant(escrow, actorWhatsapp);
+export async function buildParticipantDealSummary(
+  escrow: EscrowRecord,
+  actorWhatsapp?: string | null,
+  actorUserId?: string | null
+) {
+  const role = await roleForEscrowParticipant(escrow, actorWhatsapp, actorUserId);
   if (!role) return null;
+
   return {
     escrow: {
       escrowId: escrow.escrowId,
@@ -667,10 +737,15 @@ export async function buildParticipantDealSummary(escrow: EscrowRecord, actorWha
   };
 }
 
-export async function buildParticipantDeal(detail: any, actorWhatsapp: string) {
+export async function buildParticipantDeal(
+  detail: any,
+  actorWhatsapp?: string | null,
+  actorUserId?: string | null
+) {
   if (!detail) return null;
-  const role = await roleForEscrowParticipant(detail.escrow, actorWhatsapp);
+  const role = await roleForEscrowParticipant(detail.escrow, actorWhatsapp, actorUserId);
   if (!role) return null;
+
   return {
     escrow: {
       escrowId: detail.escrow.escrowId,
@@ -945,12 +1020,18 @@ export async function validateDeliveryProofMedia(
 
 export async function recordDeliveryProof(input: {
   escrow: EscrowRecord;
-  actorWhatsapp: string;
+  /**
+   * Audit label for who submitted this proof - a WhatsApp address or a userId,
+   * whichever the caller authenticated with. Authorization happened before this
+   * point; this value is recorded, not trusted.
+   */
+  actor: string;
   summary: string;
   media: Array<{ url: string; contentType?: string; filename?: string }>;
   notifyBuyer: boolean;
 }) {
-  const { escrow, actorWhatsapp, summary, media, notifyBuyer } = input;
+  const { escrow, actor, summary, media, notifyBuyer } = input;
+
   const safeSummary = summary.trim() || "Seller submitted delivery proof";
 
   // Validate the evidence files first
@@ -975,7 +1056,7 @@ export async function recordDeliveryProof(input: {
 
   // Audit trail logging payload
   const auditTrail = {
-    uploadedBy: actorWhatsapp,
+    uploadedBy: actor,
     uploadedAt: new Date().toISOString(),
     escrowStage: escrow.status,
     paymentReference,
@@ -984,8 +1065,9 @@ export async function recordDeliveryProof(input: {
 
   const updated = await escrowStore.markDelivered(
     escrow.escrowId,
-    actorWhatsapp,
+    actor,
     "whatsapp_dm",
+
     safeSummary,
     JSON.stringify({
       summary: safeSummary,

@@ -2,8 +2,9 @@ import { Router } from "express";
 import { requireCoreApiAuth } from "../middleware/apiAuth";
 import {
   escrowCreateSchema,
-  participantEscrowQuerySchema,
+  participantActorSchema,
   escrowActionSchema,
+
   deliveryProofSchema,
   participantDisputeEvidenceSchema,
   formatZodError,
@@ -180,27 +181,29 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
 });
 
 router.get("/api/escrows/:escrowId", requireCoreApiAuth, async (req, res) => {
-  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  const parsed = participantActorSchema.safeParse(req.query);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+    return res.status(400).json({ error: "Participant identity is required", details: formatZodError(parsed.error) });
   }
   const detail = await buildEscrowDetail(req.params.escrowId);
   if (!detail) return res.status(404).json({ error: "Escrow not found" });
-  const participantDeal = await buildParticipantDeal(detail, parsed.data.actorWhatsapp);
+  const participantDeal = await buildParticipantDeal(detail, parsed.data.actorWhatsapp, parsed.data.actorUserId);
   if (!participantDeal) return res.status(403).json({ error: "Only escrow participants can view this deal" });
   res.status(200).json(participantDeal);
 });
 
+
 router.get("/api/escrows/:escrowId/dispute-history", requireCoreApiAuth, async (req, res) => {
-  const parsed = participantEscrowQuerySchema.pick({ actorWhatsapp: true }).safeParse(req.query);
+  const parsed = participantActorSchema.safeParse(req.query);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+    return res.status(400).json({ error: "Participant identity is required", details: formatZodError(parsed.error) });
   }
   const escrow = await escrowStore.getEscrowById(req.params.escrowId);
   if (!escrow) return res.status(404).json({ error: "Escrow not found" });
-  if (!await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp)) {
+  if (!await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp, parsed.data.actorUserId)) {
     return res.status(403).json({ error: "Only escrow participants can view dispute history" });
   }
+
   const history = await disputeHistoryForEscrow(req.params.escrowId);
   if (!history) return res.status(404).json({ error: "Escrow not found" });
   res.status(200).json(history);
@@ -454,20 +457,26 @@ router.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, r
 router.post("/api/escrows/:escrowId/delivery/start", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = escrowActionSchema.safeParse(req.body);
-    if (!parsed.success || !parsed.data.actorWhatsapp) {
-      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Seller identity is required", details: formatZodError(parsed.error) });
+    }
+    const actor = parsed.data.actorWhatsapp || parsed.data.actorUserId;
+    if (!actor) {
+      return res.status(400).json({ error: "Seller identity is required" });
     }
     const escrow = await escrowStore.getEscrowById(req.params.escrowId);
     if (!escrow) return res.status(404).json({ error: "Escrow not found" });
-    const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+    const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp, parsed.data.actorUserId);
     if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+
     if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
       return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
     }
     await escrowStore.addEvent({
       escrowId: escrow.escrowId,
-      actor: parsed.data.actorWhatsapp,
+      actor,
       actorRole: "seller",
+
       channel: "whatsapp_dm",
       previousStatus: escrow.status,
       nextStatus: escrow.status,
@@ -488,8 +497,12 @@ router.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (
   }
   const escrow = await escrowStore.getEscrowById(req.params.escrowId);
   if (!escrow) return res.status(404).json({ error: "Escrow not found" });
-  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp, parsed.data.actorUserId);
   if (role !== "seller") return res.status(403).json({ error: "Only the seller can submit delivery proof" });
+  // The schema guarantees at least one identity; prefer the phone so existing
+  // audit rows keep the same actor format they have always had.
+  const actor = parsed.data.actorWhatsapp || parsed.data.actorUserId!;
+
   if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
     return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
   }
@@ -502,13 +515,15 @@ router.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (
   try {
     const detail = await recordDeliveryProof({
       escrow,
-      actorWhatsapp: parsed.data.actorWhatsapp,
+      actor,
       summary: parsed.data.summary,
+
       media: parsed.data.media,
       notifyBuyer: parsed.data.notifyBuyer,
     });
     res.status(201).json(detail);
   } catch (err: any) {
+
     res.status(400).json({ error: err.message || "Delivery proof could not be recorded" });
   }
 });
@@ -567,12 +582,13 @@ router.post("/api/escrows/:escrowId/dispute/evidence", requireCoreApiAuth, async
   if (escrow.status !== "DISPUTED") {
     return res.status(400).json({ error: `Evidence can only be added while escrow is DISPUTED, current status is ${escrow.status}` });
   }
-  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp);
+  const role = await roleForEscrowParticipant(escrow, parsed.data.actorWhatsapp, parsed.data.actorUserId);
   if (!role) return res.status(403).json({ error: "Only escrow participants can submit dispute evidence" });
   const detail = await recordDisputeEvidence({
     escrow,
-    actor: parsed.data.actorWhatsapp,
+    actor: parsed.data.actorWhatsapp || parsed.data.actorUserId!,
     actorRole: role,
+
     channel: "whatsapp_dm",
     evidence: { ...parsed.data, source: parsed.data.source || role },
   });

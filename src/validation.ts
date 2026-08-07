@@ -75,15 +75,51 @@ export const payoutAccountSchema = z.object({
   accountName: z.string().trim().min(2).max(160).optional(),
 });
 
+/**
+ * The account id an action is attributed to.
+ *
+ * Exists because whatsappAddress accepts digits only, so it cannot carry a
+ * Telegram-linked actor who has no phone on file. That strictness is worth
+ * keeping - it is what stops a `web:<userId>` placeholder being replayed as a
+ * credential - so identity is widened with a second field instead.
+ *
+ * Callers may send either or both; escrowService.resolveActorUserId rejects the
+ * pair when they disagree.
+ */
+const actorUserId = z.string().trim().min(1).max(120);
+
 export const escrowActionSchema = z.object({
   actorWhatsapp: whatsappAddress.optional(),
+  actorUserId: actorUserId.optional(),
   reason: z.string().trim().min(2).max(1000).optional(),
 });
 
-export const participantEscrowQuerySchema = z.object({
-  actorWhatsapp: whatsappAddress,
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-});
+// Shared so every participant endpoint spells identity the same way, and so
+// callers can validate identity alone without also demanding a `limit`.
+const participantActorFields = {
+  actorWhatsapp: whatsappAddress.optional(),
+  actorUserId: actorUserId.optional(),
+};
+
+// At least one identifier, rather than a specific one. actorWhatsapp used to be
+// mandatory, which made these endpoints unreachable for an account with no
+// phone on file.
+const hasActorIdentity = (value: { actorWhatsapp?: string; actorUserId?: string }) =>
+  Boolean(value.actorWhatsapp || value.actorUserId);
+const actorIdentityMessage = { message: "actorWhatsapp or actorUserId is required" };
+
+export const participantActorSchema = z
+  .object(participantActorFields)
+  .refine(hasActorIdentity, actorIdentityMessage);
+
+export const participantEscrowQuerySchema = z
+  .object({
+    ...participantActorFields,
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .refine(hasActorIdentity, actorIdentityMessage);
+
+
 
 export const disputeEvidenceSchema = z.object({
   evidenceType: z.enum(["message", "payment_proof", "delivery_proof", "identity", "other"]).default("other"),
@@ -95,13 +131,17 @@ export const disputeEvidenceSchema = z.object({
 });
 
 export const participantDisputeEvidenceSchema = disputeEvidenceSchema.extend({
-  actorWhatsapp: whatsappAddress,
+  actorWhatsapp: whatsappAddress.optional(),
+  actorUserId: actorUserId.optional(),
   source: z.enum(["buyer", "seller"]).optional(),
   notifyParticipants: z.coerce.boolean().default(true),
+}).refine((value) => Boolean(value.actorWhatsapp || value.actorUserId), {
+  message: "actorWhatsapp or actorUserId is required",
 });
 
 export const deliveryProofSchema = z.object({
-  actorWhatsapp: whatsappAddress,
+  actorWhatsapp: whatsappAddress.optional(),
+  actorUserId: actorUserId.optional(),
   summary: z.string().trim().max(2000).default(""),
   media: z.array(z.object({
     url: z.string().trim().url().max(1000),
@@ -109,7 +149,10 @@ export const deliveryProofSchema = z.object({
     filename: z.string().trim().min(1).max(240).optional(),
   })).max(5).default([]),
   notifyBuyer: z.coerce.boolean().default(true),
+}).refine((value) => Boolean(value.actorWhatsapp || value.actorUserId), {
+  message: "actorWhatsapp or actorUserId is required",
 });
+
 
 export const disputeResolutionSchema = z.object({
   outcome: z.enum(["release_to_seller", "refund_buyer", "cancel_no_funds", "no_action_close"]),

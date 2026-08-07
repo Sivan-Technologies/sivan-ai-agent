@@ -2465,7 +2465,40 @@ export class EscrowStore {
   }
 
 
+  /**
+   * Every escrow an account is a party to, keyed on user_id.
+   *
+   * The whatsapp_number variant cannot serve a Telegram-linked account with no
+   * phone on file: it joins users on whatsapp_number, so those accounts match
+   * nothing and the caller sees an empty deal list rather than their own deals.
+   *
+   * Only buyer_user_id and seller_user_id are considered. escrow.seller_whatsapp
+   * is deliberately not consulted here - an invited seller who never registered
+   * has no user row, so there is no user_id that could legitimately match them.
+   */
+  public async listEscrowsForUserId(userId: string, limit = 20): Promise<EscrowRecord[]> {
+    await this.initializeSchema();
+    if (this.provider === "sqlite") {
+      return this.sqlite!.prepare(`
+        SELECT *
+        FROM escrows
+        WHERE buyer_user_id = ? OR seller_user_id = ?
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `).all(userId, userId, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+    }
+    const result = await this.pool!.query(`
+      SELECT *
+      FROM escrows
+      WHERE buyer_user_id = $1 OR seller_user_id = $1
+      ORDER BY updated_at DESC
+      LIMIT $2
+    `, [userId, limit]);
+    return result.rows.map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+  }
+
   public async listEscrowsForWhatsapp(whatsappNumber: string, limit = 20): Promise<EscrowRecord[]> {
+
     await this.initializeSchema();
     const variants = whatsappLookupVariants(whatsappNumber);
     if (this.provider === "sqlite") {

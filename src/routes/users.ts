@@ -182,22 +182,31 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = participantEscrowQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Participant WhatsApp is required", details: formatZodError(parsed.error) });
+      return res.status(400).json({ error: "Actor identity is required", details: formatZodError(parsed.error) });
     }
-    const rawEscrows = await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit);
+    const actorUserId = parsed.data.actorUserId
+      ? parsed.data.actorUserId
+      : parsed.data.actorWhatsapp
+      ? (await escrowStore.findUserByWhatsapp(parsed.data.actorWhatsapp))?.userId
+      : undefined;
+    const rawEscrows = actorUserId
+      ? await escrowStore.listEscrowsForUserId(actorUserId, parsed.data.limit)
+      : [];
     const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "participant_deals"))))
       .filter(Boolean) as EscrowRecord[];
     const deals = await Promise.all(escrows.map(async (escrow) => {
       try {
-        return await buildParticipantDealSummary(escrow, parsed.data.actorWhatsapp);
+        return await buildParticipantDealSummary(escrow, parsed.data.actorWhatsapp, parsed.data.actorUserId);
       } catch (err: any) {
         console.warn("Skipping participant deal summary", {
           escrowId: escrow.escrowId,
           actorWhatsapp: parsed.data.actorWhatsapp,
+          actorUserId: parsed.data.actorUserId,
           error: err?.message || err,
         });
         return null;
       }
+
     }));
     res.status(200).json({ deals: deals.filter(Boolean) });
   } catch (err: any) {
