@@ -117,3 +117,6 @@ This applies when the active or backup Naira provider is set to Monnify. Current
 4. Confirm the error, log, metric, and trace arrive in Sentry.
 5. Immediately set `SENTRY_DEBUG_ENDPOINT_ENABLED=false` and redeploy.
 6. Do not enable `SENTRY_SEND_DEFAULT_PII` unless privacy/compliance requirements have been reviewed.
+
+
+
