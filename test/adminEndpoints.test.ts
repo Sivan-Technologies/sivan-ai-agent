@@ -12,10 +12,13 @@ process.env.ADMIN_ALLOWED_IPS = "";
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.NOTIFICATION_URL = "";
-process.env.ACTIVE_PAYMENT_PROVIDER = "nomba";
-process.env.BACKUP_PAYMENT_PROVIDER = "nomba";
-process.env.EMERGENCY_PAYMENT_PROVIDER = "nomba";
+process.env.ACTIVE_PAYMENT_PROVIDER = "paystack";
+process.env.BACKUP_PAYMENT_PROVIDER = "palmpay";
+process.env.EMERGENCY_PAYMENT_PROVIDER = "flutterwave";
 process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED = "false";
+process.env.PAYSTACK_SECRET_KEY = "sk_test_paystack_admin_test";
+process.env.PAYSTACK_CALLBACK_URL = "https://sivan.example/payment/callback";
+process.env.PAYSTACK_CHANNELS = "bank_transfer";
 process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-example";
 process.env.NOMBA_TEST_CLIENT_ID = "test-nomba-client-id";
 process.env.NOMBA_TEST_CLIENT_SECRET = "test-nomba-client-secret";
@@ -608,7 +611,8 @@ describe("Admin Settings API Integration", () => {
       .get("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key");
     expect(status.status).toBe(200);
-    expect(status.body.activePaymentProvider).toBe("nomba");
+    expect(status.body.activePaymentProvider).toBe("paystack");
+    expect(status.body.providers.some((provider: any) => provider.provider === "paystack")).toBe(true);
     expect(status.body.providers.some((provider: any) => provider.provider === "monnify")).toBe(true);
     expect(status.body.providers.some((provider: any) => provider.provider === "nomba")).toBe(true);
 
@@ -617,8 +621,8 @@ describe("Admin Settings API Integration", () => {
       .set("x-admin-key", "test-admin-key")
       .send({
         activePaymentProvider: "boguspay",
-        backupPaymentProvider: "nomba",
-        emergencyPaymentProvider: "nomba",
+        backupPaymentProvider: "palmpay",
+        emergencyPaymentProvider: "flutterwave",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
       });
@@ -628,28 +632,28 @@ describe("Admin Settings API Integration", () => {
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "nomba",
-        backupPaymentProvider: "nomba",
-        emergencyPaymentProvider: "nomba",
+        activePaymentProvider: "paystack",
+        backupPaymentProvider: "palmpay",
+        emergencyPaymentProvider: "flutterwave",
         paymentProviderFallbackEnabled: false,
         expectedVersion: status.body.version,
       });
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({
-      activePaymentProvider: "nomba",
-      backupPaymentProvider: "nomba",
-      emergencyPaymentProvider: "nomba",
+      activePaymentProvider: "paystack",
+      backupPaymentProvider: "palmpay",
+      emergencyPaymentProvider: "flutterwave",
       paymentProviderFallbackEnabled: false,
     });
 
-    // Reset back to flutterwave to prevent test pollution
+    // Reset back to Paystack to prevent test pollution
     await request(app)
       .post("/admin/payment-providers")
       .set("x-admin-key", "test-admin-key")
       .send({
-        activePaymentProvider: "flutterwave",
-        backupPaymentProvider: "nomba",
-        emergencyPaymentProvider: "nomba",
+        activePaymentProvider: "paystack",
+        backupPaymentProvider: "palmpay",
+        emergencyPaymentProvider: "flutterwave",
         paymentProviderFallbackEnabled: false,
         expectedVersion: updated.body.version,
       });
@@ -1117,7 +1121,7 @@ describe("Admin Settings API Integration", () => {
       .send({ actorWhatsapp: sellerWhatsapp });
     expect(accepted.status).toBe(200);
     expect(accepted.body.escrow.escrow.status).toBe("PENDING_PAYMENT");
-    expect(accepted.body.escrow.escrow.paymentProvider).toBe("nomba_sandbox_override");
+    expect(accepted.body.escrow.escrow.paymentProvider).toBe("paystack_sandbox_override");
 
     const funded = await request(app)
       .post(`/api/escrows/${escrowId}/test-fund`)
@@ -1190,9 +1194,9 @@ describe("Admin Settings API Integration", () => {
     expect(approved.body.escrow).toMatchObject({
       escrowId,
       status: "RELEASED",
-      releasedBy: "unknown",
+      releasedBy: "static-key",
     });
-    expect(approved.body.escrow.manualPayoutReference).toContain("TEST-NOMBA-");
+    expect(approved.body.escrow.manualPayoutReference).toContain("TEST-paystack-");
     expect(approved.body.payoutQuote).toMatchObject({
       grossAmount: payoutRow.grossAmount,
       platformFeeAmount: payoutRow.platformFeeAmount,
@@ -1208,7 +1212,7 @@ describe("Admin Settings API Integration", () => {
     expect(events.body.transactions.some((transaction: any) => (
       transaction.transactionType === "release" &&
       transaction.amount === payoutRow.sellerNetAmount &&
-      transaction.reference.startsWith("TEST-NOMBA-")
+      transaction.reference.startsWith("TEST-paystack-")
     ))).toBe(true);
 
     const detail = await request(app)
@@ -1228,7 +1232,7 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("resolved account name");
     expect(csv.text).toContain("compliance risk score");
     expect(csv.text).toContain("reconciliation risk level");
-    expect(csv.text).toContain("TEST-NOMBA-");
+    expect(csv.text).toContain("TEST-paystack-");
   });
 
   it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {

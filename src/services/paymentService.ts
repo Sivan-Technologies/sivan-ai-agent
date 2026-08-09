@@ -6,6 +6,7 @@ import { ComplianceRisk, scoreComplianceRisk } from "./complianceRisk";
 import {
   settingsStore,
   escrowStore,
+  paystackClient,
   monnifyClient,
   palmpayClient,
   flutterwaveClient,
@@ -19,7 +20,7 @@ import { NombaPayoutClient } from "./nombaPayoutClient";
  * Used to reconstruct sandbox payment simulation links.
  */
 function deriveAgentBaseUrl(): string {
-  const callbackUrl = config.flutterwave.callbackUrl || "";
+  const callbackUrl = config.paystack.callbackUrl || config.flutterwave.callbackUrl || "";
   if (callbackUrl) {
     try {
       return new URL(callbackUrl).origin;
@@ -54,6 +55,7 @@ export function createProviderForId(provider?: string, platformMode?: "test" | "
 
 export function providerConfigured(provider: string) {
   const normalized = provider.trim().toLowerCase();
+  if (normalized === "paystack") return paystackClient.isCollectionConfigured();
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
   if (normalized === "palmpay") return palmpayClient.isCollectionConfigured();
   if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
@@ -96,6 +98,7 @@ export function uniqueProviderReference(providerId: string, escrowId: string) {
 
 function callbackUrlForProvider(providerId: string) {
   const normalized = providerId.trim().toLowerCase();
+  if (normalized === "paystack") return config.paystack.callbackUrl || config.flutterwave.callbackUrl;
   if (normalized === "palmpay") return config.palmpay.callbackUrl || config.flutterwave.callbackUrl;
   if (normalized === "flutterwave") return config.flutterwave.callbackUrl;
   if (normalized === "monnify") return config.monnify.webhookUrl || config.flutterwave.callbackUrl;

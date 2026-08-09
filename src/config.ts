@@ -63,6 +63,19 @@ export const config = {
     network: envValue("SYNAPSE_X402_NETWORK", "solana-devnet"),
     usdcMint: envValue("SYNAPSE_USDC_MINT"),
   },
+  paystack: {
+    secretKey: envValue("PAYSTACK_SECRET_KEY"),
+    publicKey: envValue("PAYSTACK_PUBLIC_KEY"),
+    baseUrl: envValue("PAYSTACK_BASE_URL", "https://api.paystack.co"),
+    webhookSecret: envValue("PAYSTACK_WEBHOOK_SECRET"),
+    receiverAccount: envValue("PAYSTACK_RECEIVER_ACCOUNT"),
+    callbackUrl: envValue("PAYSTACK_CALLBACK_URL"),
+    timeoutMs: envNumber("PAYSTACK_TIMEOUT_MS", 8000),
+    channels: envValue("PAYSTACK_CHANNELS", envValue("NAIRA_PAYMENT_METHODS", "bank_transfer"))
+      .split(",")
+      .map((channel) => channel.trim())
+      .filter(Boolean),
+  },
   monnify: {
     apiKey: envValue("MONNIFY_API_KEY"),
     secretKey: envValue("MONNIFY_SECRET_KEY"),
@@ -172,7 +185,7 @@ export const config = {
     enabled: envValue("RECONCILIATION_WORKER_ENABLED", "false").toLowerCase() === "true",
     intervalMs: envNumber("RECONCILIATION_WORKER_INTERVAL_MS", 24 * 60 * 60 * 1000),
     lookbackHours: envNumber("RECONCILIATION_LOOKBACK_HOURS", 24),
-    providers: envValue("RECONCILIATION_PROVIDERS", "monnify,palmpay,flutterwave")
+    providers: envValue("RECONCILIATION_PROVIDERS", "paystack,monnify,palmpay,flutterwave")
       .split(",")
       .map((provider) => provider.trim())
       .filter(Boolean),
@@ -231,6 +244,9 @@ export function validateConfig() {
   }
 
   if (process.env.PAYOUT_VERIFICATION_TEST_MODE === "true") {
+    if (config.paystack.secretKey && !config.paystack.secretKey.startsWith("sk_test_")) {
+      throw new Error("PAYOUT_VERIFICATION_TEST_MODE with Paystack requires a Paystack sk_test_ secret key");
+    }
     if (!envValue("PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS")) {
       throw new Error("PAYOUT_VERIFICATION_TEST_MODE requires PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS");
     }
@@ -246,8 +262,13 @@ export function validateConfig() {
   ];
 
   // Validate the ACTIVE payment provider has its key configured
-  const activeProvider = envValue("ACTIVE_PAYMENT_PROVIDER", "flutterwave").toLowerCase();
-  if (activeProvider === "flutterwave") {
+  const activeProvider = envValue("ACTIVE_PAYMENT_PROVIDER", "paystack").toLowerCase();
+  if (activeProvider === "paystack") {
+    const paystackKey = config.paystack.secretKey;
+    if (!paystackKey) {
+      required.push({ key: "PAYSTACK_SECRET_KEY (active provider is paystack)", value: paystackKey });
+    }
+  } else if (activeProvider === "flutterwave") {
     const flwKey = config.flutterwave.secretKey;
     if (!flwKey) {
       required.push({ key: "FLUTTERWAVE_SECRET_KEY (active provider is flutterwave)", value: flwKey });
@@ -282,4 +303,3 @@ export function validateConfig() {
     .filter((c) => !c.value)
     .forEach((c) => console.warn(`[WARN] ${c.key} not set — ${c.reason}`));
 }
-

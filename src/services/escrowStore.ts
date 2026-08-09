@@ -2236,7 +2236,7 @@ export class EscrowStore {
       await this.recordPayoutReconciliation(escrowId, adminUser, reference, `Dispute resolution: ${options.reason}`);
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.currency === "NAIRA" ? "flutterwave" : "x402",
+        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "paystack" : "x402"),
         transactionType: "release",
         status: "manual_dispute_release",
         amount: escrow.amount,
@@ -2259,7 +2259,7 @@ export class EscrowStore {
     if (options.outcome === "refund_buyer") {
       const transactionId = await this.addTransaction({
         escrowId,
-        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "flutterwave" : "x402"),
+        provider: escrow.paymentProvider || (escrow.currency === "NAIRA" ? "paystack" : "x402"),
         transactionType: "refund",
         status: "manual_refund_recorded",
         amount: escrow.receivedAmount || escrow.amount,

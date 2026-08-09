@@ -638,6 +638,13 @@ function providerConfigured(provider: string) {
 function providerStatus() {
   return [
     {
+      provider: "paystack",
+      label: "Paystack",
+      implemented: true,
+      configured: providerConfigured("paystack"),
+      methods: ["bank_transfer"],
+    },
+    {
       provider: "monnify",
       label: "Monnify",
       implemented: true,
@@ -705,6 +712,17 @@ router.post("/admin/payment-providers/test-connection", requireAdminAuth, logAdm
         status: "ok",
         provider: "flutterwave",
         message: "Flutterwave credentials verification succeeded! Connection check passed.",
+      });
+    }
+
+    if (provider === "paystack") {
+      const { PaystackClient } = await import("../services/paystackClient.js");
+      const client = new PaystackClient();
+      await client.listBanks();
+      return res.status(200).json({
+        status: "ok",
+        provider: "paystack",
+        message: "Paystack credentials verification succeeded! Connection check passed.",
       });
     }
 

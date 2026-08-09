@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { config } from "../config";
 import crypto from "crypto";
-import { formatZodError } from "../validation";
+import { formatZodError, paystackWebhookSchema } from "../validation";
 import {
+  paystackPaymentProvider,
   monnifyPaymentProvider,
   palmpayPaymentProvider,
   flutterwavePaymentProvider,
@@ -113,6 +114,113 @@ router.post("/webhooks/twilio-debugger", async (req, res) => {
   });
 
   res.status(200).json({ received: true });
+});
+
+router.post("/webhooks/paystack", async (req, res) => {
+  const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+  let normalizedPaymentReference = "";
+  try {
+    const signature = String(req.headers["x-paystack-signature"] || "");
+    if (!signature) {
+      capturePaymentWarning("Missing Paystack webhook signature header", { path: req.path });
+      return res.status(400).send({ error: "Missing signature header" });
+    }
+
+    const verified = await paystackPaymentProvider.verifyWebhookSignature(rawBody, signature);
+    if (!verified) {
+      capturePaymentWarning("Invalid Paystack webhook signature", { paymentReference: req.body?.data?.reference || "unknown" });
+      return res.status(400).send({ error: "Invalid webhook signature" });
+    }
+
+    const parsedEvent = paystackWebhookSchema.safeParse(req.body);
+    if (!parsedEvent.success) {
+      capturePaymentWarning("Invalid Paystack webhook payload", { details: formatZodError(parsedEvent.error) });
+      return res.status(400).send({ error: "Invalid webhook payload", details: formatZodError(parsedEvent.error) });
+    }
+
+    const event = parsedEvent.data;
+    const normalizedWebhook = paystackPaymentProvider.normalizeWebhook(event);
+    if (normalizedWebhook.paymentReference === "ping") {
+      return res.status(200).send({ status: "ping_received" });
+    }
+
+    normalizedPaymentReference = normalizedWebhook.paymentReference;
+    info("Paystack webhook received", normalizedWebhook.eventType, normalizedWebhook.paymentReference);
+    await workflowStore.addWebhookEvent(
+      normalizedWebhook.eventId || crypto.randomUUID(),
+      normalizedWebhook.paymentReference,
+      `paystack:${normalizedWebhook.eventType}`,
+      JSON.stringify(event)
+    );
+
+    if (normalizedWebhook.eventType !== "charge.success") {
+      return res.status(200).send({ status: "received" });
+    }
+
+    const escrow = await escrowStore.findEscrowByPaymentReference(normalizedWebhook.paymentReference);
+    if (!escrow) {
+      capturePaymentWarning("Paystack webhook did not match any escrow", {
+        paymentReference: normalizedWebhook.paymentReference,
+        eventType: normalizedWebhook.eventType,
+      });
+      return res.status(202).send({ status: "unmatched" });
+    }
+    if (escrow.paymentProvider && escrow.paymentProvider !== "paystack") {
+      capturePaymentWarning("Paystack webhook matched escrow with different provider", {
+        escrowId: escrow.escrowId,
+        escrowProvider: escrow.paymentProvider,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      return res.status(409).send({ error: "Payment reference belongs to a different provider" });
+    }
+
+    const transaction = await paystackPaymentProvider.verifyPayment(normalizedWebhook.paymentReference);
+    if (transaction.paymentReference !== normalizedWebhook.paymentReference) {
+      capturePaymentWarning("Paystack verification reference mismatch", {
+        webhookReference: normalizedWebhook.paymentReference,
+        verifiedReference: transaction.paymentReference,
+      });
+      return res.status(202).send({ status: "verification_reference_mismatch" });
+    }
+
+    const paymentEvent = normalizeVerifiedPaymentEvent({
+      webhook: normalizedWebhook,
+      verifiedPayment: transaction,
+      escrow,
+      expectedAmount: await expectedFundingAmount(escrow),
+      signatureVerified: true,
+      raw: event,
+    });
+    const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook", paymentEvent);
+    if (funded.status === "IN_PROGRESS") {
+      info("Escrow funded from verified Paystack webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+      await notifyEscrowFundedParticipants(funded);
+    } else if (funded.status === "REVIEW_REQUIRED") {
+      info("Escrow payment moved to review from Paystack webhook", {
+        escrowId: funded.escrowId,
+        paymentReference: normalizedWebhook.paymentReference,
+      });
+    }
+    return res.status(200).send({ status: "received" });
+  } catch (err: any) {
+    if (normalizedPaymentReference) {
+      try {
+        await opsStore.enqueueJob("webhook_recovery", {
+          paymentReference: normalizedPaymentReference,
+          provider: "paystack",
+          eventType: req.body?.event || "unknown",
+          reason: "paystack_webhook_processing_failed",
+        }, { maxAttempts: 8 });
+      } catch (enqueueErr: any) {
+        captureOperationalError("Failed to enqueue Paystack webhook recovery job", enqueueErr, { paymentReference: normalizedPaymentReference });
+      }
+    }
+    captureOperationalError("Paystack webhook processing failed", err, { paymentReference: normalizedPaymentReference || "unknown" });
+    return res.status(500).send({ error: "Webhook processing failed" });
+  }
 });
 
 router.post("/webhooks/monnify", async (req, res) => {

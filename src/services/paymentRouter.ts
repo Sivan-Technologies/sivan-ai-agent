@@ -22,7 +22,7 @@ export class PaymentRouter {
     config.x402.clientSecret
   );
   constructor(private sapAgent?: SapAgent, nairaPaymentProvider?: PaymentProvider) {
-    this.nairaPaymentProvider = nairaPaymentProvider || createNairaPaymentProvider(process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave");
+    this.nairaPaymentProvider = nairaPaymentProvider || createNairaPaymentProvider(process.env.ACTIVE_PAYMENT_PROVIDER || "paystack");
   }
 
   public determinePaymentMethod(userPreference: string): PaymentMethod {
@@ -37,7 +37,7 @@ export class PaymentRouter {
     const transaction = await this.nairaPaymentProvider.initializeBankTransferPayment({
       amount,
       customerEmail: email,
-      callbackUrl: config.flutterwave.callbackUrl,
+      callbackUrl: config.paystack.callbackUrl || config.flutterwave.callbackUrl,
     });
 
     return {

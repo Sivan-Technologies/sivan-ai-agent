@@ -2,10 +2,7 @@ process.env.NODE_ENV = "test";
 import path from "path";
 import fs from "fs";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { calculateEscrowPayoutQuote } from "../src/services/paymentService";
-import { expectedFundingAmount } from "../src/services/escrowService";
-import { formatFundingInstruction } from "../src/services/paymentService";
-import { EscrowRecord } from "../src/services/escrowStore";
+import type { EscrowRecord } from "../src/services/escrowStore";
 
 // ── Test database isolation ───────────────────────────────────────────────────
 // Force SQLite so this test never tries to connect to the live Neon instance.
@@ -15,12 +12,25 @@ if (fs.existsSync(TEST_DB_PATH)) fs.unlinkSync(TEST_DB_PATH);
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
 process.env.DATABASE_MODE = "test";
-process.env.FLUTTERWAVE_SECRET_KEY = "FLWSECK_TEST-feealloc";
-process.env.ACTIVE_PAYMENT_PROVIDER = "flutterwave";
+process.env.PAYSTACK_SECRET_KEY = "sk_test_feealloc";
+process.env.ACTIVE_PAYMENT_PROVIDER = "paystack";
 
-import { settingsStore } from "../src/context";
+let calculateEscrowPayoutQuote: typeof import("../src/services/paymentService").calculateEscrowPayoutQuote;
+let formatFundingInstruction: typeof import("../src/services/paymentService").formatFundingInstruction;
+let expectedFundingAmount: typeof import("../src/services/escrowService").expectedFundingAmount;
+let settingsStore: typeof import("../src/context").settingsStore;
 
 describe("Dynamic Fee Allocation Calculations", () => {
+  beforeAll(async () => {
+    const paymentService = await import("../src/services/paymentService");
+    const escrowService = await import("../src/services/escrowService");
+    const context = await import("../src/context");
+    calculateEscrowPayoutQuote = paymentService.calculateEscrowPayoutQuote;
+    formatFundingInstruction = paymentService.formatFundingInstruction;
+    expectedFundingAmount = escrowService.expectedFundingAmount;
+    settingsStore = context.settingsStore;
+  });
+
   afterAll(() => {
     if (fs.existsSync(TEST_DB_PATH)) {
       try { fs.unlinkSync(TEST_DB_PATH); } catch { /* SQLite may still be open */ }

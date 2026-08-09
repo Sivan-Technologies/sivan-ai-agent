@@ -1,10 +1,95 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "crypto";
-import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PalmPayPaymentProvider, NombaPaymentProvider, createNairaPaymentProvider } from "../src/services/nairaPaymentProvider";
+import { FlutterwavePaymentProvider, MonnifyPaymentProvider, PalmPayPaymentProvider, NombaPaymentProvider, PaystackPaymentProvider, createNairaPaymentProvider } from "../src/services/nairaPaymentProvider";
 import { config } from "../src/config";
 import { MonnifyClient } from "../src/services/monnifyClient";
 import { FlutterwaveClient } from "../src/services/flutterwaveClient";
 import { PalmPayClient } from "../src/services/palmpayClient";
+import { PaystackClient } from "../src/services/paystackClient";
+
+describe("PaystackPaymentProvider", () => {
+  it("initializes Paystack bank-transfer-only payments", async () => {
+    (config.paystack as any).channels = ["bank_transfer"];
+    const client = {
+      initializeTransaction: vi.fn().mockResolvedValue({
+        authorizationUrl: "https://checkout.paystack.com/test-ref",
+        reference: "paystack-ref-100",
+        accessCode: "access-code-100",
+      }),
+      fetchTransaction: vi.fn(),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PaystackClient;
+    const provider = new PaystackPaymentProvider(client);
+
+    await expect(provider.initializeBankTransferPayment({
+      amount: 12500,
+      customerEmail: "buyer@example.com",
+      callbackUrl: "https://sivan.example/paystack/callback",
+      escrowId: "SIV-100",
+    })).resolves.toMatchObject({
+      provider: "paystack",
+      status: "pending",
+      paymentReference: "paystack-ref-100",
+      transactionReference: "paystack-ref-100",
+      authorizationUrl: "https://checkout.paystack.com/test-ref",
+      accessCode: "access-code-100",
+    });
+
+    expect(client.initializeTransaction).toHaveBeenCalledWith(
+      12500,
+      "buyer@example.com",
+      "https://sivan.example/paystack/callback"
+    );
+  });
+
+  it("normalizes successful Paystack transfers as success", async () => {
+    const provider = new PaystackPaymentProvider({
+      initializeTransaction: vi.fn(),
+      fetchTransaction: vi.fn().mockResolvedValue({
+        status: "success",
+        reference: "paystack-ref-101",
+        amount: 14000,
+        currency: "NGN",
+        processorFee: 210,
+        channel: "bank_transfer",
+        paidAt: "2026-08-09T10:00:00Z",
+      }),
+      verifyWebhookSignature: vi.fn(),
+    } as unknown as PaystackClient);
+
+    await expect(provider.verifyPayment("paystack-ref-101")).resolves.toMatchObject({
+      provider: "paystack",
+      status: "success",
+      paymentReference: "paystack-ref-101",
+      transactionReference: "paystack-ref-101",
+      amount: 14000,
+      currency: "NGN",
+      channel: "bank_transfer",
+    });
+  });
+
+  it("normalizes Paystack charge.success webhooks", () => {
+    const provider = new PaystackPaymentProvider();
+    const event = provider.normalizeWebhook({
+      id: 12345,
+      event: "charge.success",
+      data: {
+        reference: "paystack-ref-102",
+        status: "success",
+        amount: 1500000,
+        currency: "NGN",
+      },
+    });
+
+    expect(event).toMatchObject({
+      provider: "paystack",
+      eventId: "12345",
+      eventType: "charge.success",
+      paymentReference: "paystack-ref-102",
+      transactionReference: "paystack-ref-102",
+    });
+  });
+});
 
 describe("MonnifyPaymentProvider", () => {
   it("initializes account-transfer-only Monnify payments", async () => {

@@ -122,7 +122,7 @@ export class SettingsStore {
       nairaPlatformActiveExposureLimit: Number(row.naira_platform_active_exposure_limit ?? 10000000),
       trustedUserSuccessfulEscrows: Number(row.trusted_user_successful_escrows ?? 3),
       establishedUserSuccessfulEscrows: Number(row.established_user_successful_escrows ?? 10),
-      activePaymentProvider: row.active_payment_provider || process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave",
+      activePaymentProvider: row.active_payment_provider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
       backupPaymentProvider: row.backup_payment_provider || process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
       emergencyPaymentProvider: row.emergency_payment_provider || process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
       paymentProviderFallbackEnabled: Boolean(row.payment_provider_fallback_enabled ?? (process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0)),
@@ -217,7 +217,7 @@ export class SettingsStore {
       "naira_platform_active_exposure_limit REAL NOT NULL DEFAULT 10000000",
       "trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3",
       "established_user_successful_escrows INTEGER NOT NULL DEFAULT 10",
-      "active_payment_provider TEXT NOT NULL DEFAULT 'flutterwave'",
+      "active_payment_provider TEXT NOT NULL DEFAULT 'paystack'",
       "backup_payment_provider TEXT NOT NULL DEFAULT 'palmpay'",
       "emergency_payment_provider TEXT NOT NULL DEFAULT 'flutterwave'",
       "payment_provider_fallback_enabled INTEGER NOT NULL DEFAULT 0",
@@ -296,7 +296,7 @@ export class SettingsStore {
         )
       `).run({
         now,
-        activePaymentProvider: process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave",
+        activePaymentProvider: process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
         backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
         emergencyPaymentProvider: process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
         paymentProviderFallbackEnabled: process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
@@ -365,7 +365,7 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_platform_active_exposure_limit DOUBLE PRECISION NOT NULL DEFAULT 10000000;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS established_user_successful_escrows INTEGER NOT NULL DEFAULT 10;
-      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS active_payment_provider TEXT NOT NULL DEFAULT 'flutterwave';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS active_payment_provider TEXT NOT NULL DEFAULT 'paystack';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS backup_payment_provider TEXT NOT NULL DEFAULT 'palmpay';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS emergency_payment_provider TEXT NOT NULL DEFAULT 'flutterwave';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS payment_provider_fallback_enabled INTEGER NOT NULL DEFAULT 0;
@@ -418,7 +418,7 @@ export class SettingsStore {
         )
          VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 1, 3, $22, $23, 1, $24, 'system')`,
         [
-          process.env.ACTIVE_PAYMENT_PROVIDER || "flutterwave",
+          process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
           process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
           process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
           process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
@@ -597,7 +597,7 @@ export class SettingsStore {
       ["backup payment provider", resolved.backupPaymentProvider],
       ["emergency payment provider", resolved.emergencyPaymentProvider],
     ] as const) {
-      if (!["monnify", "palmpay", "flutterwave", "nomba"].includes(provider)) {
+      if (!["paystack", "monnify", "palmpay", "flutterwave", "nomba"].includes(provider)) {
         throw new Error(`Unsupported ${label}: ${provider}`);
       }
     }

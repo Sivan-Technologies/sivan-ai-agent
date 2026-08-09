@@ -11,6 +11,7 @@ import { AbusePreventionService } from "./services/abusePrevention";
 import { AgentOrchestrator } from "./services/agentOrchestrator";
 import { DisputeAnalystService } from "./services/disputeAnalyst";
 import { createNairaPaymentProvider } from "./services/nairaPaymentProvider";
+import { PaystackClient } from "./services/paystackClient";
 import { MonnifyClient } from "./services/monnifyClient";
 import { FlutterwaveClient } from "./services/flutterwaveClient";
 import { PalmPayClient } from "./services/palmpayClient";
@@ -27,10 +28,12 @@ export const abusePrevention = new AbusePreventionService(escrowStore, opsStore,
 export const disputeAnalyst = new DisputeAnalystService(escrowStore, aceData);
 
 export const orchestrator = new AgentOrchestrator(sapAgent, aceData, paymentRouter, workflowStore);
+export const paystackPaymentProvider = createNairaPaymentProvider("paystack");
 export const monnifyPaymentProvider = createNairaPaymentProvider("monnify");
 export const palmpayPaymentProvider = createNairaPaymentProvider("palmpay");
 export const flutterwavePaymentProvider = createNairaPaymentProvider("flutterwave");
 export const nombaPaymentProvider = createNairaPaymentProvider("nomba");
+export const paystackClient = new PaystackClient();
 export const monnifyClient = new MonnifyClient();
 export const palmpayClient = new PalmPayClient();
 export const flutterwaveClient = new FlutterwaveClient();

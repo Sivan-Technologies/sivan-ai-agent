@@ -34,6 +34,10 @@ function isActiveProviderTestConfigured(provider: string, env: NodeJS.ProcessEnv
       key?.startsWith("sk_test_")
     );
   }
+  if (norm === "paystack") {
+    const key = env.PAYSTACK_TEST_SECRET_KEY || env.PAYSTACK_SECRET_KEY;
+    return Boolean(key?.startsWith("sk_test_") || key?.includes("test"));
+  }
   if (norm === "palmpay") {
     return Boolean(
       env.PALMPAY_BASE_URL?.includes("sandbox") ||
@@ -57,7 +61,7 @@ export function getPayoutVerificationTestResolution(
 ): PayoutVerificationTestResolution | null {
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
 
-  const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "flutterwave";
+  const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "paystack";
   const isTestMode = isActiveProviderTestConfigured(activeProvider, env);
 
   if (!isTestMode) return null;
@@ -87,7 +91,7 @@ export function createSandboxPaymentInstruction(
 ): SandboxPaymentInstruction | null {
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
 
-  const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "flutterwave";
+  const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "paystack";
   const isTestMode = isActiveProviderTestConfigured(activeProvider, env);
 
   if (!isTestMode) return null;
@@ -95,7 +99,7 @@ export function createSandboxPaymentInstruction(
   const providerId = activeProvider.trim().toLowerCase();
   const reference = `sandbox-${providerId}-${escrowId}-${Date.now()}`;
 
-  const callbackUrl = env.FLUTTERWAVE_CALLBACK_URL || "";
+  const callbackUrl = env.PAYSTACK_CALLBACK_URL || env.FLUTTERWAVE_CALLBACK_URL || "";
   let host = "https://sivan-escrow-agent-test.onrender.com";
   if (callbackUrl) {
     try {
@@ -119,6 +123,7 @@ export function isSandboxPaymentReference(reference?: string, env: NodeJS.Proces
   // Accept any standard sandbox reference structure
   const isSandboxPattern =
     reference.startsWith("sandbox-flutterwave-SIV-") ||
+    reference.startsWith("sandbox-paystack-SIV-") ||
     reference.startsWith("sandbox-palmpay-SIV-") ||
     reference.startsWith("sandbox-monnify-SIV-") ||
     reference.startsWith("sandbox-nomba-SIV-");
@@ -128,4 +133,3 @@ export function isSandboxPaymentReference(reference?: string, env: NodeJS.Proces
     createSandboxPaymentInstruction("probe", env)
   );
 }
-

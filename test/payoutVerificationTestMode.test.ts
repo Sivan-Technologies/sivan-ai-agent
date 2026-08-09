@@ -13,6 +13,7 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     });
 
     expect(result).toEqual({
@@ -27,6 +28,7 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       FLUTTERWAVE_TEST_SECRET_KEY: "FLWSECK_TEST-example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     });
 
     expect(result).toEqual({
@@ -41,12 +43,14 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       FLUTTERWAVE_SECRET_KEY: "FLWSECK_live_example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     })).toBeNull();
 
     expect(getPayoutVerificationTestResolution(input, "999992", {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: "0000000000",
       FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     })).toBeNull();
   });
 
@@ -56,7 +60,29 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
       PAYOUT_VERIFICATION_TEST_WHATSAPP_NUMBERS: "whatsapp:+2348111111111",
       FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     })).toBeNull();
+  });
+
+  it("supports Paystack as the default sandbox payment provider", () => {
+    const resolution = getPayoutVerificationTestResolution(input, "999992", {
+      PAYOUT_VERIFICATION_TEST_MODE: "true",
+      PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
+      PAYSTACK_SECRET_KEY: "sk_test_example",
+    });
+    expect(resolution).toEqual({
+      accountNumber: input.accountNumber,
+      accountName: input.sellerName,
+      bankCode: "999992",
+    });
+
+    const payment = createSandboxPaymentInstruction("SIV-TEST-1", {
+      PAYOUT_VERIFICATION_TEST_MODE: "true",
+      PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: input.accountNumber,
+      PAYSTACK_SECRET_KEY: "sk_test_example",
+    });
+    expect(payment?.provider).toBe("paystack_sandbox_override");
+    expect(payment?.reference).toMatch(/^sandbox-paystack-SIV-TEST-1-/);
   });
 
   it("creates a sandbox payment reference only under the controlled test mode", () => {
@@ -97,6 +123,7 @@ describe("payout verification test mode", () => {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS: "*",
       FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     });
 
     expect(result).toEqual({
@@ -110,6 +137,7 @@ describe("payout verification test mode", () => {
     const result = getPayoutVerificationTestResolution(input, "999992", {
       PAYOUT_VERIFICATION_TEST_MODE: "true",
       FLUTTERWAVE_SECRET_KEY: "FLWSECK_TEST-example",
+      ACTIVE_PAYMENT_PROVIDER: "flutterwave",
     });
 
     expect(result).toEqual({
@@ -119,4 +147,3 @@ describe("payout verification test mode", () => {
     });
   });
 });
-

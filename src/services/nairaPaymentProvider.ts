@@ -4,9 +4,10 @@ import { FlutterwaveClient, FlutterwaveVerifiedCharge } from "./flutterwaveClien
 import { MonnifyClient, MonnifyVerifiedTransaction } from "./monnifyClient";
 import { PalmPayClient, PalmPayVerifiedTransaction } from "./palmpayClient";
 import { NombaPayoutClient } from "./nombaPayoutClient";
+import { PaystackClient, PaystackTransactionStatus } from "./paystackClient";
 import { assertNairaBankTransferOnly } from "./bankTransferPolicy";
 
-export type NairaPaymentProviderId = "monnify" | "palmpay" | "flutterwave" | "nomba";
+export type NairaPaymentProviderId = "paystack" | "monnify" | "palmpay" | "flutterwave" | "nomba";
 
 export interface BankTransferPaymentRequest {
   amount: number;
@@ -60,6 +61,21 @@ export interface PaymentProvider {
   verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment>;
   verifyWebhookSignature(rawBody: string, signature: string): Promise<boolean>;
   normalizeWebhook(payload: unknown): NormalizedPaymentWebhook;
+}
+
+function mapPaystackStatus(transaction: PaystackTransactionStatus): VerifiedNairaPayment {
+  return {
+    provider: "paystack",
+    status: transaction.status,
+    paymentReference: transaction.reference,
+    transactionReference: transaction.reference,
+    amount: transaction.amount,
+    currency: transaction.currency,
+    processorFee: transaction.processorFee,
+    channel: transaction.channel,
+    paidAt: transaction.paidAt,
+    raw: transaction,
+  };
 }
 
 function normalizeMonnifyStatus(transaction: MonnifyVerifiedTransaction): string {
@@ -151,6 +167,63 @@ function mapFlutterwaveStatus(transaction: FlutterwaveVerifiedCharge): VerifiedN
     paidAt: transaction.paidAt,
     raw: transaction.raw,
   };
+}
+
+export class PaystackPaymentProvider implements PaymentProvider {
+  public readonly id = "paystack";
+
+  constructor(private client = new PaystackClient()) {}
+
+  public async initializeBankTransferPayment(input: BankTransferPaymentRequest): Promise<BankTransferPayment> {
+    assertNairaBankTransferOnly(config.nairaPayments.methods);
+    assertNairaBankTransferOnly(config.paystack.channels, "PAYSTACK_CHANNELS");
+    const transaction = await this.client.initializeTransaction(
+      input.amount,
+      input.customerEmail,
+      input.callbackUrl || config.paystack.callbackUrl
+    );
+
+    return {
+      provider: this.id,
+      status: "pending",
+      paymentReference: transaction.reference,
+      transactionReference: transaction.reference,
+      authorizationUrl: transaction.authorizationUrl,
+      accessCode: transaction.accessCode,
+      raw: transaction,
+    };
+  }
+
+  public async verifyPayment(paymentReference: string): Promise<VerifiedNairaPayment> {
+    return mapPaystackStatus(await this.client.fetchTransaction(paymentReference));
+  }
+
+  public async verifyWebhookSignature(rawBody: string, signature: string): Promise<boolean> {
+    return this.client.verifyWebhookSignature(rawBody, signature);
+  }
+
+  public normalizeWebhook(payload: any): NormalizedPaymentWebhook {
+    const paymentReference = String(payload?.data?.reference || "").trim();
+    const eventType = String(payload?.event || "unknown").trim();
+    if (!paymentReference && (eventType === "ping" || eventType === "test" || eventType.toLowerCase().includes("ping"))) {
+      return {
+        provider: this.id,
+        eventId: `${this.id}:${eventType}:ping`,
+        eventType,
+        paymentReference: "ping",
+        raw: payload,
+      };
+    }
+    if (!paymentReference) throw new Error("Paystack webhook payload is missing payment reference");
+    return {
+      provider: this.id,
+      eventId: String(payload?.id || `${this.id}:${eventType}:${paymentReference}`),
+      eventType,
+      paymentReference,
+      transactionReference: paymentReference,
+      raw: payload,
+    };
+  }
 }
 
 export class MonnifyPaymentProvider implements PaymentProvider {
@@ -563,6 +636,7 @@ export function createNairaPaymentProvider(
   if (normalized.endsWith("_sandbox_override")) {
     normalized = normalized.replace("_sandbox_override", "");
   }
+  if (normalized === "paystack") return new PaystackPaymentProvider();
   if (!normalized || normalized === "flutterwave") return new FlutterwavePaymentProvider(platformMode);
   if (normalized === "monnify") return new MonnifyPaymentProvider(platformMode);
   if (normalized === "palmpay") return new PalmPayPaymentProvider(platformMode);
