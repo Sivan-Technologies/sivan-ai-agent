@@ -58,8 +58,10 @@ SENTRY_ENABLE_LOGS=true
 SENTRY_SEND_DEFAULT_PII=false
 SENTRY_DEBUG_ENDPOINT_ENABLED=false
 OPERATIONS_ALERT_PROVIDER=telegram
-TELEGRAM_ALERT_BOT_TOKEN=<telegram-alert-bot-token>
-TELEGRAM_ALERT_CHAT_ID=<telegram-alert-chat-id>
+TELEGRAM_OPS_ALERT_BOT_TOKEN=<telegram-ops-alert-bot-token>
+TELEGRAM_OPS_ALERT_CHAT_ID=<telegram-ops-channel-id>
+TELEGRAM_DEBUG_ALERT_BOT_TOKEN=<telegram-debug-alert-bot-token>
+TELEGRAM_DEBUG_ALERT_CHAT_ID=<telegram-debug-channel-id>
 OPERATIONS_ALERT_WEBHOOK_URL=
 OPERATIONS_ALERT_WEBHOOK_SECRET=<rotated-alert-shared-secret>
 ```

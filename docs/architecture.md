@@ -74,7 +74,7 @@
 - Paystack `charge.success` processing uses an atomic workflow status claim so duplicate webhook delivery cannot double-run Naira execution.
 - Payment/webhook anomalies are routed through monitoring helpers and can be reported to Sentry when `SENTRY_DSN` is configured.
 - Operations status endpoints expose database readiness, backup/disaster recovery posture, Sentry/alert configuration, and recent operational warnings/errors.
-- Payment and operational warnings can be forwarded directly to Telegram with `OPERATIONS_ALERT_PROVIDER=telegram` or to an operations alert webhook through `OPERATIONS_ALERT_WEBHOOK_URL`.
+- Payment and operational warnings can be forwarded directly to Telegram with `OPERATIONS_ALERT_PROVIDER=telegram` or to an operations alert webhook through `OPERATIONS_ALERT_WEBHOOK_URL`. Telegram alerts support split destinations: customer-impact/support events go to the ops channel, while provider/security/debug events go to the debug logs channel.
 - Escrow release requires explicit buyer completion before release request; non-admin disputes require buyer/seller participation.
 
 ## Progress Summary (Percent Complete)

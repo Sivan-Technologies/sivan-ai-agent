@@ -170,9 +170,13 @@ Nomba is implemented only as a bank-transfer payout/disbursement transport. Do n
 - `SENTRY_DEBUG_ENDPOINT_ENABLED` - Set `true` only for a short verification window to expose `/debug-sentry`; return it to `false` immediately after confirming events arrive.
 - `OPERATIONS_ALERT_WEBHOOK_URL` - Optional HTTPS endpoint that receives operational/payment warning events as JSON.
 - `OPERATIONS_ALERT_WEBHOOK_SECRET` - Optional shared secret sent as `x-sivan-alert-secret` to the operations alert webhook.
-- `OPERATIONS_ALERT_PROVIDER` - Optional alert transport selector. Use `telegram` to send operations alerts directly through Telegram Bot API, or leave blank to use the generic webhook when `OPERATIONS_ALERT_WEBHOOK_URL` is set.
-- `TELEGRAM_ALERT_BOT_TOKEN` - Telegram bot token used for direct operations alerts when `OPERATIONS_ALERT_PROVIDER=telegram`.
-- `TELEGRAM_ALERT_CHAT_ID` - Telegram user/group/channel chat id that receives direct operations alerts.
+- `OPERATIONS_ALERT_PROVIDER` - Optional alert transport selector. Use `telegram` to send operations/debug alerts directly through Telegram Bot API, or leave blank to use the generic webhook when `OPERATIONS_ALERT_WEBHOOK_URL` is set.
+- `TELEGRAM_OPS_ALERT_BOT_TOKEN` - Telegram bot token used for customer-impact/support operations alerts when `OPERATIONS_ALERT_PROVIDER=telegram`.
+- `TELEGRAM_OPS_ALERT_CHAT_ID` - Telegram channel/chat id for customer-impact/support operations alerts.
+- `TELEGRAM_DEBUG_ALERT_BOT_TOKEN` - Telegram bot token used for provider/security/debug alerts when `OPERATIONS_ALERT_PROVIDER=telegram`.
+- `TELEGRAM_DEBUG_ALERT_CHAT_ID` - Telegram channel/chat id for provider/security/debug alerts.
+- `TELEGRAM_ALERT_BOT_TOKEN` - Legacy fallback Telegram bot token used when the split ops/debug tokens are not configured.
+- `TELEGRAM_ALERT_CHAT_ID` - Legacy fallback Telegram chat id used when the split ops/debug chat ids are not configured.
 - `TWILIO_DEBUGGER_WEBHOOK_SECRET` - Shared secret for Twilio Debugger webhook alerts. Configure Twilio Debugger webhook URL as `https://<backend-domain>/webhooks/twilio-debugger?secret=<same-secret>`. Events route through Sivan operations alerts, including Telegram when `OPERATIONS_ALERT_PROVIDER=telegram`.
 - `ADMIN_API_KEY` - Required in production for admin endpoints.
 - `ADMIN_IP_ALLOWLIST` - Optional comma-separated admin network allowlist. Supports exact IPs and IPv4 CIDR ranges, for example `203.0.113.10,198.51.100.0/24`. Leave blank until you know the operator/VPN/static IPs.
@@ -326,6 +330,10 @@ OPERATIONS_ALERT_WEBHOOK_SECRET=
 OPERATIONS_ALERT_PROVIDER=
 TELEGRAM_ALERT_BOT_TOKEN=
 TELEGRAM_ALERT_CHAT_ID=
+TELEGRAM_OPS_ALERT_BOT_TOKEN=
+TELEGRAM_OPS_ALERT_CHAT_ID=
+TELEGRAM_DEBUG_ALERT_BOT_TOKEN=
+TELEGRAM_DEBUG_ALERT_CHAT_ID=
 TWILIO_DEBUGGER_WEBHOOK_SECRET=
 ADMIN_API_KEY=change-me-to-a-strong-admin-secret
 ADMIN_IP_ALLOWLIST=

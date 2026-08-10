@@ -15,6 +15,7 @@ export interface OperationalEvent {
 const MAX_EVENTS = 100;
 const operationalEvents: OperationalEvent[] = [];
 const SENSITIVE_CONTEXT_KEY = /(secret|token|password|authorization|signature|accountnumber|account_number|bvn|nin|document_number)/i;
+const DEBUG_ALERT_PATTERN = /(webhook|signature|debugger|abuse reputation|abuse trend|provider.*mismatch|verification reference mismatch|did not match|invalid .*payload|missing .*signature)/i;
 
 function pushOperationalEvent(event: Omit<OperationalEvent, "id" | "createdAt">) {
   const record: OperationalEvent = {
@@ -33,13 +34,21 @@ function pushOperationalEvent(event: Omit<OperationalEvent, "id" | "createdAt">)
 }
 
 async function sendAlert(event: OperationalEvent) {
-  const provider = process.env.OPERATIONS_ALERT_PROVIDER || (process.env.TELEGRAM_ALERT_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID ? "telegram" : "webhook");
+  const provider =
+    process.env.OPERATIONS_ALERT_PROVIDER ||
+    (hasTelegramAlertDestination() ? "telegram" : "webhook");
   if (provider === "telegram") {
-    await sendTelegramAlert(event);
+    await sendTelegramAlert(event, classifyAlertChannel(event));
     return;
   }
 
   await sendWebhookAlert(event);
+}
+
+function classifyAlertChannel(event: OperationalEvent): "ops" | "debug" {
+  if (DEBUG_ALERT_PATTERN.test(event.message)) return "debug";
+  if (event.context?.channel === "debug" || event.context?.alertChannel === "debug") return "debug";
+  return "ops";
 }
 
 function redactAlertValue(key: string, value: any): any {
@@ -67,9 +76,36 @@ function formatTelegramAlert(event: OperationalEvent) {
   return lines.join("\n");
 }
 
-async function sendTelegramAlert(event: OperationalEvent) {
-  const token = process.env.TELEGRAM_ALERT_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_ALERT_CHAT_ID;
+function telegramAlertDestination(channel: "ops" | "debug") {
+  if (channel === "debug") {
+    return {
+      token:
+        process.env.TELEGRAM_DEBUG_ALERT_BOT_TOKEN ||
+        process.env.TELEGRAM_ALERT_BOT_TOKEN,
+      chatId:
+        process.env.TELEGRAM_DEBUG_ALERT_CHAT_ID ||
+        process.env.TELEGRAM_ALERT_CHAT_ID,
+    };
+  }
+
+  return {
+    token:
+      process.env.TELEGRAM_OPS_ALERT_BOT_TOKEN ||
+      process.env.TELEGRAM_ALERT_BOT_TOKEN,
+    chatId:
+      process.env.TELEGRAM_OPS_ALERT_CHAT_ID ||
+      process.env.TELEGRAM_ALERT_CHAT_ID,
+  };
+}
+
+function hasTelegramAlertDestination() {
+  const ops = telegramAlertDestination("ops");
+  const debug = telegramAlertDestination("debug");
+  return Boolean((ops.token && ops.chatId) || (debug.token && debug.chatId));
+}
+
+async function sendTelegramAlert(event: OperationalEvent, channel: "ops" | "debug") {
+  const { token, chatId } = telegramAlertDestination(channel);
   if (!token || !chatId) return;
 
   try {
@@ -83,10 +119,10 @@ async function sendTelegramAlert(event: OperationalEvent) {
       }),
     });
     if (!response.ok) {
-      warn("Failed to send Telegram operations alert", response.status, await response.text());
+      warn(`Failed to send Telegram ${channel} alert`, response.status, await response.text());
     }
   } catch (err) {
-    warn("Failed to send Telegram operations alert", err instanceof Error ? err.message : err);
+    warn(`Failed to send Telegram ${channel} alert`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -154,8 +190,12 @@ export function buildOperationalVisibility() {
 
   return {
     status: lastHour.some((event) => event.level === "error") ? "attention" : "ok",
-    alertsConfigured: Boolean(process.env.OPERATIONS_ALERT_WEBHOOK_URL || (process.env.TELEGRAM_ALERT_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID)),
-    alertProvider: process.env.OPERATIONS_ALERT_PROVIDER || (process.env.TELEGRAM_ALERT_BOT_TOKEN && process.env.TELEGRAM_ALERT_CHAT_ID ? "telegram" : process.env.OPERATIONS_ALERT_WEBHOOK_URL ? "webhook" : "none"),
+    alertsConfigured: Boolean(process.env.OPERATIONS_ALERT_WEBHOOK_URL || hasTelegramAlertDestination()),
+    alertProvider: process.env.OPERATIONS_ALERT_PROVIDER || (hasTelegramAlertDestination() ? "telegram" : process.env.OPERATIONS_ALERT_WEBHOOK_URL ? "webhook" : "none"),
+    alertChannels: {
+      opsConfigured: Boolean(telegramAlertDestination("ops").token && telegramAlertDestination("ops").chatId),
+      debugConfigured: Boolean(telegramAlertDestination("debug").token && telegramAlertDestination("debug").chatId),
+    },
     sentryConfigured: Boolean(process.env.SENTRY_DSN),
     recentWarnings: lastHour.filter((event) => event.level === "warning").length,
     recentErrors: lastHour.filter((event) => event.level === "error").length,
