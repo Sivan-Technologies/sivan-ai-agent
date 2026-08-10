@@ -412,7 +412,8 @@ export class EscrowStore {
 
   private mapTransactionReference(row: any): TransactionReferenceRecord {
     return {
-      referenceId: row.reference_id,
+      // Column is `id` - see the note on the CREATE TABLE in schemaSql().
+      referenceId: row.id,
       sivanTransactionId: row.sivan_transaction_id,
       resourceType: row.resource_type,
       resourceId: row.resource_id,
@@ -513,8 +514,16 @@ export class EscrowStore {
         updated_at TEXT NOT NULL
       );
 
+      -- This table is SHARED with sivan-payment, which owns the canonical
+      -- schema (database/migrations/019_create_transaction_references.sql) and
+      -- names the key column "id". Both services point at the same database, so
+      -- the CREATE TABLE below is almost always a no-op against a table payment
+      -- created first - which means a column named differently here is never
+      -- corrected by it, and only fails later at INSERT time. Keep these names
+      -- in step with migration 019.
+
       CREATE TABLE IF NOT EXISTS transaction_references (
-        reference_id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         sivan_transaction_id TEXT NOT NULL,
         resource_type TEXT NOT NULL,
         resource_id TEXT NOT NULL,
@@ -671,7 +680,11 @@ export class EscrowStore {
 
   private initializeSchemaSync() {
     this.sqlite!.exec(this.schemaSql("REAL"));
+    // This column was once named reference_id here, diverging from the shared
+    // schema payment owns. See the note on the CREATE TABLE in schemaSql().
+    this.renameSqliteColumnIfPresent("transaction_references", "reference_id", "id");
     this.ensureSqliteColumn("users", "email", "TEXT");
+
     this.sqlite!.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);");
     this.ensureSqliteColumn("users", "password_hash", "TEXT");
     this.ensureSqliteColumn("users", "telegram_user_id", "TEXT");
@@ -723,6 +736,25 @@ export class EscrowStore {
       this.sqlite!.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
   }
+
+  /**
+   * Rename a column that an older build of this service created under a
+   * different name. Needed because CREATE TABLE IF NOT EXISTS silently skips
+   * an existing table, so a renamed column never reaches a database that was
+   * created before the change - it only surfaces as a failing INSERT later.
+   *
+   * No-ops once the rename has happened, or if the table predates the column
+   * entirely, so it is safe to run on every startup.
+   */
+  private renameSqliteColumnIfPresent(table: string, from: string, to: string) {
+    const columns = this.sqlite!.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    const hasOld = columns.some((entry) => entry.name === from);
+    const hasNew = columns.some((entry) => entry.name === to);
+    if (hasOld && !hasNew) {
+      this.sqlite!.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`);
+    }
+  }
+
 
   public async initializeSchema(): Promise<void> {
     if (this.initialized) return;
@@ -2957,7 +2989,7 @@ export class EscrowStore {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
-        INSERT INTO transaction_references (reference_id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)
+        INSERT INTO transaction_references (id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)
         VALUES (@referenceId, @sivanTransactionId, @resourceType, @resourceId, @provider, @referenceType, @referenceValue, @direction, @status, @metadata, @createdAt, @updatedAt)
         ON CONFLICT(provider, reference_type, reference_value, resource_type, resource_id) DO UPDATE SET
           sivan_transaction_id=excluded.sivan_transaction_id,
@@ -2973,7 +3005,7 @@ export class EscrowStore {
 
     } else {
       await this.pool!.query(`
-        INSERT INTO transaction_references (reference_id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)
+        INSERT INTO transaction_references (id, sivan_transaction_id, resource_type, resource_id, provider, reference_type, reference_value, direction, status, metadata, created_at, updated_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
         ON CONFLICT(provider, reference_type, reference_value, resource_type, resource_id) DO UPDATE SET
           sivan_transaction_id=excluded.sivan_transaction_id,
