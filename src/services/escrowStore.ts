@@ -74,6 +74,7 @@ export interface EscrowRecord {
   clientRequestId?: string;
   buyerUserId: string;
   sellerUserId?: string;
+  buyerWhatsapp?: string;
   sellerWhatsapp?: string;
   amount: number;
   currency: EscrowCurrency;
@@ -367,6 +368,7 @@ export class EscrowStore {
       clientRequestId: row.client_request_id || undefined,
       buyerUserId: row.buyer_user_id,
       sellerUserId: row.seller_user_id || undefined,
+      buyerWhatsapp: row.buyer_whatsapp || undefined,
       sellerWhatsapp: row.seller_whatsapp || undefined,
       amount: Number(row.amount),
       currency: row.currency,
@@ -2558,9 +2560,10 @@ export class EscrowStore {
         WHERE buyer.whatsapp_number IN (${variants.map(() => "?").join(",")})
            OR seller.whatsapp_number IN (${variants.map(() => "?").join(",")})
            OR e.seller_whatsapp IN (${variants.map(() => "?").join(",")})
+           OR e.buyer_whatsapp IN (${variants.map(() => "?").join(",")})
         ORDER BY e.updated_at DESC
         LIMIT ?
-      `).all(...variants, ...variants, ...variants, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+      `).all(...variants, ...variants, ...variants, ...variants, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
     }
     const result = await this.pool!.query(`
       SELECT DISTINCT e.*
@@ -2570,6 +2573,7 @@ export class EscrowStore {
       WHERE buyer.whatsapp_number = ANY($1::text[])
          OR seller.whatsapp_number = ANY($1::text[])
          OR e.seller_whatsapp = ANY($1::text[])
+         OR e.buyer_whatsapp = ANY($1::text[])
       ORDER BY e.updated_at DESC
       LIMIT $2
     `, [variants, limit]);

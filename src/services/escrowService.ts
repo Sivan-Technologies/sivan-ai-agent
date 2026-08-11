@@ -645,8 +645,11 @@ export async function roleForEscrowParticipant(
     if (escrow.sellerUserId === resolvedUserId) return "seller";
   }
 
-  // Invited-but-unregistered seller: no user row to resolve, match the raw number.
-  if (actorWhatsapp && whatsappIdentityMatches(escrow.sellerWhatsapp, actorWhatsapp)) return "seller";
+  // Unregistered / invited participant: no user row yet, match the raw number.
+  if (actorWhatsapp) {
+    if (escrow.buyerWhatsapp && whatsappIdentityMatches(escrow.buyerWhatsapp, actorWhatsapp)) return "buyer";
+    if (escrow.sellerWhatsapp && whatsappIdentityMatches(escrow.sellerWhatsapp, actorWhatsapp)) return "seller";
+  }
 
   return null;
 }
