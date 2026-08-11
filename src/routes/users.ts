@@ -189,9 +189,20 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
       : parsed.data.actorWhatsapp
       ? (await escrowStore.findUserByWhatsapp(parsed.data.actorWhatsapp))?.userId
       : undefined;
-    const rawEscrows = actorUserId
+
+    const byUserEscrows = actorUserId
       ? await escrowStore.listEscrowsForUserId(actorUserId, parsed.data.limit)
       : [];
+    const byPhoneEscrows = parsed.data.actorWhatsapp
+      ? await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit)
+      : [];
+
+    const map = new Map<string, EscrowRecord>();
+    for (const e of [...byUserEscrows, ...byPhoneEscrows]) {
+      map.set(e.escrowId, e);
+    }
+    const rawEscrows = Array.from(map.values()).sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+
     const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "participant_deals"))))
       .filter(Boolean) as EscrowRecord[];
     const deals = await Promise.all(escrows.map(async (escrow) => {

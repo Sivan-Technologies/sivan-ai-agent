@@ -219,6 +219,13 @@ function whatsappLookupVariants(whatsappNumber: string) {
   ].filter(Boolean)));
 }
 
+function whatsappIdentityMatches(left?: string | null, right?: string | null): boolean {
+  if (!left || !right) return false;
+  const leftDigits = left.replace(/\D/g, "");
+  const rightDigits = right.replace(/\D/g, "");
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
+}
+
 function payoutEncryptionKey() {
   const configured = process.env.PAYOUT_ENCRYPTION_KEY || "";
   if (!configured && process.env.NODE_ENV === "production") {
@@ -1611,11 +1618,20 @@ export class EscrowStore {
     return this.runTransaction(async () => {
       const escrow = await this.getEscrowById(escrowId);
       if (!escrow) throw new Error("Escrow not found");
-      if (escrow.sellerWhatsapp && escrow.sellerWhatsapp !== sellerWhatsapp) {
+      if (escrow.sellerWhatsapp && !whatsappIdentityMatches(escrow.sellerWhatsapp, sellerWhatsapp)) {
         throw new Error("Only the invited seller can accept this escrow");
       }
       if (!["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status)) {
         return escrow;
+      }
+
+      const sellerUser = await this.upsertUserByWhatsapp(sellerWhatsapp, "seller");
+      if (!escrow.sellerUserId && sellerUser?.userId) {
+        if (this.provider === "sqlite") {
+          this.sqlite!.prepare(`UPDATE escrows SET seller_user_id = ?, seller_whatsapp = ? WHERE escrow_id = ?`).run(sellerUser.userId, sellerWhatsapp, escrowId);
+        } else {
+          await this.pool!.query(`UPDATE escrows SET seller_user_id = $1, seller_whatsapp = $2 WHERE escrow_id = $3`, [sellerUser.userId, sellerWhatsapp, escrowId]);
+        }
       }
 
       await this.transitionEscrow(escrowId, "PENDING_PAYMENT", {
