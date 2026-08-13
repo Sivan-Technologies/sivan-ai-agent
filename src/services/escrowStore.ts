@@ -790,6 +790,10 @@ export class EscrowStore {
       await this.ensurePostgresColumn("payout_accounts", "shared_account_count", "INTEGER NOT NULL DEFAULT 1");
       await this.ensurePostgresColumn("payout_accounts", "shared_account_flag", "INTEGER NOT NULL DEFAULT 0");
       await this.migratePostgresPayoutAccountNumbers();
+      await this.ensurePostgresColumn("escrows", "buyer_whatsapp", "TEXT");
+      await this.ensurePostgresColumn("escrows", "seller_whatsapp", "TEXT");
+      await this.ensurePostgresColumn("escrows", "buyer_user_id", "TEXT");
+      await this.ensurePostgresColumn("escrows", "seller_user_id", "TEXT");
       await this.ensurePostgresColumn("escrows", "manual_payout_reference", "TEXT");
       await this.ensurePostgresColumn("escrows", "payout_notes", "TEXT");
       await this.ensurePostgresColumn("escrows", "released_by", "TEXT");
