@@ -38,9 +38,13 @@ export const monnifyClient = new MonnifyClient();
 export const palmpayClient = new PalmPayClient();
 export const flutterwaveClient = new FlutterwaveClient();
 
-export function initializeDatabaseSchemas() {
-  void settingsStore.initializeSchema();
-  void escrowStore.initializeSchema();
-  void opsStore.initializeSchema();
-  void reconciliationStore.initializeSchema();
+export async function initializeDatabaseSchemas() {
+  try {
+    await settingsStore.initializeSchema();
+    await escrowStore.initializeSchema();
+    await opsStore.initializeSchema();
+    await reconciliationStore.initializeSchema();
+  } catch (err: any) {
+    console.warn('[context] Non-fatal background schema init warning:', err?.message || err);
+  }
 }
