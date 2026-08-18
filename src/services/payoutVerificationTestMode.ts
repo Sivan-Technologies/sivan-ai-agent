@@ -99,16 +99,8 @@ export function createSandboxPaymentInstruction(
   const providerId = activeProvider.trim().toLowerCase();
   const reference = `sandbox-${providerId}-${escrowId}-${Date.now()}`;
 
-  const callbackUrl = env.PAYSTACK_CALLBACK_URL || env.FLUTTERWAVE_CALLBACK_URL || "";
-  let host = "https://sivan-escrow-agent-test.onrender.com";
-  if (callbackUrl) {
-    try {
-      host = new URL(callbackUrl).origin;
-    } catch {
-      // keep default
-    }
-  }
-  const authorizationUrl = `https://sivantech.online/pay?reference=${reference}`;
+  const testFrontendHost = env.TEST_FRONTEND_URL || env.PAYSTACK_TEST_FRONTEND_URL || "https://sivan-payments-user-test.vercel.app";
+  const authorizationUrl = `${testFrontendHost.replace(/\/$/, "")}/pay?reference=${reference}`;
 
   return {
     reference,
