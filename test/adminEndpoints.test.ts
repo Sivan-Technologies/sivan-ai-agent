@@ -418,7 +418,7 @@ describe("Admin Settings API Integration", () => {
       .send({
         buyerWhatsapp: "whatsapp:+2348000000101",
         sellerWhatsapp: "whatsapp:+2348000000102",
-        amount: 100001,
+        amount: 250000,
         currency: "NAIRA",
         purpose: "tier limit enforcement test",
         channel: "whatsapp_dm",
@@ -430,7 +430,7 @@ describe("Admin Settings API Integration", () => {
       policy: {
         tier: "NEW",
         tierLimit: 100000,
-        requestedAmount: 100001,
+        requestedAmount: 250000,
       },
     });
   });

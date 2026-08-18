@@ -93,24 +93,43 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
     return;
   }
 
-  const response = await fetch(`${notifyUrl}/api/notify`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(secret ? { "x-notify-secret": secret } : {}),
-    },
-    body: JSON.stringify({
-      to,
-      message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
-      ...(dealCard ? { dealCard } : {}),
-      ...(media && media.length ? { media } : {}),
-    }),
-  });
+  const maxAttempts = 2;
+  let lastError: any = null;
 
-  if (!response.ok) {
-    const payload = await response.text();
-    throw new Error(`WhatsApp notify failed: ${response.status} ${payload}`);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(`${notifyUrl}/api/notify`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { "x-notify-secret": secret } : {}),
+        },
+        body: JSON.stringify({
+          to,
+          message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
+          ...(dealCard ? { dealCard } : {}),
+          ...(media && media.length ? { media } : {}),
+        }),
+      });
+
+      if (response.ok) return;
+
+      const payload = await response.text();
+      const isWarmingUp = response.status === 503 || /UPSTREAM_UNAVAILABLE|suspended/i.test(payload);
+      if (isWarmingUp && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 2500));
+        continue;
+      }
+      throw new Error(`WhatsApp notify failed: ${response.status} ${payload}`);
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+    }
   }
+
+  throw lastError;
 }
 
 export async function getWhatsAppProviderStatus() {
