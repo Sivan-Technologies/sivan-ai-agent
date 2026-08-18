@@ -17,10 +17,10 @@ async function main() {
 
   console.log(`🚀 RELEASING SERVICE AGREEMENT: ${agreementId}`);
 
-  // Step 1: Seller submits delivery proof
+  // Step 1: Seller Submits Delivery Proof
   console.log('\n--- Step 1: Seller Submits Delivery Proof ---');
   const deliverRes = await request(app)
-    .post(`/api/escrows/${agreementId}/deliver`)
+    .post(`/api/escrows/${agreementId}/delivery/proof`)
     .set('x-core-api-key', CORE_SECRET)
     .send({
       actorWhatsapp: sellerWhatsapp,
@@ -29,15 +29,13 @@ async function main() {
 
   console.log(`✅ Delivery Submitted. Status: ${deliverRes.body?.escrow?.status || 'DELIVERED'}`);
 
-  // Step 2: Buyer approves and releases funds
-  console.log('\n--- Step 2: Buyer Approves Delivery & Releases Funds ---');
-  const approveRes = await request(app)
-    .post(`/api/escrows/${agreementId}/approve`)
+  // Step 2: Buyer requests release & settles funds
+  console.log('\n--- Step 2: Buyer Approves Delivery & Releases Funds via x402 Protocol ---');
+  const releaseRes = await request(app)
+    .post(`/api/escrows/${agreementId}/release-request`)
     .set('x-core-api-key', CORE_SECRET)
     .send({
       actorWhatsapp: buyerWhatsapp,
-      rating: 5,
-      feedback: 'Excellent logo design work!',
     });
 
   const finalAgreement = await escrowStore.getEscrowById(agreementId);
