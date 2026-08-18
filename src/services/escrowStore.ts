@@ -310,8 +310,8 @@ export class EscrowStore {
       this._pool = new Pool({
         connectionString: databaseUrl,
         max: Number(process.env.POSTGRES_POOL_MAX || "5"),
-        connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "15000"),
-        query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "20000"),
+        connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "30000"),
+        query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "60000"),
         ssl: process.env.POSTGRES_SSL === "false" ? false : { rejectUnauthorized: false },
       });
     }
