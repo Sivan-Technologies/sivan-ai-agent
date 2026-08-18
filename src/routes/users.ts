@@ -178,6 +178,15 @@ router.get("/api/banks", requireCoreApiAuth, async (req, res) => {
   }
 });
 
+router.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
+  try {
+    const query = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+    res.status(200).json(filterBanks(NIGERIA_BANK_FALLBACKS, query, query ? 8 : 100));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch banks" });
+  }
+});
+
 router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = participantEscrowQuerySchema.safeParse(req.query);

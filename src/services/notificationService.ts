@@ -1,16 +1,16 @@
 import { config } from "../config";
 import { WorkflowTaskRecord } from "./workflowStore";
 
-export async function notifyWhatsAppBot(to: string, message: string, dealCard?: any, telegramUserId?: string) {
+export async function notifyWhatsAppBot(to: string, message: string, dealCard?: any, telegramUserId?: string, media?: string[]) {
   // Fan out to every channel the user might be reachable on. A user who linked
   // Telegram and a user who linked WhatsApp are the SAME Sivan account, so we do
   // not know here which app they will open. Each channel decides for itself
   // whether it can reach the handle it was given.
   await Promise.all([
-    notifyWhatsAppBotStrict(to, message, dealCard).catch((error) => {
+    notifyWhatsAppBotStrict(to, message, dealCard, media).catch((error) => {
       console.error("Failed to notify WhatsApp bot", error);
     }),
-    notifyTelegramBot(to, message, dealCard, telegramUserId),
+    notifyTelegramBot(to, message, dealCard, telegramUserId, media),
   ]);
 }
 
@@ -25,7 +25,7 @@ export async function notifyWhatsAppBot(to: string, message: string, dealCard?: 
  * other's traffic.
  *
  * PAYLOAD DIFFERS. The WhatsApp layer takes { to, message }. The Telegram
- * layer takes { telegramId?, phone?, message } and needs one of the two to find
+ * layer takes { telegramId?, phone?, message, media? } and needs one of the two to find
  * a chat, because a Telegram bot cannot message a phone number - only a chat
  * that has started it.
  *
@@ -38,7 +38,7 @@ export async function notifyWhatsAppBot(to: string, message: string, dealCard?: 
  * Never throws. A notification is an enhancement to an escrow action that has
  * already succeeded; failing to deliver one must not roll back a payment.
  */
-export async function notifyTelegramBot(to: string, message: string, dealCard?: any, telegramUserId?: string) {
+export async function notifyTelegramBot(to: string, message: string, dealCard?: any, telegramUserId?: string, media?: string[]) {
   const notifyUrl = config.app.telegramNotificationUrl;
   if (!notifyUrl) return; // Telegram layer not deployed. Nothing to do.
 
@@ -67,6 +67,7 @@ export async function notifyTelegramBot(to: string, message: string, dealCard?: 
         ...(to ? { phone: to } : {}),
         message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
         ...(dealCard ? { dealCard } : {}),
+        ...(media && media.length ? { media } : {}),
       }),
 
     });

@@ -196,4 +196,16 @@ describe("Telegram notification channel", () => {
     expect(telegramCalls()).toHaveLength(0);
     process.env.TELEGRAM_NOTIFICATION_URL = saved;
   });
+
+  it("forwards delivery proof media URLs to Telegram when provided", async () => {
+    const { notifyTelegramBot } = await import("../src/services/notificationService");
+    const media = ["https://r2.sivantech.online/proof-1.jpg", "https://r2.sivantech.online/proof-2.pdf"];
+
+    await notifyTelegramBot("+2348012345678", "Delivery submitted.", undefined, "999888", media);
+
+    const sent = telegramCalls();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.telegramId).toBe("999888");
+    expect(sent[0].body.media).toEqual(media);
+  });
 });

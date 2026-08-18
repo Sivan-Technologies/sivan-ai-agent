@@ -115,7 +115,8 @@ export async function sendOrQueueWhatsAppNotification(params: {
     params.to?.startsWith("whatsapp:") ? params.to : "",
     params.message,
     params.dealCard,
-    params.telegramUserId
+    params.telegramUserId,
+    params.media
   );
 
   if (!params.to?.startsWith("whatsapp:")) return;
@@ -883,8 +884,9 @@ export async function notifyBuyerDeliverySubmitted(
 ) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   const buyerWhatsapp = detail?.buyer?.whatsappNumber;
-  if (!detail || !buyerWhatsapp) return;
-  const dealCard = await buildParticipantDeal(detail, buyerWhatsapp);
+  const buyerTelegramUserId = detail?.buyer?.telegramUserId;
+  if (!detail || (!buyerWhatsapp && !buyerTelegramUserId)) return;
+  const dealCard = await buildParticipantDeal(detail, buyerWhatsapp || `tg:${buyerTelegramUserId}`);
 
   const resolvedMedia = await Promise.all(
     media.map(async (m: any) => {
@@ -905,7 +907,8 @@ export async function notifyBuyerDeliverySubmitted(
 
   const mediaUrls = resolvedMedia.map((m) => m.url).filter(Boolean);
   queueWhatsAppNotification({
-    to: buyerWhatsapp,
+    to: buyerWhatsapp || "",
+    telegramUserId: buyerTelegramUserId || undefined,
     message: participantLifecycleMessage(
       detail.escrow,
       "The service provider has submitted delivery proof.",
