@@ -3,7 +3,7 @@ import { SapAgent } from "./sapAgent";
 import { config } from "../config";
 import { createNairaPaymentProvider, PaymentProvider } from "./nairaPaymentProvider";
 
-export type PaymentMethod = "USDC" | "NAIRA";
+export type PaymentMethod = "USDC" | "USDT" | "NAIRA";
 
 export interface PaymentResult {
   method: PaymentMethod;
@@ -30,6 +30,9 @@ export class PaymentRouter {
     if (normalized === "naira" || normalized === "fiat") {
       return "NAIRA";
     }
+    if (normalized === "usdt") {
+      return "USDT";
+    }
     return "USDC";
   }
 
@@ -54,18 +57,26 @@ export class PaymentRouter {
     };
   }
 
-  public async processUsdcEscrow(amount: number, recipient: string): Promise<PaymentResult> {
-    const facility = await this.x402Client.createPaymentFacility(amount, "USDC", recipient, {
+  public async processCryptoEscrow(amount: number, currency: "USDC" | "USDT" = "USDC", recipient: string): Promise<PaymentResult> {
+    const facility = await this.x402Client.createPaymentFacility(amount, currency, recipient, {
       purpose: "agent-service-payment",
     });
 
     return {
-      method: "USDC",
+      method: currency,
       status: facility.status,
       reference: facility.facilitatorId,
       paymentId: facility.paymentId,
       details: facility,
     };
+  }
+
+  public async processUsdcEscrow(amount: number, recipient: string): Promise<PaymentResult> {
+    return this.processCryptoEscrow(amount, "USDC", recipient);
+  }
+
+  public async processUsdtEscrow(amount: number, recipient: string): Promise<PaymentResult> {
+    return this.processCryptoEscrow(amount, "USDT", recipient);
   }
 
   public async processUsdcSapEscrow(amount: number, recipient: string): Promise<PaymentResult> {
@@ -84,15 +95,19 @@ export class PaymentRouter {
     };
   }
 
-  public async settleUsdcPayment(paymentId: string): Promise<PaymentResult> {
+  public async settleCryptoPayment(paymentId: string, currency: "USDC" | "USDT" = "USDC"): Promise<PaymentResult> {
     const settlement = await this.x402Client.settlePayment(paymentId);
     return {
-      method: "USDC",
+      method: currency,
       status: settlement.status,
       reference: settlement.facilitatorId,
       paymentId: settlement.paymentId,
       details: settlement,
     };
+  }
+
+  public async settleUsdcPayment(paymentId: string): Promise<PaymentResult> {
+    return this.settleCryptoPayment(paymentId, "USDC");
   }
 
   public getSapAgent(): SapAgent | undefined {

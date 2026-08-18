@@ -111,8 +111,9 @@ export async function sendOrQueueWhatsAppNotification(params: {
 }) {
   if (process.env.NODE_ENV === "test") return;
 
+  const phone = params.to ? params.to.replace(/^whatsapp:/, "").trim() : "";
   void notifyTelegramBot(
-    params.to?.startsWith("whatsapp:") ? params.to : "",
+    phone,
     params.message,
     params.dealCard,
     params.telegramUserId,
@@ -789,16 +790,19 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   if (!detail) return;
   const buyerWhatsapp = detail.buyer?.whatsappNumber;
   const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
+  const buyerTelegramUserId = detail.buyer?.telegramUserId;
+  const sellerTelegramUserId = detail.seller?.telegramUserId;
   const message = participantLifecycleMessage(
     detail.escrow,
-    "Payment has been confirmed through the licensed provider.",
+    "Payment has been confirmed and locked into the service agreement.",
     "Reply STATUS or tap View status to see what to do next."
   );
 
   await Promise.all([
-    buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
+    (buyerWhatsapp || buyerTelegramUserId) ? buildParticipantDeal(detail, buyerWhatsapp || `tg:${buyerTelegramUserId}`).then((dealCard) =>
       queueWhatsAppNotification({
-        to: buyerWhatsapp,
+        to: buyerWhatsapp || "",
+        telegramUserId: buyerTelegramUserId || undefined,
         message,
         reason: "escrow_funded",
         escrowId: detail.escrow.escrowId,
@@ -808,9 +812,10 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
         } : undefined,
       })
     ) : Promise.resolve(),
-    sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
+    (sellerWhatsapp || sellerTelegramUserId) ? buildParticipantDeal(detail, sellerWhatsapp || `tg:${sellerTelegramUserId}`).then((dealCard) =>
       queueWhatsAppNotification({
-        to: sellerWhatsapp,
+        to: sellerWhatsapp || "",
+        telegramUserId: sellerTelegramUserId || undefined,
         message,
         reason: "escrow_funded",
         escrowId: detail.escrow.escrowId,

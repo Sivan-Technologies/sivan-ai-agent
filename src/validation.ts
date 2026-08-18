@@ -24,7 +24,7 @@ function hasRestrictedPurposeTerm(value: string) {
 
 export const taskRequestSchema = z.object({
   taskType: z.string().trim().min(2).max(80).default("content-creation"),
-  userPaymentPreference: z.enum(["NAIRA", "USDC"]),
+  userPaymentPreference: z.enum(["NAIRA", "USDC", "USDT"]),
   userEmail: z.string().trim().min(3).max(160),
   amount: moneyAmount,
   instructions: z.string().trim().min(5).max(4000),
@@ -42,16 +42,19 @@ function normalizeWhatsappAddress(value: string) {
 
 const whatsappAddress = z.string()
   .trim()
-  .min(8)
-  .max(80)
-  .regex(/^whatsapp:\+?[0-9]{8,20}$/, "Must be a WhatsApp address")
-  .transform(normalizeWhatsappAddress);
+  .transform(normalizeWhatsappAddress)
+  .pipe(
+    z.string()
+      .min(8)
+      .max(80)
+      .regex(/^whatsapp:\+?[0-9]{8,20}$/, "Must be a WhatsApp address")
+  );
 
 export const escrowCreateSchema = z.object({
   buyerWhatsapp: whatsappAddress,
   sellerWhatsapp: whatsappAddress.optional(),
   amount: moneyAmount,
-  currency: z.enum(["NAIRA", "USDC"]),
+  currency: z.enum(["NAIRA", "USDC", "USDT"]),
   purpose: z.string().trim().min(3).max(1000).refine(
     (value) => !hasRestrictedPurposeTerm(value),
     "Service agreement purpose contains a restricted term"

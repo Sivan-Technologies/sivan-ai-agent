@@ -39,7 +39,7 @@ export async function notifyWhatsAppBot(to: string, message: string, dealCard?: 
  * already succeeded; failing to deliver one must not roll back a payment.
  */
 export async function notifyTelegramBot(to: string, message: string, dealCard?: any, telegramUserId?: string, media?: string[]) {
-  const notifyUrl = config.app.telegramNotificationUrl;
+  const notifyUrl = process.env.TELEGRAM_NOTIFICATION_URL || config.app.telegramNotificationUrl || process.env.TELEGRAM_BOT_URL;
   if (!notifyUrl) return; // Telegram layer not deployed. Nothing to do.
 
   // Nothing to address the message to. Without this a phone-less, unlinked user

@@ -366,7 +366,7 @@ export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options
 }
 
 export async function createPaymentInstructionForEscrow(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
-  if (escrow.currency === "USDC") {
+  if (escrow.currency === "USDC" || escrow.currency === "USDT") {
     return createUsdcPaymentInstruction(escrow, options);
   }
   return createNairaPaymentInstruction(escrow, options);
@@ -375,7 +375,7 @@ export async function createPaymentInstructionForEscrow(escrow: EscrowRecord, op
 export async function activePaymentInstructionForEscrow(detail: any) {
   if (!detail?.escrow.paymentReference) return null;
 
-  if (detail.escrow.currency === "USDC") {
+  if (detail.escrow.currency === "USDC" || detail.escrow.currency === "USDT") {
     const rawMetadata = detail.escrow.paymentMetadata || {};
     const depositAddress =
       rawMetadata.depositAddress ||
