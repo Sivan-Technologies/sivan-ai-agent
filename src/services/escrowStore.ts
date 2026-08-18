@@ -2564,10 +2564,9 @@ export class EscrowStore {
         WHERE buyer.whatsapp_number IN (${variants.map(() => "?").join(",")})
            OR seller.whatsapp_number IN (${variants.map(() => "?").join(",")})
            OR e.seller_whatsapp IN (${variants.map(() => "?").join(",")})
-           OR e.buyer_whatsapp IN (${variants.map(() => "?").join(",")})
         ORDER BY e.updated_at DESC
         LIMIT ?
-      `).all(...variants, ...variants, ...variants, ...variants, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
+      `).all(...variants, ...variants, ...variants, limit).map((row) => this.mapEscrow(row)).filter(Boolean) as EscrowRecord[];
     }
     const result = await this.pool!.query(`
       SELECT DISTINCT e.*
@@ -2577,7 +2576,6 @@ export class EscrowStore {
       WHERE buyer.whatsapp_number = ANY($1::text[])
          OR seller.whatsapp_number = ANY($1::text[])
          OR e.seller_whatsapp = ANY($1::text[])
-         OR e.buyer_whatsapp = ANY($1::text[])
       ORDER BY e.updated_at DESC
       LIMIT $2
     `, [variants, limit]);

@@ -230,6 +230,7 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
     }));
     res.status(200).json({ deals: deals.filter(Boolean) });
   } catch (err: any) {
+    console.error("GET /api/users/escrows failed:", err);
     res.status(500).json({ error: err.message || "Unable to load participant deals" });
   }
 });
@@ -387,6 +388,21 @@ router.post("/api/users/link-email", requireCoreApiAuth, async (req, res) => {
   } catch (err: any) {
     captureOperationalError("Failed to link email to user profile", err);
     res.status(500).json({ error: err.message || "Failed to link email" });
+  }
+});
+
+router.get("/api/settings/limits", async (_req, res) => {
+  try {
+    const settings = await settingsStore.getSettings();
+    return res.json({
+      minNairaAmount: settings.minNairaAmount,
+      maxNairaAmount: settings.maxNairaAmount,
+      minUsdcAmount: settings.minUsdcAmount,
+      maxUsdcAmount: settings.maxUsdcAmount,
+    });
+  } catch (err: any) {
+    captureOperationalError("Failed to fetch settings limits", err);
+    return res.status(500).json({ error: err.message || "Failed to fetch limits" });
   }
 });
 

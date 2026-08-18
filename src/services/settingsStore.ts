@@ -9,6 +9,10 @@ export interface PlatformSettings {
   nairaFeeFixed: number;
   usdcFeePercent: number;
   usdcFeeFixed: number;
+  minNairaAmount: number;
+  maxNairaAmount: number;
+  minUsdcAmount: number;
+  maxUsdcAmount: number;
   nairaNewUserLimit: number;
   nairaTrustedUserLimit: number;
   nairaEstablishedUserLimit: number;
@@ -114,6 +118,10 @@ export class SettingsStore {
       nairaFeeFixed: Number(row.naira_fee_fixed),
       usdcFeePercent: Number(row.usdc_fee_percent),
       usdcFeeFixed: Number(row.usdc_fee_fixed),
+      minNairaAmount: Number(row.min_naira_amount ?? 5000),
+      maxNairaAmount: Number(row.max_naira_amount ?? 5000000),
+      minUsdcAmount: Number(row.min_usdc_amount ?? 5),
+      maxUsdcAmount: Number(row.max_usdc_amount ?? 5000),
       nairaNewUserLimit: Number(row.naira_new_user_limit ?? 100000),
       nairaTrustedUserLimit: Number(row.naira_trusted_user_limit ?? 250000),
       nairaEstablishedUserLimit: Number(row.naira_established_user_limit ?? 500000),
@@ -209,6 +217,10 @@ export class SettingsStore {
 
   private ensureRiskColumnsSync() {
     const columns = [
+      "min_naira_amount REAL NOT NULL DEFAULT 5000",
+      "max_naira_amount REAL NOT NULL DEFAULT 5000000",
+      "min_usdc_amount REAL NOT NULL DEFAULT 5",
+      "max_usdc_amount REAL NOT NULL DEFAULT 5000",
       "naira_new_user_limit REAL NOT NULL DEFAULT 100000",
       "naira_trusted_user_limit REAL NOT NULL DEFAULT 250000",
       "naira_established_user_limit REAL NOT NULL DEFAULT 500000",
@@ -365,6 +377,10 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS naira_platform_active_exposure_limit DOUBLE PRECISION NOT NULL DEFAULT 10000000;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS trusted_user_successful_escrows INTEGER NOT NULL DEFAULT 3;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS established_user_successful_escrows INTEGER NOT NULL DEFAULT 10;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS min_naira_amount DOUBLE PRECISION NOT NULL DEFAULT 5000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_naira_amount DOUBLE PRECISION NOT NULL DEFAULT 5000000;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS min_usdc_amount DOUBLE PRECISION NOT NULL DEFAULT 5;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS max_usdc_amount DOUBLE PRECISION NOT NULL DEFAULT 5000;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS active_payment_provider TEXT NOT NULL DEFAULT 'paystack';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS backup_payment_provider TEXT NOT NULL DEFAULT 'palmpay';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS emergency_payment_provider TEXT NOT NULL DEFAULT 'flutterwave';
@@ -462,6 +478,10 @@ export class SettingsStore {
     nairaFeeFixed: number;
     usdcFeePercent: number;
     usdcFeeFixed: number;
+    minNairaAmount?: number;
+    maxNairaAmount?: number;
+    minUsdcAmount?: number;
+    maxUsdcAmount?: number;
     nairaNewUserLimit?: number;
     nairaTrustedUserLimit?: number;
     nairaEstablishedUserLimit?: number;
@@ -507,6 +527,10 @@ export class SettingsStore {
     const resolved: PlatformSettings & { expectedVersion: number; updatedBy: string } = {
       ...current,
       ...settings,
+      minNairaAmount: settings.minNairaAmount ?? current.minNairaAmount,
+      maxNairaAmount: settings.maxNairaAmount ?? current.maxNairaAmount,
+      minUsdcAmount: settings.minUsdcAmount ?? current.minUsdcAmount,
+      maxUsdcAmount: settings.maxUsdcAmount ?? current.maxUsdcAmount,
       cryptoNetwork: settings.cryptoNetwork ?? current.cryptoNetwork,
       networkMode: settings.networkMode ?? current.networkMode,
       nairaNewUserLimit: settings.nairaNewUserLimit ?? current.nairaNewUserLimit,
@@ -618,6 +642,10 @@ export class SettingsStore {
             naira_fee_fixed = @nairaFeeFixed,
             usdc_fee_percent = @usdcFeePercent,
             usdc_fee_fixed = @usdcFeeFixed,
+            min_naira_amount = @minNairaAmount,
+            max_naira_amount = @maxNairaAmount,
+            min_usdc_amount = @minUsdcAmount,
+            max_usdc_amount = @maxUsdcAmount,
             naira_new_user_limit = @nairaNewUserLimit,
             naira_trusted_user_limit = @nairaTrustedUserLimit,
             naira_established_user_limit = @nairaEstablishedUserLimit,
@@ -678,53 +706,61 @@ export class SettingsStore {
              naira_fee_fixed = $2,
              usdc_fee_percent = $3,
              usdc_fee_fixed = $4,
-             naira_new_user_limit = $5,
-             naira_trusted_user_limit = $6,
-             naira_established_user_limit = $7,
-             naira_special_approval_limit = $8,
-             naira_buyer_active_exposure_limit = $9,
-             naira_platform_active_exposure_limit = $10,
-             trusted_user_successful_escrows = $11,
-             established_user_successful_escrows = $12,
-             active_payment_provider = $13,
-             backup_payment_provider = $14,
-             emergency_payment_provider = $15,
-             payment_provider_fallback_enabled = $16,
-             platform_mode = $17,
-             maintenance_message = $18,
-             naira_payment_method = $19,
-             naira_fee_model = $20,
-             naira_fee_tiers = $21,
-             naira_funding_window_hours = $22,
-             naira_high_value_funding_window_hours = $23,
-             naira_high_value_funding_window_amount = $24,
-             naira_funding_reminder_before_expiry_hours = $25,
-             payout_shared_account_review_count = $26,
-             compliance_new_seller_escrow_count = $27,
-             compliance_high_dispute_ratio = $28,
-             compliance_high_dispute_min_escrows = $29,
-             naira_high_value_review_amount = $30,
-             usdc_high_value_review_amount = $31,
-             payment_lifecycle_worker_enabled = $32,
-             payment_lifecycle_worker_interval_ms = $33,
-             reconciliation_worker_enabled = $34,
-             queue_worker_enabled = $35,
-             stuck_escrow_alert_minutes = $36,
-             auto_release_enabled = $37,
-             delivery_inspection_window_days = $38,
-             outage_status_page_url = $39,
-             outage_contacts = $40,
-             crypto_network = $41,
-             network_mode = $42,
-             version = $43,
-             updated_at = $44,
-             updated_by = $45
-         WHERE id = 'default' AND version = $46`,
+             min_naira_amount = $5,
+             max_naira_amount = $6,
+             min_usdc_amount = $7,
+             max_usdc_amount = $8,
+             naira_new_user_limit = $9,
+             naira_trusted_user_limit = $10,
+             naira_established_user_limit = $11,
+             naira_special_approval_limit = $12,
+             naira_buyer_active_exposure_limit = $13,
+             naira_platform_active_exposure_limit = $14,
+             trusted_user_successful_escrows = $15,
+             established_user_successful_escrows = $16,
+             active_payment_provider = $17,
+             backup_payment_provider = $18,
+             emergency_payment_provider = $19,
+             payment_provider_fallback_enabled = $20,
+             platform_mode = $21,
+             maintenance_message = $22,
+             naira_payment_method = $23,
+             naira_fee_model = $24,
+             naira_fee_tiers = $25,
+             naira_funding_window_hours = $26,
+             naira_high_value_funding_window_hours = $27,
+             naira_high_value_funding_window_amount = $28,
+             naira_funding_reminder_before_expiry_hours = $29,
+             payout_shared_account_review_count = $30,
+             compliance_new_seller_escrow_count = $31,
+             compliance_high_dispute_ratio = $32,
+             compliance_high_dispute_min_escrows = $33,
+             naira_high_value_review_amount = $34,
+             usdc_high_value_review_amount = $35,
+             payment_lifecycle_worker_enabled = $36,
+             payment_lifecycle_worker_interval_ms = $37,
+             reconciliation_worker_enabled = $38,
+             queue_worker_enabled = $39,
+             stuck_escrow_alert_minutes = $40,
+             auto_release_enabled = $41,
+             delivery_inspection_window_days = $42,
+             outage_status_page_url = $43,
+             outage_contacts = $44,
+             crypto_network = $45,
+             network_mode = $46,
+             version = $47,
+             updated_at = $48,
+             updated_by = $49
+         WHERE id = 'default' AND version = $50`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
           resolved.usdcFeePercent,
           resolved.usdcFeeFixed,
+          resolved.minNairaAmount,
+          resolved.maxNairaAmount,
+          resolved.minUsdcAmount,
+          resolved.maxUsdcAmount,
           resolved.nairaNewUserLimit,
           resolved.nairaTrustedUserLimit,
           resolved.nairaEstablishedUserLimit,
