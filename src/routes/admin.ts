@@ -615,6 +615,7 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       outageContacts: updates.outageContacts ?? current.outageContacts,
       cryptoNetwork: updates.cryptoNetwork ?? current.cryptoNetwork,
       networkMode: updates.networkMode ?? current.networkMode,
+      usdtEnabled: updates.usdtEnabled ?? current.usdtEnabled,
       expectedVersion: Number(updates.expectedVersion || 1),
       updatedBy: adminUser,
     });

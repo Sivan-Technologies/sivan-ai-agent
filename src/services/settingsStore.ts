@@ -51,6 +51,7 @@ export interface PlatformSettings {
   outageContacts: string;
   cryptoNetwork: "solana" | "avalanche" | "ethereum" | "arbitrum";
   networkMode: "devnet" | "mainnet";
+  usdtEnabled: boolean;
   version: number;
   updatedAt: string;
   updatedBy: string;
@@ -167,6 +168,7 @@ export class SettingsStore {
       outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
       cryptoNetwork: ["solana", "avalanche", "ethereum", "arbitrum"].includes(row.crypto_network) ? row.crypto_network : (process.env.CRYPTO_NETWORK as any) || "solana",
       networkMode: ["devnet", "mainnet"].includes(row.network_mode) ? row.network_mode : (process.env.NETWORK_MODE as any) || "devnet",
+      usdtEnabled: Boolean(row.usdt_enabled ?? 1),
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -259,6 +261,7 @@ export class SettingsStore {
       "outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai'",
       "crypto_network TEXT NOT NULL DEFAULT 'solana'",
       "network_mode TEXT NOT NULL DEFAULT 'devnet'",
+      "usdt_enabled INTEGER NOT NULL DEFAULT 1",
     ];
     for (const column of columns) {
       try {
@@ -411,6 +414,7 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS crypto_network TEXT NOT NULL DEFAULT 'solana';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS network_mode TEXT NOT NULL DEFAULT 'devnet';
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS usdt_enabled INTEGER NOT NULL DEFAULT 1;
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
@@ -520,6 +524,7 @@ export class SettingsStore {
     outageContacts?: string;
     cryptoNetwork?: "solana" | "avalanche" | "ethereum" | "arbitrum";
     networkMode?: "devnet" | "mainnet";
+    usdtEnabled?: boolean;
     expectedVersion: number;
     updatedBy: string;
   }): Promise<PlatformSettings> {
@@ -533,6 +538,7 @@ export class SettingsStore {
       maxUsdcAmount: settings.maxUsdcAmount ?? current.maxUsdcAmount,
       cryptoNetwork: settings.cryptoNetwork ?? current.cryptoNetwork,
       networkMode: settings.networkMode ?? current.networkMode,
+      usdtEnabled: settings.usdtEnabled ?? current.usdtEnabled,
       nairaNewUserLimit: settings.nairaNewUserLimit ?? current.nairaNewUserLimit,
       nairaTrustedUserLimit: settings.nairaTrustedUserLimit ?? current.nairaTrustedUserLimit,
       nairaEstablishedUserLimit: settings.nairaEstablishedUserLimit ?? current.nairaEstablishedUserLimit,
@@ -684,6 +690,7 @@ export class SettingsStore {
             outage_contacts = @outageContacts,
             crypto_network = @cryptoNetwork,
             network_mode = @networkMode,
+            usdt_enabled = @usdtEnabled,
             version = @newVersion,
             updated_at = @now,
             updated_by = @updatedBy
@@ -695,6 +702,7 @@ export class SettingsStore {
         reconciliationWorkerEnabled: resolved.reconciliationWorkerEnabled ? 1 : 0,
         queueWorkerEnabled: resolved.queueWorkerEnabled ? 1 : 0,
         autoReleaseEnabled: resolved.autoReleaseEnabled ? 1 : 0,
+        usdtEnabled: resolved.usdtEnabled ? 1 : 0,
         newVersion,
         now,
       });
@@ -748,10 +756,11 @@ export class SettingsStore {
              outage_contacts = $44,
              crypto_network = $45,
              network_mode = $46,
-             version = $47,
-             updated_at = $48,
-             updated_by = $49
-         WHERE id = 'default' AND version = $50`,
+             usdt_enabled = $47,
+             version = $48,
+             updated_at = $49,
+             updated_by = $50
+         WHERE id = 'default' AND version = $51`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -799,6 +808,7 @@ export class SettingsStore {
           resolved.outageContacts,
           resolved.cryptoNetwork,
           resolved.networkMode,
+          resolved.usdtEnabled ? 1 : 0,
           newVersion,
           now,
           resolved.updatedBy,

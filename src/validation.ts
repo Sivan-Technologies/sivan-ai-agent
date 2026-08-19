@@ -212,6 +212,7 @@ export const adminSettingsSchema = z.object({
   // Crypto Network & Mode Controls
   cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum"]).optional(),
   networkMode: z.enum(["devnet", "mainnet"]).optional(),
+  usdtEnabled: z.coerce.boolean().optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
 

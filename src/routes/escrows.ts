@@ -96,9 +96,13 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       });
     }
 
+    const settings = await settingsStore.getSettings();
+    if (input.currency === "USDT" && !settings.usdtEnabled) {
+      return res.status(400).json({ error: "USDT_DISABLED", message: "USDT payments are currently disabled by administrator policy." });
+    }
+
     const buyer = await escrowStore.upsertUserByWhatsapp(input.buyerWhatsapp, "buyer");
     if (input.currency === "NAIRA") {
-      const settings = await settingsStore.getSettings();
       const exposure = await escrowStore.getNairaExposureForBuyer(buyer.userId);
       const tier = exposure.successfulEscrows >= settings.establishedUserSuccessfulEscrows
         ? "ESTABLISHED"
