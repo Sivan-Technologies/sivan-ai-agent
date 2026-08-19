@@ -168,7 +168,7 @@ export class SettingsStore {
       outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
       cryptoNetwork: ["solana", "avalanche", "ethereum", "arbitrum"].includes(row.crypto_network) ? row.crypto_network : (process.env.CRYPTO_NETWORK as any) || "solana",
       networkMode: ["devnet", "mainnet"].includes(row.network_mode) ? row.network_mode : (process.env.NETWORK_MODE as any) || "devnet",
-      usdtEnabled: Boolean(row.usdt_enabled ?? 1),
+      usdtEnabled: Boolean(row.usdt_enabled ?? 0),
       version: Number(row.version),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -261,7 +261,7 @@ export class SettingsStore {
       "outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai'",
       "crypto_network TEXT NOT NULL DEFAULT 'solana'",
       "network_mode TEXT NOT NULL DEFAULT 'devnet'",
-      "usdt_enabled INTEGER NOT NULL DEFAULT 1",
+      "usdt_enabled INTEGER NOT NULL DEFAULT 0",
     ];
     for (const column of columns) {
       try {
@@ -414,7 +414,7 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS crypto_network TEXT NOT NULL DEFAULT 'solana';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS network_mode TEXT NOT NULL DEFAULT 'devnet';
-      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS usdt_enabled INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS usdt_enabled INTEGER NOT NULL DEFAULT 0;
     `);
 
     const existing = await this.pool!.query("SELECT id FROM platform_settings LIMIT 1");
