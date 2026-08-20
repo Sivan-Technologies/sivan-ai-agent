@@ -43,6 +43,7 @@ import {
   notifyEscrowFundedParticipants,
   recordDisputeEvidence,
   recordDeliveryProof,
+  whatsappIdentityMatches,
   containsExternalLink,
   externalDeliveryLinksAllowed,
 } from "../services/escrowService";
@@ -387,6 +388,59 @@ router.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, 
   });
   if (!funded) return res.status(409).json({ error: "Sandbox payment reference could not be funded" });
   res.status(200).json(await buildEscrowDetail(req.params.escrowId));
+});
+
+router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async (req, res) => {
+  try {
+    const parsed = escrowActionSchema.safeParse(req.body);
+    if (!parsed.success || !parsed.data.actorWhatsapp) {
+      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    }
+    const detail = await buildEscrowDetail(req.params.escrowId);
+    if (!detail) return res.status(404).json({ error: "Escrow not found" });
+    if (!whatsappIdentityMatches(detail.buyer?.whatsappNumber, parsed.data.actorWhatsapp)) {
+      return res.status(403).json({ error: "Only the escrow buyer can fund this agreement from balance" });
+    }
+    if (!["PENDING_PAYMENT", "PENDING_ACCEPTANCE"].includes(detail.escrow.status)) {
+      return res.status(409).json({ error: "This agreement is not pending payment" });
+    }
+
+    const paymentRef = detail.escrow.paymentReference || `bal-${detail.escrow.escrowId}`;
+    if (!detail.escrow.paymentReference) {
+      await escrowStore.attachPayment({
+        escrowId: detail.escrow.escrowId,
+        paymentReference: paymentRef,
+        paymentProvider: "sivan_balance",
+        status: "PENDING_PAYMENT",
+      });
+    }
+
+    const funded = await escrowStore.markFundedByPaymentReference(paymentRef, {
+      amount: detail.escrow.amount,
+      escrowAmount: detail.escrow.amount,
+      currency: detail.escrow.currency,
+      status: "balance_debit_success",
+      provider: "sivan_balance",
+    });
+
+    if (!funded) return res.status(409).json({ error: "Could not mark agreement as funded" });
+
+    const updated = await buildEscrowDetail(req.params.escrowId);
+    if (updated) {
+      await notifyEscrowParticipants(
+        updated.escrow,
+        participantLifecycleMessage(
+          updated.escrow,
+          `Payment of ${updated.escrow.amount} ${updated.escrow.currency} was confirmed from Sivan Balance.`,
+          `Work is now in progress.`
+        )
+      );
+    }
+
+    res.status(200).json({ success: true, escrow: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Balance payment failed" });
+  }
 });
 
 router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async (req, res) => {
