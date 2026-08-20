@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { Pool } from "pg";
 import { AsyncLocalStorage } from "async_hooks";
 
-export type EscrowCurrency = "NAIRA" | "USDC";
+export type EscrowCurrency = "NAIRA" | "USDC" | "USDT";
 export type EscrowStatus =
   | "CREATED"
   | "PENDING_PROFILE"

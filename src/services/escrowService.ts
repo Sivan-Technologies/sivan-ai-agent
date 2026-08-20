@@ -205,10 +205,14 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, opti
   const notifyBuyer = options.notifyBuyer ?? false;
   const notifySeller = options.notifySeller ?? true;
 
+  const buyerTelegramId = detail.buyer?.telegramUserId || undefined;
+  const sellerTelegramId = detail.seller?.telegramUserId || undefined;
+
   await Promise.all([
     notifyBuyer && buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
       sendOrQueueWhatsAppNotification({
         to: buyerWhatsapp,
+        telegramUserId: buyerTelegramId,
         message: escrowCreatedMessage(detail.escrow, "buyer"),
         reason: "buyer_agreement_created",
         escrowId: detail.escrow.escrowId,
@@ -221,6 +225,7 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, opti
     notifySeller && sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
       sendOrQueueWhatsAppNotification({
         to: sellerWhatsapp,
+        telegramUserId: sellerTelegramId,
         message: escrowCreatedMessage(detail.escrow, "seller"),
         reason: "seller_invite",
         escrowId: detail.escrow.escrowId,

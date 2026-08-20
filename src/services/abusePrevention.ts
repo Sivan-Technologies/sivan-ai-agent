@@ -1,4 +1,4 @@
-import { EscrowStore } from "./escrowStore";
+import { EscrowStore, EscrowCurrency } from "./escrowStore";
 import { ProductionOpsStore } from "./productionOpsStore";
 import { SettingsStore } from "./settingsStore";
 
@@ -27,7 +27,7 @@ export class AbusePreventionService {
     buyerWhatsapp: string;
     sellerWhatsapp?: string;
     amount: number;
-    currency: "NAIRA" | "USDC";
+    currency: EscrowCurrency;
     purpose: string;
     channel: string;
     requestIp?: string;

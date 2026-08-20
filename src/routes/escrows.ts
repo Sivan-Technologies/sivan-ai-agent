@@ -343,6 +343,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         const dealCard = await buildParticipantDeal(updated, buyer.whatsappNumber);
         await sendOrQueueWhatsAppNotification({
           to: buyer.whatsappNumber,
+          telegramUserId: buyer.telegramUserId || undefined,
           message: instruction,
           reason: "seller_accepted_payment_details",
           escrowId: updated.escrow.escrowId,
