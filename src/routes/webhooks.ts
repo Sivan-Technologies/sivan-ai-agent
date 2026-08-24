@@ -846,5 +846,40 @@ router.post("/webhooks/nomba", async (req, res) => {
   }
 });
 
+const renderSuccessHtml = (title: string, message: string) => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${title} - Sivan AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; text-align: center; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 40px 30px; max-width: 420px; width: 100%; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); }
+    .icon { font-size: 54px; margin-bottom: 16px; }
+    h2 { margin: 0 0 12px 0; font-size: 24px; color: #38bdf8; }
+    p { color: #94a3b8; font-size: 15px; line-height: 1.5; margin-bottom: 24px; }
+    .footer { font-size: 12px; color: #64748b; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">✅</div>
+    <h2>${title}</h2>
+    <p>${message}</p>
+    <div class="footer">Sivan payment AI</div>
+  </div>
+</body>
+</html>
+`;
+
+router.get(["/payment/callback", "/api/payment/callback"], (_req, res) => {
+  res.setHeader("Content-Type", "text/html");
+  res.status(200).send(renderSuccessHtml(
+    "Payment Received!",
+    "Your payment has been successfully recorded. Your funds are safely held in Sivan payment AI service agreement.<br><br>You can close this window and return to Telegram or WhatsApp."
+  ));
+});
+
 export default router;
 export { safeSecretEquals, twilioDebuggerSecretValid };
