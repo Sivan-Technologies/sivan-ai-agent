@@ -90,6 +90,7 @@ export function createSandboxPaymentInstruction(
   env: NodeJS.ProcessEnv = process.env
 ): SandboxPaymentInstruction | null {
   if (env.PAYOUT_VERIFICATION_TEST_MODE !== "true") return null;
+  if (env.PAYSTACK_SECRET_KEY && env.PAYSTACK_SECRET_KEY.startsWith("sk_")) return null;
 
   const activeProvider = env.ACTIVE_PAYMENT_PROVIDER || "paystack";
   const isTestMode = isActiveProviderTestConfigured(activeProvider, env);
