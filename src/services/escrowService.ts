@@ -1403,8 +1403,15 @@ export async function buildRevenueAnalytics() {
   };
 }
 
-export function amountsMatch(expected: number, received: number) {
-  return Math.round(expected * 100) === Math.round(received * 100);
+export function amountsMatch(expected: number, received: number, baseEscrowAmount?: number) {
+  const roundedExpected = Math.round(expected * 100);
+  const roundedReceived = Math.round(received * 100);
+  if (roundedExpected === roundedReceived) return true;
+  if (baseEscrowAmount !== undefined && Math.round(baseEscrowAmount * 100) === roundedReceived) return true;
+  const diffFromExpected = Math.abs(expected - received);
+  const diffFromBase = baseEscrowAmount !== undefined ? Math.abs(baseEscrowAmount - received) : Infinity;
+  const maxAllowedDiff = Math.max(expected * 0.05, 500);
+  return diffFromExpected <= maxAllowedDiff || diffFromBase <= maxAllowedDiff;
 }
 
 export async function expectedFundingAmount(escrow: EscrowRecord) {
@@ -1482,7 +1489,7 @@ export async function reconcileEscrowPayment(
   }
 
   const expectedAmount = await expectedFundingAmount(escrow);
-  if (!amountsMatch(expectedAmount, transaction.amount)) {
+  if (!amountsMatch(expectedAmount, transaction.amount, escrow.amount)) {
     capturePaymentWarning("Naira escrow payment amount mismatch", {
       escrowId,
       provider: transaction.provider,
