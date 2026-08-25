@@ -342,7 +342,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
       if (buyer) {
         const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
         const dealCard = await buildParticipantDeal(updated, buyer.whatsappNumber);
-        await sendOrQueueWhatsAppNotification({
+        void sendOrQueueWhatsAppNotification({
           to: buyer.whatsappNumber,
           telegramUserId: buyer.telegramUserId || undefined,
           message: instruction,
@@ -352,7 +352,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
             escrow: dealCard.escrow,
             participant: dealCard.participant,
           } : undefined,
-        });
+        }).catch((err) => warn("Background buyer notification failed", err));
       }
     }
     res.status(200).json({ escrow: updated, payment });
