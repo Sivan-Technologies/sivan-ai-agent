@@ -712,6 +712,7 @@ export async function buildParticipantDealSummary(
 ) {
   const role = await roleForEscrowParticipant(escrow, actorWhatsapp, actorUserId);
   if (!role) return null;
+  const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
 
   return {
     escrow: {
@@ -721,6 +722,10 @@ export async function buildParticipantDealSummary(
       status: escrow.status,
       purpose: escrow.purpose,
       feePayer: escrow.feePayer || "buyer",
+      platformFeeAmount: payoutQuote.platformFeeAmount,
+      totalPlatformFee: payoutQuote.totalPlatformFee,
+      totalWithFee: payoutQuote.totalWithFee,
+      sellerNetAmount: payoutQuote.sellerNetAmount,
       createdAt: escrow.createdAt,
       updatedAt: escrow.updatedAt,
       fundingExpiresAt: escrow.fundingExpiresAt,
@@ -756,6 +761,8 @@ export async function buildParticipantDeal(
   const role = await roleForEscrowParticipant(detail.escrow, actorWhatsapp, actorUserId);
   if (!role) return null;
 
+  const quote = detail.payoutQuote || await calculateEscrowPayoutQuote(detail.escrow.amount, detail.escrow.currency, detail.escrow.feePayer);
+
   return {
     escrow: {
       escrowId: detail.escrow.escrowId,
@@ -764,6 +771,10 @@ export async function buildParticipantDeal(
       status: detail.escrow.status,
       purpose: detail.escrow.purpose,
       feePayer: detail.escrow.feePayer || "buyer",
+      platformFeeAmount: quote.platformFeeAmount,
+      totalPlatformFee: quote.totalPlatformFee,
+      totalWithFee: quote.totalWithFee,
+      sellerNetAmount: quote.sellerNetAmount,
       createdAt: detail.escrow.createdAt,
       updatedAt: detail.escrow.updatedAt,
       fundingExpiresAt: detail.escrow.fundingExpiresAt,

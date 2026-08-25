@@ -880,7 +880,8 @@ router.get(["/payment/callback", "/api/payment/callback"], async (req, res) => {
       const escrow = await escrowStore.findEscrowByPaymentReference(reference);
       if (escrow) {
         if (escrow.status === "PENDING_PAYMENT" || escrow.status === "CREATED") {
-          const transaction = await paystackPaymentProvider.verifyTransaction(reference).catch(() => null);
+          const provider = getProviderForEscrow(escrow) as any;
+          const transaction = await provider.verifyTransaction(reference).catch(() => null);
           if (transaction && transaction.status === "success") {
             const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
             if (funded) {
