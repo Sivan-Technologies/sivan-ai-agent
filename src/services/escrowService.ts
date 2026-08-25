@@ -742,6 +742,10 @@ export async function buildParticipantDealSummary(
       totalPlatformFee: payoutQuote.totalPlatformFee,
       totalWithFee: payoutQuote.totalWithFee,
       sellerNetAmount: payoutQuote.sellerNetAmount,
+      buyerWhatsapp: escrow.buyerWhatsapp,
+      buyerUserId: escrow.buyerUserId,
+      sellerWhatsapp: escrow.sellerWhatsapp,
+      sellerUserId: escrow.sellerUserId,
       deliveryProof: deliveryProof || undefined,
       createdAt: escrow.createdAt,
       updatedAt: escrow.updatedAt,
@@ -792,6 +796,10 @@ export async function buildParticipantDeal(
       totalPlatformFee: quote.totalPlatformFee,
       totalWithFee: quote.totalWithFee,
       sellerNetAmount: quote.sellerNetAmount,
+      buyerWhatsapp: detail.buyer?.whatsappNumber || detail.escrow.buyerWhatsapp,
+      buyerTelegramUserId: detail.buyer?.telegramUserId,
+      sellerWhatsapp: detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp,
+      sellerTelegramUserId: detail.seller?.telegramUserId,
       createdAt: detail.escrow.createdAt,
       updatedAt: detail.escrow.updatedAt,
       fundingExpiresAt: detail.escrow.fundingExpiresAt,
@@ -1145,8 +1153,14 @@ export async function recordDeliveryProof(input: {
 
 export async function buildReconciliationRows(limit = 250) {
   const rawEscrows = await escrowStore.listEscrows(limit);
-  const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "reconciliation"))))
-    .filter(Boolean) as EscrowRecord[];
+  // Process lifecycle refreshes sequentially to avoid exhausting the Postgres
+  // connection pool. The old Promise.all launched up to 250 concurrent refresh
+  // calls, each potentially hitting an external provider API.
+  const escrows: EscrowRecord[] = [];
+  for (const raw of rawEscrows) {
+    const refreshed = await refreshEscrowPaymentLifecycleForRead(raw, "reconciliation");
+    if (refreshed) escrows.push(refreshed);
+  }
   return Promise.all(
     escrows.map(async (escrow) => {
       const [buyer, seller, payout, payoutQuote, complianceRisk, events] = await Promise.all([
@@ -1604,10 +1618,30 @@ export async function checkInspectionExpirations() {
 export async function runPaymentLifecycleSweep(limit = Number(process.env.PAYMENT_LIFECYCLE_WORKER_BATCH_SIZE || "250")) {
   const pending = await escrowStore.listEscrowsByStatus("PENDING_PAYMENT", limit);
   
-  const [refreshedCount, autoCompletedCount] = await Promise.all([
-    Promise.all(pending.map((escrow) => refreshEscrowPaymentLifecycle(escrow.escrowId))).then((res) => res.length),
-    checkInspectionExpirations(),
-  ]);
+  // Process sequentially rather than via Promise.all. The old code launched up
+  // to 250 concurrent refreshEscrowPaymentLifecycle calls, each of which may
+  // hit an external provider API (x402, Paystack, Monnify) AND run database
+  // queries. On Render free tier this exhausted the Postgres connection pool
+  // and crashed the entire process with "timeout exceeded when trying to
+  // connect", taking every route down.
+  let refreshedCount = 0;
+  for (const escrow of pending) {
+    try {
+      await refreshEscrowPaymentLifecycle(escrow.escrowId);
+      refreshedCount++;
+    } catch (err: any) {
+      // One failing agreement must not stop the sweep. The most common failure
+      // is a stale x402 payment reference returning 404 after 3 retries, which
+      // is harmless - the agreement simply stays in PENDING_PAYMENT until the
+      // next sweep or until a webhook arrives.
+      console.warn("Payment lifecycle sweep: single agreement refresh failed", {
+        escrowId: escrow.escrowId,
+        error: err?.message || err,
+      });
+    }
+  }
+
+  const autoCompletedCount = await checkInspectionExpirations();
   
   return { scanned: pending.length, refreshed: refreshedCount, autoCompleted: autoCompletedCount };
 }

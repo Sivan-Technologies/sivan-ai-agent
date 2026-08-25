@@ -442,21 +442,49 @@ export async function activeNairaPaymentInstructionForEscrow(detail: any) {
 }
 
 export async function calculateComplianceRisk(escrow: EscrowRecord): Promise<ComplianceRisk> {
-  const sellerEscrows = escrow.sellerUserId
-    ? (await escrowStore.listEscrows(500)).filter((row) => row.sellerUserId === escrow.sellerUserId || row.sellerWhatsapp === escrow.sellerWhatsapp)
-    : [];
-  const sellerEscrowCount = sellerEscrows.length;
-  const disputedStatuses = sellerEscrows.filter((row) => row.status === "DISPUTED").length;
-  const disputedByEvent = await Promise.all(sellerEscrows.map(async (row) => {
-    const events = await escrowStore.listEvents(row.escrowId, 50);
-    return events.some((event) => event.eventType === "dispute_opened");
-  }));
-  const sellerDisputeCount = Math.max(disputedStatuses, disputedByEvent.filter(Boolean).length);
+  try {
+    const sellerEscrows = escrow.sellerUserId
+      ? (await escrowStore.listEscrows(500)).filter((row) => row.sellerUserId === escrow.sellerUserId || row.sellerWhatsapp === escrow.sellerWhatsapp)
+      : [];
+    const sellerEscrowCount = sellerEscrows.length;
+    const disputedStatuses = sellerEscrows.filter((row) => row.status === "DISPUTED").length;
 
-  return await scoreComplianceRisk({
-    amount: escrow.amount,
-    currency: escrow.currency,
-    sellerDisputeCount,
-    sellerEscrowCount,
-  });
+    // Process sequentially to avoid exhausting the Postgres connection pool.
+    // The old Promise.all fired listEvents for every seller agreement at once,
+    // which on Render free tier's small pool caused "timeout exceeded when
+    // trying to connect" and crashed the entire process.
+    let disputeEventCount = 0;
+    for (const row of sellerEscrows) {
+      try {
+        const events = await escrowStore.listEvents(row.escrowId, 50);
+        if (events.some((event) => event.eventType === "dispute_opened")) {
+          disputeEventCount++;
+        }
+      } catch {
+        // A single failed event lookup must not block the rest of the risk check.
+      }
+    }
+    const sellerDisputeCount = Math.max(disputedStatuses, disputeEventCount);
+
+    return await scoreComplianceRisk({
+      amount: escrow.amount,
+      currency: escrow.currency,
+      sellerDisputeCount,
+      sellerEscrowCount,
+    });
+  } catch (err: any) {
+    // If the database is unreachable, return a safe default rather than crashing
+    // the caller. The reconciliation view, lifecycle sweep, and detail endpoint
+    // all call this function; an unhandled throw here takes all of them down.
+    console.warn("calculateComplianceRisk failed, returning safe default", {
+      escrowId: escrow.escrowId,
+      error: err?.message || err,
+    });
+    return await scoreComplianceRisk({
+      amount: escrow.amount,
+      currency: escrow.currency,
+      sellerDisputeCount: 0,
+      sellerEscrowCount: 0,
+    });
+  }
 }
