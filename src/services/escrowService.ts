@@ -683,7 +683,7 @@ export function participantDealStatus(status: EscrowRecord["status"]) {
   return labels[status];
 }
 
-export type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference" | "deliver";
+export type ParticipantDealAction = "accept" | "status" | "pay" | "cancel" | "complete" | "release" | "dispute" | "evidence" | "reference" | "deliver" | "proof";
 
 export function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buyer" | "seller"): ParticipantDealAction[] {
   const actions = new Set<ParticipantDealAction>(["status", "reference"]);
@@ -693,6 +693,7 @@ export function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buy
   if (role === "buyer" && escrow.status === "PENDING_PAYMENT") actions.add("pay");
   if (role === "buyer" && ["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) actions.add("complete");
   if (role === "seller" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("deliver");
+  if (["DELIVERED", "COMPLETED", "PENDING_RELEASE", "RELEASED", "DISPUTED"].includes(escrow.status)) actions.add("proof");
   if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
   if (["FUNDED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
   if (escrow.status === "DISPUTED") actions.add("evidence");
