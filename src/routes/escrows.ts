@@ -507,6 +507,14 @@ router.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, r
       parsed.data.actorWhatsapp,
       "whatsapp_dm"
     );
+    await notifyEscrowParticipants(
+      updated,
+      participantLifecycleMessage(
+        updated,
+        "Work has been confirmed as completed by the buyer.",
+        "Payout release is being processed to the seller's payout account."
+      )
+    );
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Completion confirmation failed" });
