@@ -793,10 +793,27 @@ export async function buildParticipantDeal(
 export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   if (!detail) return;
-  const buyerWhatsapp = detail.buyer?.whatsappNumber;
-  const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
-  const buyerTelegramUserId = detail.buyer?.telegramUserId;
-  const sellerTelegramUserId = detail.seller?.telegramUserId;
+
+  const rawBuyer = detail.buyer?.whatsappNumber || detail.escrow.buyerWhatsapp || detail.escrow.buyerUserId || "";
+  const rawSeller = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp || detail.escrow.sellerUserId || "";
+
+  const extractTgId = (val: string) => {
+    if (!val) return undefined;
+    if (val.startsWith("tg:")) return val.replace("tg:", "");
+    if (val.startsWith("telegram:")) return val.replace("telegram:", "");
+    if (/^\d{6,12}$/.test(val)) return val;
+    return undefined;
+  };
+
+  const buyerWhatsapp = detail.buyer?.whatsappNumber || (rawBuyer.startsWith("whatsapp:") ? rawBuyer : undefined);
+  const sellerWhatsapp = detail.seller?.whatsappNumber || (rawSeller.startsWith("whatsapp:") ? rawSeller : undefined);
+
+  const buyerTelegramUserId = detail.buyer?.telegramUserId || extractTgId(rawBuyer);
+  const sellerTelegramUserId = detail.seller?.telegramUserId || extractTgId(rawSeller);
+
+  const buyerTarget = buyerWhatsapp || (buyerTelegramUserId ? `tg:${buyerTelegramUserId}` : rawBuyer);
+  const sellerTarget = sellerWhatsapp || (sellerTelegramUserId ? `tg:${sellerTelegramUserId}` : rawSeller);
+
   const message = participantLifecycleMessage(
     detail.escrow,
     "Payment has been confirmed and locked into the service agreement.",
@@ -804,9 +821,9 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   );
 
   await Promise.all([
-    (buyerWhatsapp || buyerTelegramUserId) ? buildParticipantDeal(detail, buyerWhatsapp || `tg:${buyerTelegramUserId}`).then((dealCard) =>
+    buyerTarget ? buildParticipantDeal(detail, buyerTarget).then((dealCard) =>
       queueWhatsAppNotification({
-        to: buyerWhatsapp || "",
+        to: buyerWhatsapp || (rawBuyer.startsWith("whatsapp:") ? rawBuyer : ""),
         telegramUserId: buyerTelegramUserId || undefined,
         message,
         reason: "escrow_funded",
@@ -817,9 +834,9 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
         } : undefined,
       })
     ) : Promise.resolve(),
-    (sellerWhatsapp || sellerTelegramUserId) ? buildParticipantDeal(detail, sellerWhatsapp || `tg:${sellerTelegramUserId}`).then((dealCard) =>
+    sellerTarget ? buildParticipantDeal(detail, sellerTarget).then((dealCard) =>
       queueWhatsAppNotification({
-        to: sellerWhatsapp || "",
+        to: sellerWhatsapp || (rawSeller.startsWith("whatsapp:") ? rawSeller : ""),
         telegramUserId: sellerTelegramUserId || undefined,
         message,
         reason: "escrow_funded",
