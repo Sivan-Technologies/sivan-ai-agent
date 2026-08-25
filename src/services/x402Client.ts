@@ -22,8 +22,8 @@ export interface X402FacilitatorResponse {
 
 export class X402Client {
   private axiosInstance: AxiosInstance;
-  private readonly MAX_RETRIES = 3;
-  private readonly BASE_DELAY_MS = 1000;
+  private readonly MAX_RETRIES = 1;
+  private readonly BASE_DELAY_MS = 500;
 
   constructor(
     private baseUrl: string = config.x402.rpcUrl,
@@ -32,7 +32,7 @@ export class X402Client {
   ) {
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
-      timeout: 30000,
+      timeout: 3500,
       headers: this.getHeaders(),
     });
 
