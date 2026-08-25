@@ -873,7 +873,29 @@ const renderSuccessHtml = (title: string, message: string) => `
 </html>
 `;
 
-router.get(["/payment/callback", "/api/payment/callback"], (_req, res) => {
+router.get(["/payment/callback", "/api/payment/callback"], async (req, res) => {
+  const reference = String(req.query.reference || req.query.trxref || "").trim();
+  if (reference) {
+    try {
+      const escrow = await escrowStore.findEscrowByPaymentReference(reference);
+      if (escrow) {
+        if (escrow.status === "PENDING_PAYMENT" || escrow.status === "CREATED") {
+          const transaction = await paystackPaymentProvider.verifyTransaction(reference).catch(() => null);
+          if (transaction && transaction.status === "success") {
+            const funded = await reconcileEscrowPayment(escrow.escrowId, transaction, "webhook");
+            if (funded) {
+              await notifyEscrowFundedParticipants(funded);
+            }
+          }
+        } else if (escrow.status === "FUNDED" || escrow.status === "IN_PROGRESS") {
+          await notifyEscrowFundedParticipants(escrow);
+        }
+      }
+    } catch (err: any) {
+      warn("Payment callback auto-reconciliation warning", { reference, error: err?.message || String(err) });
+    }
+  }
+
   res.setHeader("Content-Type", "text/html");
   res.status(200).send(renderSuccessHtml(
     "Payment Received!",
