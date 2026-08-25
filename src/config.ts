@@ -75,6 +75,7 @@ export const config = {
       .split(",")
       .map((channel) => channel.trim())
       .filter(Boolean),
+    transferEnabled: envValue("PAYSTACK_TRANSFER_ENABLED", "false").toLowerCase() === "true",
   },
   monnify: {
     apiKey: envValue("MONNIFY_API_KEY"),

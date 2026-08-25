@@ -167,6 +167,7 @@ export const disputeResolutionSchema = z.object({
 export const adminReleaseApprovalSchema = z.object({
   manualPayoutReference: z.string().trim().min(3).max(160).optional(),
   payoutNotes: z.string().trim().min(2).max(1000).optional(),
+  payoutProvider: z.enum(["manual_bank_transfer", "paystack", "palmpay", "nomba", "flutterwave", "monnify"]).optional(),
 }).strict();
 
 export const adminSettingsSchema = z.object({
@@ -290,12 +291,13 @@ export const paystackWebhookSchema = z.object({
   id: z.union([z.string(), z.number()]).optional(),
   event: z.string().trim().min(1).max(120),
   data: z.object({
-    reference: z.string().trim().min(3).max(160),
+    reference: z.string().trim().min(1).max(160).optional(),
+    transfer_code: z.string().trim().min(1).max(160).optional(),
     status: z.string().trim().max(80).optional(),
     amount: z.number().optional(),
     currency: z.string().trim().max(16).optional(),
-  }),
-});
+  }).passthrough(),
+}).passthrough();
 
 
 export const limitQuerySchema = z.object({

@@ -153,6 +153,66 @@ router.post("/webhooks/paystack", async (req, res) => {
       JSON.stringify(event)
     );
 
+    // Handle Paystack Transfer (Payout) Webhook Events
+    if (normalizedWebhook.eventType.startsWith("transfer.")) {
+      const transferReference = String(event.data?.reference || normalizedWebhook.paymentReference || "").trim();
+      const transferCode = String(event.data?.transfer_code || "").trim();
+
+      const relatedTransaction =
+        (transferReference ? await escrowStore.getTransactionByProviderReference("paystack", transferReference) : null) ||
+        (transferCode ? await escrowStore.getTransactionByProviderReference("paystack", transferCode) : null);
+
+      if (relatedTransaction) {
+        await escrowStore.addEvent({
+          escrowId: relatedTransaction.escrowId,
+          actor: "paystack",
+          actorRole: "payment_provider",
+          channel: "webhook",
+          previousStatus: undefined,
+          nextStatus: undefined,
+          eventType: "payout_provider_event_received",
+          reason: normalizedWebhook.eventType,
+          metadata: {
+            provider: "paystack",
+            reference: transferReference,
+            transferCode,
+            payoutStatus: event.data?.status || normalizedWebhook.eventType,
+            payload: event,
+          },
+        });
+
+        if (normalizedWebhook.eventType === "transfer.success") {
+          info("Paystack transfer completed successfully", {
+            escrowId: relatedTransaction.escrowId,
+            reference: transferReference,
+            transferCode,
+          });
+        } else if (normalizedWebhook.eventType === "transfer.failed" || normalizedWebhook.eventType === "transfer.reversed") {
+          capturePaymentWarning(`Paystack transfer payout failed/reversed: ${normalizedWebhook.eventType}`, {
+            escrowId: relatedTransaction.escrowId,
+            reference: transferReference,
+            transferCode,
+            eventType: normalizedWebhook.eventType,
+          });
+          await opsStore.enqueueJob("payout_review", {
+            escrowId: relatedTransaction.escrowId,
+            provider: "paystack",
+            reference: transferReference || transferCode,
+            eventType: normalizedWebhook.eventType,
+            reason: `paystack_transfer_${normalizedWebhook.eventType.replace("transfer.", "")}`,
+          }, { maxAttempts: 3 });
+        }
+      } else {
+        capturePaymentWarning("Paystack transfer webhook did not match any Sivan payout transaction", {
+          reference: transferReference,
+          transferCode,
+          eventType: normalizedWebhook.eventType,
+        });
+      }
+
+      return res.status(200).send({ status: "received" });
+    }
+
     if (normalizedWebhook.eventType !== "charge.success") {
       return res.status(200).send({ status: "received" });
     }
@@ -165,7 +225,7 @@ router.post("/webhooks/paystack", async (req, res) => {
       });
       return res.status(202).send({ status: "unmatched" });
     }
-    if (escrow.paymentProvider && escrow.paymentProvider !== "paystack") {
+    if (escrow.paymentProvider && escrow.paymentProvider !== "paystack" && escrow.paymentProvider !== "paystack_sandbox_override") {
       capturePaymentWarning("Paystack webhook matched escrow with different provider", {
         escrowId: escrow.escrowId,
         escrowProvider: escrow.paymentProvider,

@@ -2,13 +2,16 @@ import { config } from "../config";
 import { EscrowCurrency, EscrowRecord, PayoutAccountRecord, PayoutAccountTransferRecord } from "./escrowStore";
 import { NombaPayoutClient } from "./nombaPayoutClient";
 import { PalmPayPayoutClient } from "./palmpayPayoutClient";
+import { PaystackClient } from "./paystackClient";
+import { warn } from "../lib/logger";
 
 export type PayoutProviderId =
   | "manual_bank_transfer"
   | "palmpay"
   | "flutterwave"
   | "monnify"
-  | "nomba";
+  | "nomba"
+  | "paystack";
 
 export type PayoutProviderStatus =
   | "succeeded"
@@ -31,6 +34,7 @@ export interface PayoutInitiationResult {
   provider: PayoutProviderId;
   status: PayoutProviderStatus;
   reference: string;
+  transferCode?: string;
   message: string;
   rawPayload?: Record<string, unknown>;
 }
@@ -42,7 +46,7 @@ export interface PayoutProvider {
 
 function configuredActivePayoutProvider(): PayoutProviderId {
   const value = (process.env.ACTIVE_PAYOUT_PROVIDER || "manual_bank_transfer").trim().toLowerCase();
-  if (["manual_bank_transfer", "palmpay", "flutterwave", "monnify", "nomba"].includes(value)) {
+  if (["manual_bank_transfer", "palmpay", "flutterwave", "monnify", "nomba", "paystack"].includes(value)) {
     return value as PayoutProviderId;
   }
   return "manual_bank_transfer";
@@ -193,6 +197,110 @@ class NombaPayoutProvider implements PayoutProvider {
   }
 }
 
+export class PaystackPayoutProvider implements PayoutProvider {
+  public readonly id = "paystack" as const;
+  private readonly client: PaystackClient;
+
+  constructor(private platformMode?: "test" | "live" | "maintenance") {
+    this.client = new PaystackClient();
+  }
+
+  public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
+    const payoutAccount = input.payoutAccount as PayoutAccountTransferRecord | undefined | null;
+    if (!payoutAccount) {
+      throw new Error("Seller payout account is required for Paystack transfer");
+    }
+    const rawAccountNumber = payoutAccount.accountNumberRaw || (payoutAccount as any).accountNumber;
+    if (!rawAccountNumber) {
+      throw new Error("Seller account number is required for Paystack transfer");
+    }
+    if (!payoutAccount.bankCode) {
+      throw new Error("Seller payout bank code is required for Paystack transfer");
+    }
+
+    const transferReference = `SIVAN-${input.idempotencyKey || input.escrow.escrowId}`
+      .replace(/[^A-Za-z0-9_-]/g, "_")
+      .slice(0, 64);
+
+    if (this.platformMode === "test") {
+      return {
+        provider: this.id,
+        status: "pending",
+        reference: transferReference,
+        transferCode: `TRF_SIM_${Date.now()}`,
+        message: "Test mode: Simulated Paystack transfer queued",
+        rawPayload: { simulated: true },
+      };
+    }
+
+    if (!config.paystack.transferEnabled) {
+      throw new Error(
+        "Paystack transfers are disabled. Set PAYSTACK_TRANSFER_ENABLED=true only after verifying your Paystack balance account supports transfers."
+      );
+    }
+
+    const accountName =
+      payoutAccount.resolvedAccountName || payoutAccount.accountName;
+    if (!accountName) {
+      throw new Error("Seller payout account name is required for Paystack transfer");
+    }
+
+    // Re-use cached recipient code so we don't register the same bank account twice.
+    let recipientCode = payoutAccount.providerRecipientCode || "";
+    if (!recipientCode) {
+      const recipient = await this.client.createTransferRecipient(
+        payoutAccount.accountNumberRaw,
+        payoutAccount.bankCode,
+        accountName
+      );
+      recipientCode = recipient.recipientCode;
+      // Best-effort cache — if this write fails we will create the recipient again next time,
+      // which Paystack deduplicates on their side anyway.
+      try {
+        const { escrowStore } = await import("../context.js");
+        if (payoutAccount.payoutAccountId) {
+          await escrowStore.updatePayoutAccountRecipientCode?.(
+            payoutAccount.payoutAccountId,
+            recipientCode
+          );
+        }
+      } catch (cacheErr: any) {
+        warn("Could not cache Paystack recipient code on payout account", {
+          payoutAccountId: payoutAccount.payoutAccountId,
+          error: cacheErr?.message,
+        });
+      }
+    }
+
+    const result = await this.client.initiateTransfer(
+      input.amount,
+      recipientCode,
+      transferReference,
+      input.payoutNotes || `Sivan agreement payout ${input.escrow.escrowId}`
+    );
+
+    const providerStatus: PayoutProviderStatus =
+      result.status === "success" ? "succeeded"
+      : result.status === "failed" ? "failed"
+      : "pending";
+
+    return {
+      provider: this.id,
+      status: providerStatus,
+      reference: result.transferCode || result.reference,
+      message: `Paystack transfer ${result.status}`,
+      rawPayload: {
+        transferCode: result.transferCode,
+        reference: result.reference,
+        recipientCode,
+        status: result.status,
+        amount: result.amount,
+        reason: result.reason || null,
+      },
+    };
+  }
+}
+
 export function createPayoutProvider(
   provider: PayoutProviderId = configuredActivePayoutProvider(),
   platformMode?: "test" | "live" | "maintenance"
@@ -200,6 +308,7 @@ export function createPayoutProvider(
   if (provider === "manual_bank_transfer") return new ManualBankTransferPayoutProvider(platformMode);
   if (provider === "palmpay") return new PalmPayPayoutProvider(platformMode);
   if (provider === "nomba") return new NombaPayoutProvider(platformMode);
+  if (provider === "paystack") return new PaystackPayoutProvider(platformMode);
   return new DisabledAutomatedPayoutProvider(provider);
 }
 
@@ -219,11 +328,19 @@ export function getPayoutProviderForEscrow(
 
   const payInProvider = (escrow.paymentProvider || "").replace(/_sandbox_override$/, "").toLowerCase();
 
-  if (payInProvider === "nomba" && (platformMode === "test" || config.nomba.payoutEnabled)) {
+  // Mirror the pay-in provider as the payout provider by default.
+  // Each provider is only activated when its payout feature flag is on,
+  // or when running in test mode.
+
+  if (payInProvider === "paystack" && config.paystack.transferEnabled) {
+    return createPayoutProvider("paystack", platformMode);
+  }
+
+  if (payInProvider === "nomba" && config.nomba.payoutEnabled) {
     return createPayoutProvider("nomba", platformMode);
   }
 
-  if (payInProvider === "palmpay" && (platformMode === "test" || config.palmpay.payoutEnabled)) {
+  if (payInProvider === "palmpay" && config.palmpay.payoutEnabled) {
     return createPayoutProvider("palmpay", platformMode);
   }
 

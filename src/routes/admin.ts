@@ -42,12 +42,8 @@ import {
   getWhatsAppProviderStatus,
   switchWhatsAppProvider,
 } from "../services/notificationService";
-import {
-  calculateEscrowPayoutQuote,
-  getProviderForEscrow,
-  providerConfigured as configCheck,
-} from "../services/paymentService";
-import { getActivePayoutProvider, getPayoutProviderForEscrow } from "../services/payoutProvider";
+import { calculateEscrowPayoutQuote, getProviderForEscrow, providerConfigured as configCheck } from "../services/paymentService";
+import { getActivePayoutProvider, getPayoutProviderForEscrow, createPayoutProvider } from "../services/payoutProvider";
 import { runDailyReconciliation } from "../services/reconciliationService";
 import {
   capturePaymentWarning,
@@ -226,7 +222,13 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
     }
     const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
-    const payoutProvider = escrow.currency === "NAIRA" ? getPayoutProviderForEscrow(escrow, config.databaseMode) : null;
+    const payoutProvider = escrow.currency === "NAIRA"
+      ? (parsed.data.manualPayoutReference
+          ? createPayoutProvider("manual_bank_transfer", config.databaseMode)
+          : parsed.data.payoutProvider
+          ? createPayoutProvider(parsed.data.payoutProvider, config.databaseMode)
+          : getPayoutProviderForEscrow(escrow, config.databaseMode))
+      : null;
     const payoutAccount = escrow.sellerUserId
       ? payoutProvider?.id === "manual_bank_transfer"
         ? await escrowStore.getPayoutAccount(escrow.sellerUserId)

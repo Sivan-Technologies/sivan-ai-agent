@@ -32,6 +32,25 @@ export interface PaystackAccountResolution {
   bankCode: string;
 }
 
+export interface PaystackTransferRecipient {
+  recipientCode: string;
+  recipientId: number;
+  accountNumber: string;
+  accountName: string;
+  bankCode: string;
+  bankName: string;
+}
+
+export interface PaystackTransferResult {
+  transferCode: string;
+  reference: string;
+  status: "success" | "pending" | "failed" | "otp" | "reversed" | string;
+  amount: number;
+  recipientCode: string;
+  reason?: string;
+  createdAt?: string;
+}
+
 export class PaystackClient {
   private baseUrl = config.paystack.baseUrl;
   private secretKey = config.paystack.secretKey;
@@ -42,6 +61,10 @@ export class PaystackClient {
 
   public isCollectionConfigured() {
     return Boolean(this.secretKey);
+  }
+
+  public isTransferConfigured() {
+    return Boolean(this.secretKey) && config.paystack.transferEnabled;
   }
 
   private getHeaders() {
@@ -170,6 +193,123 @@ export class PaystackClient {
       accountNumber: response.data.data.account_number,
       accountName: response.data.data.account_name,
       bankCode,
+    };
+  }
+
+  /**
+   * Creates (or retrieves an existing) Paystack transfer recipient for a bank account.
+   * The returned recipientCode must be cached on the payout account (providerRecipientCode)
+   * so it is reused on future payouts to the same seller.
+   */
+  public async createTransferRecipient(
+    accountNumber: string,
+    bankCode: string,
+    accountName: string,
+    currency = "NGN"
+  ): Promise<PaystackTransferRecipient> {
+    if (!this.secretKey) {
+      throw new Error("PAYSTACK_SECRET_KEY is required to create a Paystack transfer recipient");
+    }
+
+    log("Creating Paystack transfer recipient", { accountNumber, bankCode });
+    const response = await axios.post(
+      `${this.baseUrl}/transferrecipient`,
+      {
+        type: "nuban",
+        name: accountName,
+        account_number: accountNumber,
+        bank_code: bankCode,
+        currency,
+      },
+      { headers: this.getHeaders(), timeout: this.timeoutMs }
+    );
+
+    if (!response.data?.status || !response.data.data?.recipient_code) {
+      throw new Error("Invalid Paystack transfer recipient response");
+    }
+
+    const d = response.data.data;
+    return {
+      recipientCode: d.recipient_code,
+      recipientId: d.id,
+      accountNumber: d.details?.account_number || accountNumber,
+      accountName: d.details?.account_name || accountName,
+      bankCode: d.details?.bank_code || bankCode,
+      bankName: d.details?.bank_name || "",
+    };
+  }
+
+  /**
+   * Initiates a single transfer to a registered recipient.
+   * Paystack transfers are asynchronous — status arrives via `transfer.success` or `transfer.failed` webhook.
+   */
+  public async initiateTransfer(
+    amountNgn: number,
+    recipientCode: string,
+    reference: string,
+    reason?: string
+  ): Promise<PaystackTransferResult> {
+    if (!this.secretKey) {
+      throw new Error("PAYSTACK_SECRET_KEY is required to initiate a Paystack transfer");
+    }
+
+    log("Initiating Paystack transfer", { amountNgn, recipientCode, reference });
+    const response = await axios.post(
+      `${this.baseUrl}/transfer`,
+      {
+        source: "balance",
+        amount: Math.round(amountNgn * 100),
+        recipient: recipientCode,
+        reference,
+        reason: reason || "Sivan service agreement payout",
+      },
+      { headers: this.getHeaders(), timeout: this.timeoutMs }
+    );
+
+    if (!response.data?.status || !response.data.data) {
+      throw new Error("Invalid Paystack transfer initiation response");
+    }
+
+    const d = response.data.data;
+    return {
+      transferCode: d.transfer_code,
+      reference: d.reference || reference,
+      status: d.status,
+      amount: d.amount / 100,
+      recipientCode: d.recipient?.recipient_code || recipientCode,
+      reason: d.reason,
+      createdAt: d.created_at,
+    };
+  }
+
+  /**
+   * Verifies the final status of a transfer by its reference.
+   * Use this to reconcile a transfer whose webhook was missed.
+   */
+  public async verifyTransfer(reference: string): Promise<PaystackTransferResult> {
+    if (!this.secretKey) {
+      throw new Error("PAYSTACK_SECRET_KEY is required to verify a Paystack transfer");
+    }
+
+    log("Verifying Paystack transfer", { reference });
+    const response = await axios.get(
+      `${this.baseUrl}/transfer/verify/${encodeURIComponent(reference)}`,
+      { headers: this.getHeaders(), timeout: this.timeoutMs }
+    );
+
+    if (!response.data?.status || !response.data.data) {
+      throw new Error("Invalid Paystack transfer verification response");
+    }
+
+    const d = response.data.data;
+    return {
+      transferCode: d.transfer_code,
+      reference: d.reference || reference,
+      status: d.status,
+      amount: d.amount / 100,
+      recipientCode: d.recipient?.recipient_code || "",
+      reason: d.reason,
+      createdAt: d.created_at,
     };
   }
 }

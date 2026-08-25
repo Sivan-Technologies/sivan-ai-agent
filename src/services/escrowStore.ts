@@ -1253,6 +1253,23 @@ export class EscrowStore {
     return (await this.getPayoutAccount(input.userId))!;
   }
 
+  public async updatePayoutAccountRecipientCode(payoutAccountId: string, recipientCode: string): Promise<void> {
+    await this.initializeSchema();
+    const now = new Date().toISOString();
+    if (this.provider === "sqlite") {
+      this.sqlite!.prepare(`
+        UPDATE payout_accounts
+        SET provider_recipient_code = @recipientCode, updated_at = @now
+        WHERE payout_account_id = @payoutAccountId
+      `).run({ payoutAccountId, recipientCode, now });
+    } else {
+      await this.pool!.query(
+        `UPDATE payout_accounts SET provider_recipient_code = $1, updated_at = $2 WHERE payout_account_id = $3`,
+        [recipientCode, now, payoutAccountId]
+      );
+    }
+  }
+
   public async countUsersWithPayoutAccountNumber(accountNumber: string, excludeUserId?: string): Promise<number> {
     await this.initializeSchema();
     const accountNumberToken = payoutAccountToken(accountNumber);
