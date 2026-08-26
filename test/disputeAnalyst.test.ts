@@ -4,16 +4,14 @@ import path from "path";
 import { DisputeAnalystService } from "../src/services/disputeAnalyst";
 import { AceDataClient } from "../src/services/aceData";
 
-const TEST_DB_PATH = path.resolve(__dirname, "../data/test-dispute-analyst.db");
-process.env.DATABASE_URL = TEST_DB_PATH;
-process.env.DATABASE_PROVIDER = "sqlite";
+import { EscrowStore } from "../src/services/escrowStore";
 
+const TEST_DB_PATH = path.resolve(__dirname, "../data/test-dispute-analyst.db");
 if (fs.existsSync(TEST_DB_PATH)) {
   fs.unlinkSync(TEST_DB_PATH);
 }
 
-// Dynamically import context stores
-const { escrowStore } = await import("../src/context");
+const escrowStore = new EscrowStore(TEST_DB_PATH, "sqlite");
 
 describe("AI dispute arbitration analyst tests", () => {
   beforeAll(async () => {
@@ -40,9 +38,9 @@ describe("AI dispute arbitration analyst tests", () => {
     const escrow = await escrowStore.createEscrow({
       buyerWhatsapp: "whatsapp:+2348000000001",
       sellerWhatsapp: "whatsapp:+2348000000002",
-      amount: 1500,
+      amount: 25,
       currency: "USDC",
-      purpose: "E2E AI dispute design contract test",
+      purpose: "Design contract milestone 1",
       createdByChannel: "api",
       buyerUserId,
       sellerUserId,
