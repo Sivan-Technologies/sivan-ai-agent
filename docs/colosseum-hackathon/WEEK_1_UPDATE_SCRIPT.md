@@ -40,7 +40,7 @@ Quick split-second glance at the Platform Controls dashboard showing live dynami
 
 0:45 - 0:60 | Week 2 Outlook & Next Milestones
 Spoken:
-"Heading into Week 2, our focus is running full end to end pilot testing with a select group of real users and freelancers, observing live agreement flows on Solana, and gathering direct user feedback. Thank you!"
+"Heading into Week 2, our focus is executing full Solana devnet testing alongside peer builder teams and our first beta pilot users, observing live multi-party deal flows, and stress-testing on-chain settlement. Thank you!"
 
 On Screen:
 Show Sivan landing interface or final Telegram deal settlement card with checkmarks.

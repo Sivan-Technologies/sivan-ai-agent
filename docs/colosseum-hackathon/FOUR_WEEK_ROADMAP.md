@@ -18,14 +18,14 @@ Deliverable:
 
 --------------------------------------------------------------------------------
 
-WEEK 2 (Days 8 to 14): Closed Pilot & Select User Group Testing
+WEEK 2 (Days 8 to 14): Full Solana Devnet Testing & Beta Pilot Cohort
 Milestones:
-- Run full end to end pilot testing with a select group of active users, freelance designers, and developers.
-- Execute live deal simulations between 5 USDC and 50 USDC on Solana devnet.
-- Measure average agreement completion time, UX friction points, and user satisfaction.
-- Document user feedback and early pilot testimonials for Week 2 update.
+- Execute full Solana devnet agreement lifecycles alongside peer builder teams and beta pilot users.
+- Run live test deal simulations between 5 USDC and 50 USDC via x402 on-chain rails.
+- Stress-test multi-party Telegram group agreements, delivery proof uploads, and instant settlements.
+- Measure average agreement completion time and gather direct UX feedback.
 Deliverable:
-- Submit Week 2 1-minute video update highlighting pilot user testing results and user feedback.
+- Submit Week 2 1-minute video update highlighting devnet testing results with peer teams and beta pilots.
 
 --------------------------------------------------------------------------------
 
