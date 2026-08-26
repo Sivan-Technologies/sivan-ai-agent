@@ -133,6 +133,18 @@ app.use(async (req, res, next) => {
   }
 });
 
+// Normalize incoming admin and API route prefixes from proxies and gateways
+app.use((req, _res, next) => {
+  if (req.url.startsWith("/api/admin/admin/")) {
+    req.url = req.url.replace(/^\/api\/admin\/admin\//, "/admin/");
+  } else if (req.url.startsWith("/admin/admin/")) {
+    req.url = req.url.replace(/^\/admin\/admin\//, "/admin/");
+  } else if (req.url.startsWith("/api/admin/")) {
+    req.url = req.url.replace(/^\/api\/admin\//, "/admin/");
+  }
+  next();
+});
+
 // Mount modular routes
 app.use(healthRouter);
 app.use(usersRouter);
