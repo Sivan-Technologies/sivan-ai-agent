@@ -2,7 +2,7 @@
 
 Target Duration: Exactly 55 to 60 seconds
 Recording Tool: Loom (Recommended) or YouTube Unlisted Video
-Presenter: Founder / Lead Engineer (Samuel)
+Presenter: Samson Micheal (Founder, CEO & Technical Product Lead)
 
 ================================================================================
 SCRIPT BREAKDOWN (60 SECONDS TOTAL)
@@ -10,7 +10,7 @@ SCRIPT BREAKDOWN (60 SECONDS TOTAL)
 
 0:00 - 0:12 | The Problem & The Solution
 Spoken:
-"Hi Colosseum, this is Samuel with Sivan Ai. We are building the chat native payment AI on Solana. In peer to peer digital commerce and freelance deals, buyers are terrified of paying first and sellers are terrified of working for free. Sivan solves this directly inside Telegram with non-custodial Solana x402 service agreements."
+"Hi Colosseum, I'm Samson Micheal, founder and CEO of Sivan Ai. We are building the chat native payment AI on Solana. In peer to peer digital commerce and freelance deals, buyers are terrified of paying first and sellers are terrified of working for free. Sivan solves this directly inside Telegram with non-custodial Solana x402 service agreements."
 
 On Screen:
 Show Telegram chat with Sivan Ai (@Sivan_Ai) generating a 10 USDC service agreement card in 2 taps.
