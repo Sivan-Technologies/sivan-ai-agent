@@ -394,6 +394,12 @@ router.post("/api/users/link-email", requireCoreApiAuth, async (req, res) => {
 router.get("/api/settings/limits", async (_req, res) => {
   try {
     const settings = await settingsStore.getSettings();
+    let parsedTiers = undefined;
+    if (settings.nairaFeeTiers) {
+      try {
+        parsedTiers = JSON.parse(settings.nairaFeeTiers);
+      } catch {}
+    }
     return res.json({
       minNairaAmount: settings.minNairaAmount,
       maxNairaAmount: settings.maxNairaAmount,
@@ -403,6 +409,7 @@ router.get("/api/settings/limits", async (_req, res) => {
       usdcFeeFixed: settings.usdcFeeFixed,
       nairaFeePercent: settings.nairaFeePercent,
       nairaFeeFixed: settings.nairaFeeFixed,
+      nairaFeeTiers: parsedTiers,
     });
   } catch (err: any) {
     captureOperationalError("Failed to fetch settings limits", err);
