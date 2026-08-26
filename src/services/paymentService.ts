@@ -231,7 +231,9 @@ export async function calculateEscrowPayoutQuote(
     totalWithFee = amount;
     sellerNetAmount = amount - platformFeeAmount;
   } else if (feePayer === "split") {
-    const halfFee = Math.round(platformFeeAmount / 2);
+    const halfFee = currency === "USDC"
+      ? parseFloat((platformFeeAmount / 2).toFixed(6))
+      : Math.round(platformFeeAmount / 2);
     totalWithFee = amount + halfFee;
     sellerNetAmount = amount - (platformFeeAmount - halfFee);
   }
