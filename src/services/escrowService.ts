@@ -694,7 +694,7 @@ export function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buy
   if (role === "buyer" && ["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) actions.add("complete");
   if (role === "seller" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("deliver");
   if (["DELIVERED", "COMPLETED", "PENDING_RELEASE", "RELEASED", "DISPUTED"].includes(escrow.status)) actions.add("proof");
-  if (role === "buyer" && escrow.status === "COMPLETED") actions.add("release");
+  if (role === "buyer" && ["COMPLETED", "DELIVERED"].includes(escrow.status)) actions.add("release");
   if (["FUNDED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
   if (escrow.status === "DISPUTED") actions.add("evidence");
 

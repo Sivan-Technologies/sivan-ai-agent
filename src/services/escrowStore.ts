@@ -1987,7 +1987,7 @@ export class EscrowStore {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
     await this.assertBuyerActor(escrow, actor);
-    if (escrow.status !== "COMPLETED") {
+    if (!["COMPLETED", "DELIVERED"].includes(escrow.status)) {
       throw new Error(`Escrow cannot be released from ${escrow.status}`);
     }
 
