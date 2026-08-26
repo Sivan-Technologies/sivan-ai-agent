@@ -399,6 +399,10 @@ router.get("/api/settings/limits", async (_req, res) => {
       maxNairaAmount: settings.maxNairaAmount,
       minUsdcAmount: settings.minUsdcAmount,
       maxUsdcAmount: settings.maxUsdcAmount,
+      usdcFeePercent: settings.usdcFeePercent,
+      usdcFeeFixed: settings.usdcFeeFixed,
+      nairaFeePercent: settings.nairaFeePercent,
+      nairaFeeFixed: settings.nairaFeeFixed,
     });
   } catch (err: any) {
     captureOperationalError("Failed to fetch settings limits", err);
