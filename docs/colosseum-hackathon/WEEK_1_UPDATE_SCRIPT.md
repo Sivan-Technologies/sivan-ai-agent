@@ -40,7 +40,7 @@ Quick split-second glance at the Platform Controls dashboard showing live dynami
 
 0:45 - 0:60 | Week 2 Outlook & Next Milestones
 Spoken:
-"Heading into Week 2, we are prioritizing our controlled user soft launch with our first 25 Web3 freelance builders, stress testing high-concurrency settlements on Solana, and gathering real user traction. Thank you!"
+"Heading into Week 2, our focus is running full end to end pilot testing with a select group of real users and freelancers, observing live agreement flows on Solana, and gathering direct user feedback. Thank you!"
 
 On Screen:
 Show Sivan landing interface or final Telegram deal settlement card with checkmarks.

@@ -18,14 +18,14 @@ Deliverable:
 
 --------------------------------------------------------------------------------
 
-WEEK 2 (Days 8 to 14): Controlled Pilot & Soft Launch
+WEEK 2 (Days 8 to 14): Closed Pilot & Select User Group Testing
 Milestones:
-- Onboard 20 to 50 active Web3 freelancers, designers, and community builders.
-- Run live test deals between 5 USDC and 50 USDC on Solana devnet.
-- Measure average deal completion time and user feedback.
-- Document early user feedback in public tweets on X.
+- Run full end to end pilot testing with a select group of active users, freelance designers, and developers.
+- Execute live deal simulations between 5 USDC and 50 USDC on Solana devnet.
+- Measure average agreement completion time, UX friction points, and user satisfaction.
+- Document user feedback and early pilot testimonials for Week 2 update.
 Deliverable:
-- Submit Week 2 1-minute progress and traction update.
+- Submit Week 2 1-minute video update highlighting pilot user testing results and user feedback.
 
 --------------------------------------------------------------------------------
 
