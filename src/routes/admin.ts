@@ -321,6 +321,23 @@ router.post("/admin/escrows/:escrowId/recheck-payment", requireAdminAuth, logAdm
   try {
     const escrow = await escrowStore.getEscrowById(req.params.escrowId);
     if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+
+    if (["USDC", "USDT", "SOL"].includes(String(escrow.currency || "").toUpperCase())) {
+      const isFunded = ["FUNDED", "IN_PROGRESS", "COMPLETED", "DELIVERED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status);
+      const detail = await buildEscrowDetail(escrow.escrowId);
+      return res.status(200).json({
+        escrow,
+        detail,
+        transaction: {
+          reference: escrow.paymentReference || escrow.txHash || `x402-${escrow.escrowId}`,
+          amount: escrow.amount,
+          currency: escrow.currency,
+          status: isFunded ? "success" : "pending",
+          provider: "x402",
+        },
+      });
+    }
+
     const paymentReference = typeof req.body?.paymentReference === "string" && req.body.paymentReference.trim()
       ? req.body.paymentReference.trim()
       : escrow.paymentReference;
