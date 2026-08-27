@@ -2382,12 +2382,17 @@ export class EscrowStore {
     if (!current) throw new Error("Escrow not found");
     const now = new Date().toISOString();
     const releaseRequestedAt = nextStatus === "PENDING_RELEASE" ? now : current.releaseRequestedAt || null;
+    const releasedAt = nextStatus === "RELEASED" ? (current.releasedAt || now) : current.releasedAt || null;
+    const releasedBy = nextStatus === "RELEASED" ? (current.releasedBy || event.actor) : current.releasedBy || null;
+    const manualPayoutReference = (nextStatus === "RELEASED" && !current.manualPayoutReference && current.currency === "USDC")
+      ? (current.paymentReference || current.txHash || `x402-${escrowId}`)
+      : current.manualPayoutReference || null;
 
     if (this.provider === "sqlite") {
-      this.sqlite!.prepare(`UPDATE escrows SET status = @nextStatus, release_requested_at = @releaseRequestedAt, updated_at = @now WHERE escrow_id = @escrowId`)
-        .run({ escrowId, nextStatus, releaseRequestedAt, now });
+      this.sqlite!.prepare(`UPDATE escrows SET status = @nextStatus, release_requested_at = @releaseRequestedAt, released_at = @releasedAt, released_by = @releasedBy, manual_payout_reference = @manualPayoutReference, updated_at = @now WHERE escrow_id = @escrowId`)
+        .run({ escrowId, nextStatus, releaseRequestedAt, releasedAt, releasedBy, manualPayoutReference, now });
     } else {
-      await this.pool!.query(`UPDATE escrows SET status = $1, release_requested_at = $2, updated_at = $3 WHERE escrow_id = $4`, [nextStatus, releaseRequestedAt, now, escrowId]);
+      await this.pool!.query(`UPDATE escrows SET status = $1, release_requested_at = $2, released_at = $3, released_by = $4, manual_payout_reference = $5, updated_at = $6 WHERE escrow_id = $7`, [nextStatus, releaseRequestedAt, releasedAt, releasedBy, manualPayoutReference, now, escrowId]);
     }
 
     await this.addEvent({
