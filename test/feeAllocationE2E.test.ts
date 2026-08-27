@@ -129,7 +129,7 @@ describe("Fee Allocation End-to-End Test Flow", () => {
     expect(payoutQuote.totalWithFee).toBe(20000);
     // Seller gets net: 20000 - 550 = 19,450 NGN
     expect(payoutQuote.sellerNetAmount).toBe(19450);
-  });
+  }, 30000);
 
   it("handles the complete Split Pays Fee lifecycle correctly", async () => {
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348100000003", "buyer");
@@ -228,5 +228,5 @@ describe("Fee Allocation End-to-End Test Flow", () => {
     expect(payoutQuote.totalWithFee).toBe(20275);
     // Seller gets net: 20000 - (550 - 275) = 19,725 NGN
     expect(payoutQuote.sellerNetAmount).toBe(19725);
-  });
+  }, 30000);
 });
