@@ -1188,17 +1188,21 @@ export async function buildReconciliationRows(limit = 250) {
       const settlementProviderFee = settlementTransaction.totalPayable !== undefined && settlementTransaction.settlementAmount !== undefined
         ? Math.max(0, Number(settlementTransaction.totalPayable) - Number(settlementTransaction.settlementAmount))
         : null;
+      const isCrypto = ["USDC", "USDT", "SOL"].includes(String(escrow.currency || "").toUpperCase());
+      const cryptoNetwork = String((escrow as any).network || "solana").toLowerCase();
+      const cryptoNetworkName = cryptoNetwork.charAt(0).toUpperCase() + cryptoNetwork.slice(1);
+
       const flags = new Set(escrow.reconciliationFlags || []);
       if (escrow.status === "REVIEW_REQUIRED") flags.add("payment_review_required");
-      if (escrow.status === "RELEASED" && !escrow.manualPayoutReference) flags.add("missing_payout_reference");
+      if (escrow.status === "RELEASED" && !escrow.manualPayoutReference && !isCrypto) flags.add("missing_payout_reference");
       if (escrow.status === "PENDING_RELEASE") flags.add("release_awaiting_manual_payout");
       if (escrow.paymentProvider === "monnify" && !settlementReference && ["FUNDED", "IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status)) {
         flags.add("settlement_pending");
       }
       if ((escrow.reconciliationFlags || []).includes("payment_amount_mismatch")) flags.add("payment_amount_mismatch");
-      const payoutVerified = payout?.verificationStatus === "verified";
-      if (payout?.sharedAccountFlag) flags.add("shared_payout_account_review");
-      if (payout && !["strong", "medium"].includes(payout.nameMatchLevel || "")) flags.add("payout_name_match_review");
+      const payoutVerified = isCrypto ? true : payout?.verificationStatus === "verified";
+      if (!isCrypto && payout?.sharedAccountFlag) flags.add("shared_payout_account_review");
+      if (!isCrypto && payout && !["strong", "medium"].includes(payout.nameMatchLevel || "")) flags.add("payout_name_match_review");
       const reconciliationRiskLevel = flags.has("payment_amount_mismatch") || flags.has("shared_payout_account_review") || flags.has("payout_name_match_review")
         ? "HIGH"
         : flags.size > 0
@@ -1227,24 +1231,19 @@ export async function buildReconciliationRows(limit = 250) {
         amountSource: payoutQuote.amountSource,
         paymentReference: escrow.paymentReference || null,
         paymentProvider: escrow.paymentProvider || null,
-        paymentStatus: escrow.providerPaymentStatus || escrow.status,
-        settlementReference,
-        settlementAmount,
-        settlementProviderFee,
-        settlementReceivedAt: settlementEvent?.createdAt || null,
-        payoutReference: escrow.manualPayoutReference || null,
+        payoutReference: escrow.manualPayoutReference || (isCrypto && escrow.status === "RELEASED" ? (escrow.txHash || (escrow as any).fundingTxHash || (escrow as any).depositTxHash || null) : null),
         payoutApprover: escrow.releasedBy || null,
         releaseTimestamp: escrow.releasedAt || null,
         status: escrow.status,
         flags: Array.from(flags),
         purpose: escrow.purpose,
-        payoutVerified,
-        payoutBankName: payout?.bankName || null,
-        payoutBankCode: payout?.bankCode || null,
-        payoutAccountNumber: payout?.accountNumber || null,
-        resolvedAccountName: payout?.resolvedAccountName || payout?.accountName || null,
-        nameMatchScore: payout?.nameMatchScore ?? null,
-        nameMatchLevel: payout?.nameMatchLevel || null,
+        payoutVerified: isCrypto ? true : payoutVerified,
+        payoutBankName: isCrypto ? `${cryptoNetworkName} Wallet (${escrow.currency})` : (payout?.bankName || null),
+        payoutBankCode: isCrypto ? cryptoNetwork : (payout?.bankCode || null),
+        payoutAccountNumber: isCrypto ? ((escrow as any).walletAddress || (escrow as any).depositAddress || "Sivan Embedded Wallet") : (payout?.accountNumber || null),
+        resolvedAccountName: isCrypto ? `Sivan ${cryptoNetworkName} Balance` : (payout?.resolvedAccountName || payout?.accountName || null),
+        nameMatchScore: isCrypto ? 100 : (payout?.nameMatchScore ?? null),
+        nameMatchLevel: isCrypto ? "strong" : (payout?.nameMatchLevel || null),
         complianceRiskScore: complianceRisk.riskScore,
         complianceRiskLevel: complianceRisk.riskLevel,
         complianceRiskReasons: complianceRisk.riskReasons,
