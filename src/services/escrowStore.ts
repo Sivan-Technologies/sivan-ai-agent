@@ -2068,7 +2068,7 @@ export class EscrowStore {
     return this.runTransaction(async () => {
       const escrow = await this.getEscrowById(escrowId);
       if (!escrow) throw new Error("Escrow not found");
-      if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+      if (!["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) {
         throw new Error(`Escrow cannot be marked delivered from status ${escrow.status}`);
       }
       const deliveredAt = new Date().toISOString();
