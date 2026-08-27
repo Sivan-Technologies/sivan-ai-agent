@@ -570,7 +570,7 @@ router.post("/api/escrows/:escrowId/delivery/proof", requireCoreApiAuth, async (
   // audit rows keep the same actor format they have always had.
   const actor = parsed.data.actorWhatsapp || parsed.data.actorUserId!;
 
-  if (!["FUNDED", "IN_PROGRESS"].includes(escrow.status)) {
+  if (!["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) {
     return res.status(400).json({ error: `Delivery proof can only be submitted after funding, current status is ${escrow.status}` });
   }
   if (!externalDeliveryLinksAllowed() && containsExternalLink(parsed.data.summary)) {

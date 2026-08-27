@@ -692,7 +692,7 @@ export function participantDealActionsForEscrow(escrow: EscrowRecord, role: "buy
   if (role === "buyer" && ["PENDING_PROFILE", "PENDING_ACCEPTANCE", "PENDING_PAYMENT"].includes(escrow.status)) actions.add("cancel");
   if (role === "buyer" && escrow.status === "PENDING_PAYMENT") actions.add("pay");
   if (role === "buyer" && ["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) actions.add("complete");
-  if (role === "seller" && ["FUNDED", "IN_PROGRESS"].includes(escrow.status)) actions.add("deliver");
+  if (role === "seller" && ["FUNDED", "IN_PROGRESS", "DELIVERED"].includes(escrow.status)) actions.add("deliver");
   if (["DELIVERED", "COMPLETED", "PENDING_RELEASE", "RELEASED", "DISPUTED"].includes(escrow.status)) actions.add("proof");
   if (role === "buyer" && ["COMPLETED", "DELIVERED"].includes(escrow.status)) actions.add("release");
   if (["FUNDED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) actions.add("dispute");
@@ -1305,11 +1305,11 @@ export function reconciliationRowsToCsv(rows: Awaited<ReturnType<typeof buildRec
     row.currency,
     row.paymentReference,
     row.paymentProvider,
-    row.paymentStatus,
-    row.settlementReference,
-    row.settlementAmount,
-    row.settlementProviderFee,
-    row.settlementReceivedAt,
+    row.paymentReference ? "success" : "pending",
+    row.paymentReference,
+    row.receivedAmount ?? row.expectedAmount,
+    row.platformFeeAmount,
+    row.paymentCheckedAt,
     row.payoutReference,
     row.payoutApprover,
     row.releaseTimestamp,

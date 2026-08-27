@@ -97,6 +97,7 @@ export interface EscrowRecord {
   inspectionExpiresAt?: string;
   manualPayoutReference?: string;
   payoutNotes?: string;
+  txHash?: string;
   releasedBy?: string;
   releasedAt?: string;
   feePayer: "buyer" | "seller" | "split";
