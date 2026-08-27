@@ -784,6 +784,21 @@ export async function buildParticipantDeal(
 
   const quote = detail.payoutQuote || await calculateEscrowPayoutQuote(detail.escrow.amount, detail.escrow.currency, detail.escrow.feePayer);
 
+  let deliveryProof: { summary?: string; media?: any[]; deliveredAt?: string } | null = null;
+  if (["DELIVERED", "COMPLETED", "PENDING_RELEASE", "RELEASED", "DISPUTED"].includes(detail.escrow.status)) {
+    const events = detail.events || await escrowStore.listEvents(detail.escrow.escrowId).catch(() => []);
+    const delivEvent = Array.isArray(events) ? events.slice().reverse().find((e: any) => e.eventType === "seller_delivery_proof_recorded") : undefined;
+    if (delivEvent) {
+      let meta: any = {};
+      try { meta = typeof delivEvent.metadata === "string" ? JSON.parse(delivEvent.metadata || "{}") : (delivEvent.metadata || {}); } catch {}
+      deliveryProof = {
+        summary: delivEvent.reason || meta.summary || "Work delivered",
+        media: meta.media || [],
+        deliveredAt: delivEvent.createdAt,
+      };
+    }
+  }
+
   return {
     escrow: {
       escrowId: detail.escrow.escrowId,
@@ -791,6 +806,7 @@ export async function buildParticipantDeal(
       currency: detail.escrow.currency,
       status: detail.escrow.status,
       purpose: detail.escrow.purpose,
+      deliveryProof,
       feePayer: detail.escrow.feePayer || "buyer",
       platformFeeAmount: quote.platformFeeAmount,
       totalPlatformFee: quote.totalPlatformFee,
