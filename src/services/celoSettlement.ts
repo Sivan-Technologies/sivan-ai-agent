@@ -42,7 +42,7 @@ export class CeloSettlementService {
   private paymentApiUrl: string;
 
   constructor(paymentApiUrl?: string) {
-    this.paymentApiUrl = (paymentApiUrl || process.env.SIVAN_PAYMENT_URL || config.services?.paymentApi || 'http://localhost:3000').replace(/\/$/, '');
+    this.paymentApiUrl = (paymentApiUrl || process.env.SIVAN_PAYMENT_URL || 'http://localhost:3000').replace(/\/$/, '');
   }
 
   /**
