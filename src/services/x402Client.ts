@@ -43,6 +43,16 @@ export class X402Client {
         const netName = (settings.cryptoNetwork || "solana").toLowerCase();
         const netMode = (settings.networkMode || "devnet").toLowerCase();
         let formattedNetwork = `${netName}-${netMode}`;
+        if (netName === "base" && netMode === "devnet") formattedNetwork = "base-sepolia";
+        if (netName === "base" && (netMode === "mainnet" || netMode === "live")) formattedNetwork = "base-mainnet";
+        if (netName === "celo" && netMode === "devnet") formattedNetwork = "celo-alfajores";
+        if (netName === "celo" && (netMode === "mainnet" || netMode === "live")) formattedNetwork = "celo-mainnet";
+        if (netName === "stellar" && netMode === "devnet") formattedNetwork = "stellar-testnet";
+        if (netName === "stellar" && (netMode === "mainnet" || netMode === "live")) formattedNetwork = "stellar-pubnet";
+        if ((netName === "bsc" || netName === "bnb") && netMode === "devnet") formattedNetwork = "bsc-testnet";
+        if ((netName === "bsc" || netName === "bnb") && (netMode === "mainnet" || netMode === "live")) formattedNetwork = "bsc-mainnet";
+        if (netName === "solana" && netMode === "devnet") formattedNetwork = "solana-devnet";
+        if (netName === "solana" && (netMode === "mainnet" || netMode === "live")) formattedNetwork = "solana-mainnet";
         if (netName === "avalanche" && netMode === "devnet") formattedNetwork = "avalanche-fuji";
         if (netName === "ethereum" && netMode === "devnet") formattedNetwork = "ethereum-sepolia";
         if (netName === "arbitrum" && netMode === "mainnet") formattedNetwork = "arbitrum-one";
