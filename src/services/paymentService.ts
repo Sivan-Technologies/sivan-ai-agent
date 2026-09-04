@@ -28,9 +28,12 @@ function deriveAgentBaseUrl(): string {
       // fall through
     }
   }
+  if (process.env.APP_URL || process.env.BASE_URL) {
+    return (process.env.APP_URL || process.env.BASE_URL)!.replace(/\/$/, "");
+  }
   return config.databaseMode === "live"
-    ? "https://sivan-escrow-agent-live.onrender.com"
-    : "https://sivan-escrow-agent-test.onrender.com";
+    ? "https://api.sivantech.online"
+    : "https://api-staging.sivantech.online";
 }
 
 export async function getFormattedCryptoNetworkLabel(): Promise<string> {
