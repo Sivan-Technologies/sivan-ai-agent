@@ -202,14 +202,13 @@ export const config = {
     notificationSecret: envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET", "sivan_notify_test_secret")),
 
     // Telegram is a separate delivery channel with its own deployment, so it
-    // gets its own URL rather than sharing NOTIFICATION_URL. Unset means the
-    // Telegram layer is not deployed yet and is simply skipped.
-    telegramNotificationUrl: envValue("TELEGRAM_NOTIFICATION_URL"),
+    // gets its own URL rather than sharing NOTIFICATION_URL.
+    telegramNotificationUrl: envValue("TELEGRAM_NOTIFICATION_URL", "https://telegram.sivantech.online"),
     // Falls back to the shared secret so a single-secret setup keeps working,
     // but can be rotated independently once the two layers are separate.
     telegramNotificationSecret: envValue(
       "TELEGRAM_NOTIFICATION_SECRET",
-      envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET", "sivan_notify_test_secret"))
+      envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET", "vDhsV0u8QLu-DhMP8muxUxp4XLk5I8TtaqXa9oO-ErU"))
     ),
 
   },
