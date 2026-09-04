@@ -65,9 +65,10 @@ router.get("/api/users/profile", requireCoreApiAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid WhatsApp number" });
   }
-  const user = await escrowStore.findUserByWhatsapp(parsed.data);
+  let user = await escrowStore.findUserByWhatsapp(parsed.data);
   if (!user) {
-    return res.status(404).json({ error: "User profile not found" });
+    // Auto-provision user on the fly so cross-channel callers never receive a 404
+    user = await escrowStore.upsertUserByWhatsapp(parsed.data, "seller");
   }
   res.status(200).json(user);
 });
@@ -193,11 +194,14 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Actor identity is required", details: formatZodError(parsed.error) });
     }
-    const actorUserId = parsed.data.actorUserId
-      ? parsed.data.actorUserId
-      : parsed.data.actorWhatsapp
-      ? (await escrowStore.findUserByWhatsapp(parsed.data.actorWhatsapp))?.userId
-      : undefined;
+    let actorUserId = parsed.data.actorUserId;
+    if (!actorUserId && parsed.data.actorWhatsapp) {
+      let foundUser = await escrowStore.findUserByWhatsapp(parsed.data.actorWhatsapp);
+      if (!foundUser) {
+        foundUser = await escrowStore.upsertUserByWhatsapp(parsed.data.actorWhatsapp, "seller");
+      }
+      actorUserId = foundUser?.userId;
+    }
 
     const byUserEscrows = actorUserId
       ? await escrowStore.listEscrowsForUserId(actorUserId, parsed.data.limit)
