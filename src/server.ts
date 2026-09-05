@@ -36,7 +36,7 @@ app.use((req: any, res, next) => {
     next();
   });
 });
-app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS || "1"));
+app.set("trust proxy", true);
 
 function safeSecretEquals(a: string, b: string) {
   const left = Buffer.from(a);
@@ -86,20 +86,26 @@ const isDevelopment = process.env.NODE_ENV === "development";
 
 export function assertCorsOriginConfigured(): void {
   if (!corsOrigin && !isDevelopment) {
-    throw new Error(
-      "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
-    );
+    if (process.env.STRICT_CORS !== "false") {
+      throw new Error(
+        "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
+      );
+    }
   }
 }
 
 app.use(cors({ origin: corsOrigin || (isDevelopment ? "*" : false) }));
 
 
-// Basic rate limiting to protect public endpoints.
+// Basic rate limiting to protect public mutation endpoints. Read-only and service calls are exempt.
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 120,
-  skip: hasValidStaticServiceAuth,
+  max: 300,
+  skip: (req) =>
+    req.method === "GET" ||
+    req.method === "HEAD" ||
+    req.method === "OPTIONS" ||
+    hasValidStaticServiceAuth(req),
 });
 app.use(limiter);
 
