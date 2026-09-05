@@ -203,7 +203,7 @@ export const config = {
 
     telegramNotificationUrl: envValue(
       "TELEGRAM_NOTIFICATION_URL",
-      databaseMode === "live" ? "https://telegram.sivantech.online" : "https://sivan-telegram-service-bh32.onrender.com"
+      databaseMode === "live" ? "https://telegram.sivantech.online" : "https://api-staging.sivantech.online"
     ),
     // Falls back to the shared secret so a single-secret setup keeps working,
     // but can be rotated independently once the two layers are separate.
