@@ -102,14 +102,29 @@ export const escrowActionSchema = z.object({
 const participantActorFields = {
   actorWhatsapp: whatsappAddress.optional(),
   actorUserId: actorUserId.optional(),
+  actorTelegramId: z.string().trim().min(1).max(120).optional(),
+  actorTelegramUsername: z.string().trim().min(1).max(120).optional(),
+  actorEmail: z.string().trim().min(3).max(160).optional(),
 };
 
 // At least one identifier, rather than a specific one. actorWhatsapp used to be
 // mandatory, which made these endpoints unreachable for an account with no
 // phone on file.
-const hasActorIdentity = (value: { actorWhatsapp?: string; actorUserId?: string }) =>
-  Boolean(value.actorWhatsapp || value.actorUserId);
-const actorIdentityMessage = { message: "actorWhatsapp or actorUserId is required" };
+const hasActorIdentity = (value: {
+  actorWhatsapp?: string;
+  actorUserId?: string;
+  actorTelegramId?: string;
+  actorTelegramUsername?: string;
+  actorEmail?: string;
+}) =>
+  Boolean(
+    value.actorWhatsapp ||
+    value.actorUserId ||
+    value.actorTelegramId ||
+    value.actorTelegramUsername ||
+    value.actorEmail
+  );
+const actorIdentityMessage = { message: "actorWhatsapp, actorUserId, actorTelegramId or actorEmail is required" };
 
 export const participantActorSchema = z
   .object(participantActorFields)

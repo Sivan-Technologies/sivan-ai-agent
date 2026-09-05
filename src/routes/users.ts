@@ -194,43 +194,73 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Actor identity is required", details: formatZodError(parsed.error) });
     }
-    let actorUserId = parsed.data.actorUserId;
-    if (!actorUserId && parsed.data.actorWhatsapp) {
-      let foundUser = await escrowStore.findUserByWhatsapp(parsed.data.actorWhatsapp);
-      if (!foundUser) {
-        foundUser = await escrowStore.upsertUserByWhatsapp(parsed.data.actorWhatsapp, "seller");
+
+    const { actorWhatsapp, actorUserId: reqActorUserId, actorTelegramId, actorEmail, limit } = parsed.data;
+
+    const userIds = new Set<string>();
+    const whatsappNumbers = new Set<string>();
+
+    if (reqActorUserId) {
+      userIds.add(reqActorUserId);
+    }
+    if (actorTelegramId) {
+      const foundUser = await escrowStore.findUserByTelegramId(actorTelegramId);
+      if (foundUser?.userId) {
+        userIds.add(foundUser.userId);
+        if (foundUser.whatsappNumber) whatsappNumbers.add(foundUser.whatsappNumber);
       }
-      actorUserId = foundUser?.userId;
+    }
+    if (actorEmail) {
+      const foundUser = await escrowStore.findUserByEmail(actorEmail);
+      if (foundUser?.userId) {
+        userIds.add(foundUser.userId);
+        if (foundUser.whatsappNumber) whatsappNumbers.add(foundUser.whatsappNumber);
+      }
+    }
+    if (actorWhatsapp) {
+      whatsappNumbers.add(actorWhatsapp);
+      let foundUser = await escrowStore.findUserByWhatsapp(actorWhatsapp);
+      if (!foundUser && userIds.size === 0) {
+        foundUser = await escrowStore.upsertUserByWhatsapp(actorWhatsapp, "seller");
+      }
+      if (foundUser?.userId) {
+        userIds.add(foundUser.userId);
+      }
     }
 
-    const byUserEscrows = actorUserId
-      ? await escrowStore.listEscrowsForUserId(actorUserId, parsed.data.limit)
-      : [];
-    const byPhoneEscrows = parsed.data.actorWhatsapp
-      ? await escrowStore.listEscrowsForWhatsapp(parsed.data.actorWhatsapp, parsed.data.limit)
-      : [];
+    const fetchedEscrows: EscrowRecord[] = [];
+    for (const uId of userIds) {
+      const userDeals = await escrowStore.listEscrowsForUserId(uId, limit);
+      fetchedEscrows.push(...userDeals);
+    }
+    for (const phone of whatsappNumbers) {
+      const phoneDeals = await escrowStore.listEscrowsForWhatsapp(phone, limit);
+      fetchedEscrows.push(...phoneDeals);
+    }
 
     const map = new Map<string, EscrowRecord>();
-    for (const e of [...byUserEscrows, ...byPhoneEscrows]) {
+    for (const e of fetchedEscrows) {
       map.set(e.escrowId, e);
     }
     const rawEscrows = Array.from(map.values()).sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
     const escrows = (await Promise.all(rawEscrows.map((escrow) => refreshEscrowPaymentLifecycleForRead(escrow, "participant_deals"))))
       .filter(Boolean) as EscrowRecord[];
+    const primaryPhone = actorWhatsapp || Array.from(whatsappNumbers)[0];
+    const primaryUserId = reqActorUserId || Array.from(userIds)[0];
+
     const deals = await Promise.all(escrows.map(async (escrow) => {
       try {
-        return await buildParticipantDealSummary(escrow, parsed.data.actorWhatsapp, parsed.data.actorUserId);
+        return await buildParticipantDealSummary(escrow, primaryPhone, primaryUserId);
       } catch (err: any) {
         console.warn("Skipping participant deal summary", {
           escrowId: escrow.escrowId,
-          actorWhatsapp: parsed.data.actorWhatsapp,
-          actorUserId: parsed.data.actorUserId,
+          actorWhatsapp: primaryPhone,
+          actorUserId: primaryUserId,
           error: err?.message || err,
         });
         return null;
       }
-
     }));
     res.status(200).json({ deals: deals.filter(Boolean) });
   } catch (err: any) {
