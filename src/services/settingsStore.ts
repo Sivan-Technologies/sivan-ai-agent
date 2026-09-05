@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { Pool } from "pg";
+import { warn } from "../lib/logger";
 
 export interface PlatformSettings {
   id?: string;
@@ -89,6 +90,8 @@ export class SettingsStore {
   private sqlite?: Database.Database;
   private pool?: Pool;
   private initialized = false;
+  private cachedSettings: PlatformSettings | null = null;
+  private cacheExpiresAt = 0;
 
   constructor(private databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
     this.provider = detectProvider(databaseUrl, provider);
@@ -469,12 +472,31 @@ export class SettingsStore {
   }
 
   public async getSettings(): Promise<PlatformSettings> {
-    await this.initializeSchema();
-    if (this.provider === "sqlite") {
-      return this.mapSettingsRow(this.sqlite!.prepare(`SELECT * FROM platform_settings WHERE id = 'default' LIMIT 1`).get());
+    const now = Date.now();
+    if (this.cachedSettings && this.cacheExpiresAt > now) {
+      return this.cachedSettings;
     }
-    const result = await this.pool!.query(`SELECT * FROM platform_settings WHERE id = 'default' LIMIT 1`);
-    return this.mapSettingsRow(result.rows[0]);
+
+    try {
+      await this.initializeSchema();
+      if (this.provider === "sqlite") {
+        const settings = this.mapSettingsRow(this.sqlite!.prepare(`SELECT * FROM platform_settings WHERE id = 'default' LIMIT 1`).get());
+        this.cachedSettings = settings;
+        this.cacheExpiresAt = now + 30_000;
+        return settings;
+      }
+      const result = await this.pool!.query(`SELECT * FROM platform_settings WHERE id = 'default' LIMIT 1`);
+      const settings = this.mapSettingsRow(result.rows[0]);
+      this.cachedSettings = settings;
+      this.cacheExpiresAt = now + 30_000;
+      return settings;
+    } catch (err: any) {
+      if (this.cachedSettings) {
+        warn(`SettingsStore query failed; returning in-memory cached settings: ${err?.message || err}`);
+        return this.cachedSettings;
+      }
+      throw err;
+    }
   }
 
   public async updateSettings(settings: {
@@ -823,6 +845,8 @@ export class SettingsStore {
     }
 
     await this.addAuditEntry("platform_settings", JSON.stringify(current), JSON.stringify(resolved), resolved.updatedBy);
+    this.cachedSettings = null;
+    this.cacheExpiresAt = 0;
     return this.getSettings();
   }
 
