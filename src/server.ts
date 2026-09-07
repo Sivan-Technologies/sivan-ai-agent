@@ -6,7 +6,7 @@ import rateLimit from "express-rate-limit";
 import * as Sentry from "@sentry/node";
 import crypto from "crypto";
 import { config, validateConfig } from "./config";
-import { info, error } from "./lib/logger";
+import { info, error, warn } from "./lib/logger";
 import { requestStorage } from "./utils/logger";
 import { settingsStore, initializeDatabaseSchemas } from "./context";
 import { captureOperationalError } from "./services/monitoring";
@@ -136,11 +136,8 @@ app.use(async (req, res, next) => {
       mode: settings.platformMode,
     });
   } catch (err: any) {
-    captureOperationalError("Failed to evaluate platform mode", err, { path: req.path });
-    return res.status(503).json({
-      error: "PLATFORM_MODE_UNAVAILABLE",
-      message: "Sivan is temporarily unavailable. Please try again soon.",
-    });
+    warn("Failed to evaluate platform mode from DB; falling back to operational mode", { path: req.path, error: err?.message || err });
+    return next();
   }
 });
 
