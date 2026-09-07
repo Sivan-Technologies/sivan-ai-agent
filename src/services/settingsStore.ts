@@ -76,6 +76,60 @@ export interface FeeCalculation {
   recipientNet: number;
 }
 
+export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
+  id: "default",
+  nairaFeePercent: 1.5,
+  nairaFeeFixed: 100,
+  usdcFeePercent: 1.0,
+  usdcFeeFixed: 0.5,
+  minNairaAmount: 2000,
+  maxNairaAmount: 5000000,
+  minUsdcAmount: 5,
+  maxUsdcAmount: 50000,
+  nairaNewUserLimit: 100000,
+  nairaTrustedUserLimit: 250000,
+  nairaEstablishedUserLimit: 500000,
+  nairaSpecialApprovalLimit: 1000000,
+  nairaBuyerActiveExposureLimit: 500000,
+  nairaPlatformActiveExposureLimit: 10000000,
+  trustedUserSuccessfulEscrows: 3,
+  establishedUserSuccessfulEscrows: 10,
+  activePaymentProvider: process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
+  backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
+  emergencyPaymentProvider: process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
+  paymentProviderFallbackEnabled: true,
+  platformMode: "live",
+  maintenanceMessage: "Sivan is currently undergoing brief scheduled maintenance. Please try again shortly.",
+  nairaPaymentMethod: "bank_transfer",
+  nairaFeeModel: "simple",
+  nairaFeeTiers: "[]",
+  nairaFundingWindowHours: 24,
+  nairaHighValueFundingWindowHours: 12,
+  nairaHighValueFundingWindowAmount: 1000000,
+  nairaFundingReminderBeforeExpiryHours: 2,
+  payoutSharedAccountReviewCount: 3,
+  complianceNewSellerEscrowCount: 3,
+  complianceHighDisputeRatio: 0.25,
+  complianceHighDisputeMinEscrows: 5,
+  nairaHighValueReviewAmount: 1000000,
+  usdcHighValueReviewAmount: 5000,
+  paymentLifecycleWorkerEnabled: true,
+  paymentLifecycleWorkerIntervalMs: 60000,
+  reconciliationWorkerEnabled: true,
+  queueWorkerEnabled: true,
+  stuckEscrowAlertMinutes: 120,
+  autoReleaseEnabled: true,
+  deliveryInspectionWindowDays: 3,
+  outageStatusPageUrl: "https://status.sivantech.online",
+  outageContacts: "support@sivantech.online",
+  cryptoNetwork: "solana",
+  networkMode: (process.env.NETWORK_MODE as any) === "mainnet" ? "mainnet" : "devnet",
+  usdtEnabled: true,
+  version: 1,
+  updatedAt: new Date().toISOString(),
+  updatedBy: "system_default",
+};
+
 type StoreProvider = "sqlite" | "postgres";
 
 function detectProvider(databaseUrl: string, provider?: string): StoreProvider {
@@ -495,7 +549,11 @@ export class SettingsStore {
         warn(`SettingsStore query failed; returning in-memory cached settings: ${err?.message || err}`);
         return this.cachedSettings;
       }
-      throw err;
+      warn(`SettingsStore query failed and no cache available; returning default platform settings: ${err?.message || err}`);
+      const fallback = { ...DEFAULT_PLATFORM_SETTINGS, updatedAt: new Date().toISOString() };
+      this.cachedSettings = fallback;
+      this.cacheExpiresAt = now + 15_000;
+      return fallback;
     }
   }
 

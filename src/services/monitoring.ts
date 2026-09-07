@@ -33,7 +33,29 @@ function pushOperationalEvent(event: Omit<OperationalEvent, "id" | "createdAt">)
   return record;
 }
 
+const recentAlertTimestamps = new Map<string, number>();
+const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown per unique alert signature
+
+function shouldSendAlert(event: OperationalEvent): boolean {
+  const sig = `${event.level}:${event.message}:${event.error || ""}:${event.context?.path || ""}`;
+  const now = Date.now();
+  const lastSent = recentAlertTimestamps.get(sig);
+  if (lastSent && now - lastSent < ALERT_COOLDOWN_MS) {
+    return false;
+  }
+  recentAlertTimestamps.set(sig, now);
+
+  if (recentAlertTimestamps.size > 500) {
+    for (const [k, ts] of recentAlertTimestamps.entries()) {
+      if (now - ts > ALERT_COOLDOWN_MS) recentAlertTimestamps.delete(k);
+    }
+  }
+  return true;
+}
+
 async function sendAlert(event: OperationalEvent) {
+  if (!shouldSendAlert(event)) return;
+
   const provider =
     process.env.OPERATIONS_ALERT_PROVIDER ||
     (hasTelegramAlertDestination() ? "telegram" : "webhook");
