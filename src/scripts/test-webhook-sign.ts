@@ -3,7 +3,7 @@ import axios from "axios";
 
 async function main() {
   const secret = "a3f9e2b1d6c8e5fa72109485bcfd30e12a938dfc618be4d20739f826d10c534a";
-  const url = "https://sivan-escrow-agent-test.onrender.com/webhooks/nomba";
+  const url = (process.env.ESCROW_AGENT_URL || 'http://127.0.0.1:4000') + '/webhooks/nomba';
 
   // Use the latest escrow's payment reference
   const merchantTxRef = "nomba-SIV-731863-D0B1-1783508795857-16e54841";

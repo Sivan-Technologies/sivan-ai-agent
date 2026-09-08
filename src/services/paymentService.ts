@@ -31,9 +31,7 @@ function deriveAgentBaseUrl(): string {
   if (process.env.APP_URL || process.env.BASE_URL) {
     return (process.env.APP_URL || process.env.BASE_URL)!.replace(/\/$/, "");
   }
-  return config.databaseMode === "live"
-    ? "https://api.sivantech.online"
-    : "https://api-staging.sivantech.online";
+  throw new Error('Agent base URL cannot be derived: set APP_URL, BASE_URL, or a provider callback URL in environment variables.');
 }
 
 export async function getFormattedCryptoNetworkLabel(): Promise<string> {

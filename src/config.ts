@@ -202,14 +202,13 @@ export const config = {
     notificationSecret: envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET", "sivan_notify_test_secret")),
 
     telegramNotificationUrl: envValue(
-      "TELEGRAM_NOTIFICATION_URL",
-      databaseMode === "live" ? "https://telegram.sivantech.online" : "https://api-staging.sivantech.online"
+      "TELEGRAM_NOTIFICATION_URL"
     ),
     // Falls back to the shared secret so a single-secret setup keeps working,
     // but can be rotated independently once the two layers are separate.
     telegramNotificationSecret: envValue(
       "TELEGRAM_NOTIFICATION_SECRET",
-      envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET", "vDhsV0u8QLu-DhMP8muxUxp4XLk5I8TtaqXa9oO-ErU"))
+      envValue("NOTIFICATION_SECRET", envValue("NOTIFY_SECRET"))
     ),
 
   },
