@@ -22,7 +22,7 @@ export interface X402FacilitatorResponse {
 
 export class X402Client {
   private axiosInstance: AxiosInstance;
-  private readonly MAX_RETRIES = 1;
+  private readonly MAX_RETRIES = 2;
   private readonly BASE_DELAY_MS = 500;
 
   constructor(
@@ -32,7 +32,7 @@ export class X402Client {
   ) {
     this.axiosInstance = axios.create({
       baseURL: this.baseUrl,
-      timeout: 3500,
+      timeout: 10000,
       headers: this.getHeaders(),
     });
 
@@ -105,28 +105,79 @@ export class X402Client {
     metadata: Record<string, any> = {}
   ): Promise<X402PaymentResult> {
     log("Creating x402 payment facility", { amount, currency, recipient });
-    const result = await this.retryableCall(async () => {
-      const response = await this.axiosInstance.post<X402FacilitatorResponse>(
-        "/v1/payment-facility/create",
-        {
-          amount,
-          currency,
-          recipient,
-          network: config.x402.network,
-          asset: config.x402.usdcMint || "USDC",
-          metadata: {
-            ...metadata,
-            synapseNetwork: config.x402.network,
-            usdcMint: config.x402.usdcMint || undefined,
-          },
-        }
-      );
 
-      if (!response.data?.success || !response.data?.data) {
-        throw new Error(response.data?.error || "Failed to create payment facility");
+    let activeNetwork = metadata?.network;
+    if (!activeNetwork) {
+      try {
+        const { settingsStore } = await import("../context.js");
+        const settings = await settingsStore.getSettings();
+        const netName = (settings.cryptoNetwork || "solana").toLowerCase();
+        const netMode = (settings.networkMode || "devnet").toLowerCase();
+        activeNetwork = `${netName}-${netMode}`;
+        if (netName === "base" && netMode === "devnet") activeNetwork = "base-sepolia";
+        if (netName === "base" && (netMode === "mainnet" || netMode === "live")) activeNetwork = "base-mainnet";
+        if (netName === "celo" && netMode === "devnet") activeNetwork = "celo-alfajores";
+        if (netName === "celo" && (netMode === "mainnet" || netMode === "live")) activeNetwork = "celo-mainnet";
+        if (netName === "stellar" && netMode === "devnet") activeNetwork = "stellar-testnet";
+        if (netName === "stellar" && (netMode === "mainnet" || netMode === "live")) activeNetwork = "stellar-pubnet";
+        if ((netName === "bsc" || netName === "bnb") && netMode === "devnet") activeNetwork = "bsc-testnet";
+        if ((netName === "bsc" || netName === "bnb") && (netMode === "mainnet" || netMode === "live")) activeNetwork = "bsc-mainnet";
+        if (netName === "solana" && netMode === "devnet") activeNetwork = "solana-devnet";
+        if (netName === "solana" && (netMode === "mainnet" || netMode === "live")) activeNetwork = "solana-mainnet";
+      } catch {
+        activeNetwork = config.x402.network;
+      }
+    }
+
+    const result = await this.retryableCall(async () => {
+      try {
+        const response = await this.axiosInstance.post<X402FacilitatorResponse>(
+          "/v1/payment-facility/create",
+          {
+            amount,
+            currency,
+            recipient,
+            network: activeNetwork || config.x402.network,
+            asset: config.x402.usdcMint || "USDC",
+            metadata: {
+              ...metadata,
+              synapseNetwork: activeNetwork || config.x402.network,
+              usdcMint: config.x402.usdcMint || undefined,
+            },
+          }
+        );
+
+        if (response.data?.success && response.data?.data) {
+          return response.data.data;
+        }
+      } catch (postErr: any) {
+        if (postErr.response?.status === 404) {
+          // Standard x402 facilitator (PayAI): query /supported to verify network and fee payer
+          const supportedRes = await this.axiosInstance.get("/supported");
+          const kinds: any[] = supportedRes.data?.kinds || [];
+          const matchedKind = kinds.find((k: any) => k.network === activeNetwork);
+
+          const paymentId = `x402_${(activeNetwork || "net").replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
+          return {
+            facilitatorId: `payai_${activeNetwork || "facilitator"}`,
+            paymentId,
+            status: "pending",
+            amount,
+            currency,
+            createdAt: new Date().toISOString(),
+            details: {
+              depositAddress: recipient,
+              network: activeNetwork,
+              facilitatorUrl: this.baseUrl,
+              feePayer: matchedKind?.extra?.feePayer || null,
+              payAiSupported: Boolean(matchedKind),
+            },
+          };
+        }
+        throw postErr;
       }
 
-      return response.data.data;
+      throw new Error("Failed to create payment facility");
     }, "createPaymentFacility");
 
     return result;
@@ -135,16 +186,40 @@ export class X402Client {
   public async settlePayment(paymentId: string): Promise<X402PaymentResult> {
     log("Settling x402 payment", { paymentId });
     const result = await this.retryableCall(async () => {
-      const response = await this.axiosInstance.post<X402FacilitatorResponse>(
-        "/v1/payment-facility/settle",
-        { payment_id: paymentId }
-      );
+      try {
+        const response = await this.axiosInstance.post<X402FacilitatorResponse>(
+          "/v1/payment-facility/settle",
+          { payment_id: paymentId }
+        );
 
-      if (!response.data?.success || !response.data?.data) {
-        throw new Error(response.data?.error || "Failed to settle payment");
+        if (response.data?.success && response.data?.data) {
+          return response.data.data;
+        }
+      } catch (settleErr: any) {
+        if (settleErr.response?.status === 404) {
+          // Standard x402 facilitator /settle
+          const settleRes = await this.axiosInstance.post(
+            "/settle",
+            { paymentId, x402Version: 1 }
+          ).catch((e: any) => e.response || {});
+
+          if (settleRes.data?.success) {
+            return {
+              facilitatorId: "payai_settlement",
+              paymentId,
+              status: "settled",
+              transactionHash: settleRes.data?.transaction,
+              amount: 0,
+              currency: "USDC",
+              createdAt: new Date().toISOString(),
+              details: settleRes.data,
+            };
+          }
+        }
+        throw settleErr;
       }
 
-      return response.data.data;
+      throw new Error("Failed to settle payment");
     }, "settlePayment");
 
     return result;
@@ -152,15 +227,33 @@ export class X402Client {
   public async getPaymentStatus(paymentId: string): Promise<X402PaymentResult> {
     log("Fetching x402 payment status", { paymentId });
     const result = await this.retryableCall(async () => {
-      const response = await this.axiosInstance.get<X402FacilitatorResponse>(
-        `/v1/payment-facility/status/${paymentId}`
-      );
+      try {
+        const response = await this.axiosInstance.get<X402FacilitatorResponse>(
+          `/v1/payment-facility/status/${paymentId}`
+        );
 
-      if (!response.data?.success || !response.data?.data) {
-        throw new Error(response.data?.error || "Failed to fetch payment status");
+        if (response.data?.success && response.data?.data) {
+          return response.data.data;
+        }
+      } catch (getErr: any) {
+        if (getErr.response?.status === 404) {
+          return {
+            facilitatorId: "payai_facilitator",
+            paymentId,
+            status: "pending",
+            amount: 0,
+            currency: "USDC",
+            createdAt: new Date().toISOString(),
+            details: {
+              facilitatorUrl: this.baseUrl,
+              probe: "ok",
+            },
+          };
+        }
+        throw getErr;
       }
 
-      return response.data.data;
+      throw new Error("Failed to fetch payment status");
     }, "getPaymentStatus");
 
     return result;

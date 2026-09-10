@@ -34,15 +34,19 @@ function deriveAgentBaseUrl(): string {
   throw new Error('Agent base URL cannot be derived: set APP_URL, BASE_URL, or a provider callback URL in environment variables.');
 }
 
-export async function getFormattedCryptoNetworkLabel(): Promise<string> {
+export async function getFormattedCryptoNetworkLabel(overrideNetwork?: string): Promise<string> {
   const settings = await settingsStore.getSettings();
-  const netName = (settings.cryptoNetwork || "solana").toUpperCase();
+  const netName = (overrideNetwork || settings.cryptoNetwork || "solana").toUpperCase();
   const netMode = (settings.networkMode || "devnet").toUpperCase();
   if (netName === "SOLANA") return `Solana ${netMode === "MAINNET" ? "Mainnet" : "Devnet"}`;
+  if (netName === "BASE") return `Base ${netMode === "MAINNET" ? "Mainnet" : "Sepolia Testnet"}`;
+  if (netName === "CELO") return `Celo ${netMode === "MAINNET" ? "Mainnet" : "Alfajores Testnet"}`;
+  if (netName === "STELLAR") return `Stellar ${netMode === "MAINNET" ? "Mainnet" : "Testnet"}`;
+  if (netName === "BSC" || netName === "BINANCE") return `BNB Chain ${netMode === "MAINNET" ? "Mainnet" : "Testnet"}`;
   if (netName === "AVALANCHE") return `Avalanche ${netMode === "MAINNET" ? "Mainnet C-Chain" : "Fuji Testnet"}`;
   if (netName === "ETHEREUM") return `Ethereum ${netMode === "MAINNET" ? "Mainnet" : "Sepolia Testnet"}`;
   if (netName === "ARBITRUM") return `Arbitrum ${netMode === "MAINNET" ? "One Mainnet" : "Sepolia Testnet"}`;
-  return `${settings.cryptoNetwork || "Solana"} ${settings.networkMode || "Devnet"}`;
+  return `${overrideNetwork || settings.cryptoNetwork || "Solana"} ${settings.networkMode || "Devnet"}`;
 }
 
 export function createProviderForId(provider?: string, platformMode?: "test" | "live" | "maintenance") {
@@ -353,7 +357,8 @@ export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options
     (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
     "SivanUSDCPlatformDepositWalletAddressPlaceholder";
 
-  const networkLabel = await getFormattedCryptoNetworkLabel();
+  const agreementNetwork = (escrow as any).network || (escrow as any).cryptoNetwork;
+  const networkLabel = await getFormattedCryptoNetworkLabel(agreementNetwork);
 
   return {
     provider: usdcChannel,
@@ -387,7 +392,8 @@ export async function activePaymentInstructionForEscrow(detail: any) {
       (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
       "SivanUSDCPlatformDepositWalletAddressPlaceholder";
 
-    const networkLabel = await getFormattedCryptoNetworkLabel();
+    const agreementNetwork = detail.escrow.network || detail.escrow.cryptoNetwork || rawMetadata.network || rawMetadata.cryptoNetwork;
+    const networkLabel = await getFormattedCryptoNetworkLabel(agreementNetwork);
 
     return {
       provider: detail.escrow.paymentProvider || "x402",

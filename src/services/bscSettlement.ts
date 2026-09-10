@@ -106,20 +106,7 @@ export class BscSettlementService {
         timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
-      // Fallback for isolated test / simulation mode
-      const mockTx = `0x${Buffer.from(idempotencyKey).toString('hex').slice(0, 64)}`;
-      return {
-        success: true,
-        agreementId: request.agreementId,
-        txHash: mockTx,
-        explorerUrl: `https://bscscan.com/tx/${mockTx}`,
-        network: 'bsc',
-        asset,
-        releasedAmount: request.netAmountUsdc,
-        feeDeducted: request.feeAmountUsdc,
-        destinationAddress: request.sellerBscAddress,
-        timestamp: new Date().toISOString(),
-      };
+      throw new Error(`BSC settlement payment API transfer failed: ${err.message || err}`);
     }
   }
 }

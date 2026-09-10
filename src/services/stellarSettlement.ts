@@ -67,10 +67,11 @@ export class StellarSettlementService {
 
     // Call Sivan Payment Multi-Chain Transfer API
     try {
-      const response = await fetch(`${this.paymentApiUrl}/api/transfers`, {
+      const response = await fetch(`${this.paymentApiUrl}/api/v1/developer/transfers`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Sivan-Api-Key': process.env.SIVAN_DEV_API_KEY || 'sk_test_sivan_developer_default',
           'X-Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify({
@@ -107,22 +108,7 @@ export class StellarSettlementService {
         timestamp: new Date().toISOString(),
       };
     } catch (error: any) {
-      // Return structured fallback for resilient queue retry
-      const mockHash = `tx_stl_${request.agreementId.slice(-8)}_${Date.now().toString(36)}`;
-      const isTestnet = process.env.APP_ENV !== 'production';
-      return {
-        success: true,
-        agreementId: request.agreementId,
-        txHash: mockHash,
-        explorerUrl: isTestnet
-          ? `https://stellar.expert/explorer/testnet/tx/${mockHash}`
-          : `https://stellar.expert/explorer/public/tx/${mockHash}`,
-        network: 'stellar',
-        releasedAmount: request.netAmountUsdc,
-        feeDeducted: request.feeAmountUsdc,
-        destinationAddress: request.sellerStellarAddress,
-        timestamp: new Date().toISOString(),
-      };
+      throw new Error(`Stellar payment settlement execution failed: ${error.message || error}`);
     }
   }
 }

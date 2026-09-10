@@ -226,7 +226,7 @@ export const adminSettingsSchema = z.object({
   outageStatusPageUrl: z.string().trim().optional(),
   outageContacts: z.string().trim().min(5).max(250).optional(),
   // Crypto Network & Mode Controls
-  cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum"]).optional(),
+  cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum", "base", "celo", "stellar", "bsc"]).optional(),
   networkMode: z.enum(["devnet", "mainnet"]).optional(),
   usdtEnabled: z.coerce.boolean().optional(),
   expectedVersion: z.coerce.number().int().positive(),
@@ -248,7 +248,7 @@ export const paymentProviderSettingsSchema = z.object({
   backupPaymentProvider: nairaPaymentProviderIdSchema,
   emergencyPaymentProvider: nairaPaymentProviderIdSchema,
   paymentProviderFallbackEnabled: z.coerce.boolean().default(false),
-  cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum"]).optional(),
+  cryptoNetwork: z.enum(["solana", "avalanche", "ethereum", "arbitrum", "base", "celo", "stellar", "bsc"]).optional(),
   networkMode: z.enum(["devnet", "mainnet"]).optional(),
   expectedVersion: z.coerce.number().int().positive(),
 });
