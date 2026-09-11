@@ -692,4 +692,79 @@ router.get("/api/escrows/payment-ref/:reference", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/escrows/fee-quote
+ * Returns dynamic Service Agreement fee calculated directly from active Admin platform settings.
+ */
+router.get("/api/escrows/fee-quote", async (req, res) => {
+  try {
+    const currencyStr = String(req.query.currency || "USDC").toUpperCase();
+    const amount = parseFloat(String(req.query.amount || "10"));
+
+    if (isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid agreement amount. Must be greater than 0." });
+    }
+
+    const settings = await settingsStore.getSettings();
+    const isNaira = currencyStr === "CNGN" || currencyStr === "NGN" || currencyStr === "NAIRA";
+    const feeCalculation = isNaira
+      ? settingsStore.calculateNairaFee(amount, settings)
+      : settingsStore.calculateUSDCFee(amount, settings);
+
+    const protocolFee = feeCalculation.totalPlatformFee;
+    const netAmount = Math.max(0, parseFloat((amount - protocolFee).toFixed(6)));
+    const feeFormula = isNaira
+      ? (settings.nairaFeeModel === "tiered" ? "Tiered Platform Schedule" : `${settings.nairaFeePercent}% + ₦${settings.nairaFeeFixed}`)
+      : `${settings.usdcFeePercent}% + $${settings.usdcFeeFixed.toFixed(2)}`;
+
+    return res.status(200).json({
+      status: "ok",
+      source: "sivan_core_settings_store",
+      currency: currencyStr,
+      amount,
+      protocolFee,
+      netAmount,
+      totalWithFee: feeCalculation.totalWithFee,
+      feeFormula,
+      settingsVersion: settings.version,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to calculate dynamic agreement fee" });
+  }
+});
+
+/**
+ * GET /api/escrows/settings/limits
+ * Returns dynamic platform limits and fee settings directly from active Admin store.
+ */
+router.get("/api/escrows/settings/limits", async (_req, res) => {
+  try {
+    const settings = await settingsStore.getSettings();
+    let parsedTiers = undefined;
+    if (settings.nairaFeeTiers) {
+      try {
+        parsedTiers = JSON.parse(settings.nairaFeeTiers);
+      } catch {}
+    }
+    return res.status(200).json({
+      status: "ok",
+      source: "sivan_core_settings_store",
+      minNairaAmount: settings.minNairaAmount,
+      maxNairaAmount: settings.maxNairaAmount,
+      minUsdcAmount: settings.minUsdcAmount,
+      maxUsdcAmount: settings.maxUsdcAmount,
+      usdcFeePercent: settings.usdcFeePercent,
+      usdcFeeFixed: settings.usdcFeeFixed,
+      nairaFeePercent: settings.nairaFeePercent,
+      nairaFeeFixed: settings.nairaFeeFixed,
+      nairaFeeModel: settings.nairaFeeModel,
+      nairaFeeTiers: parsedTiers,
+      version: settings.version,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to fetch settings limits" });
+  }
+});
+
 export default router;
+
