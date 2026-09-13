@@ -1490,7 +1490,7 @@ export function amountsMatch(expected: number, received: number, baseEscrowAmoun
 
 export async function expectedFundingAmount(escrow: EscrowRecord) {
   const quote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
-  return escrow.currency === "NAIRA" ? quote.totalWithFee : escrow.amount;
+  return quote.totalWithFee;
 }
 
 export async function reconcileEscrowPayment(

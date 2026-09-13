@@ -302,13 +302,15 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
     } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
       const usdcChannel = process.env.USDC_CHANNEL || "x402";
       let paymentResult: any;
+      const quote = await calculateEscrowPayoutQuote(accepted.amount, accepted.currency, accepted.feePayer);
+      const fundingAmount = quote.totalWithFee;
 
       try {
         const recipient = config.sap.agentPublicKey || "sivan-escrow-agent";
         if (usdcChannel === "sap") {
-          paymentResult = await paymentRouter.processUsdcSapEscrow(accepted.amount, recipient);
+          paymentResult = await paymentRouter.processUsdcSapEscrow(fundingAmount, recipient);
         } else {
-          paymentResult = await paymentRouter.processUsdcEscrow(accepted.amount, recipient);
+          paymentResult = await paymentRouter.processUsdcEscrow(fundingAmount, recipient);
         }
       } catch (err: any) {
         warn("Failed to create on-chain USDC payment facility, using fallback mock reference", err);
@@ -327,6 +329,10 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         paymentMetadata: {
           paymentId: paymentResult.paymentId,
           details: paymentResult.details || null,
+          platformFeeAmount: quote.platformFeeAmount,
+          sellerNetAmount: quote.sellerNetAmount,
+          totalPayable: quote.totalWithFee,
+          feePayer: accepted.feePayer || "buyer",
         },
       });
       payment = {
@@ -334,6 +340,9 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         reference: paymentResult.reference,
         paymentId: paymentResult.paymentId,
         settlementPolicy: "autonomous_usdc_release",
+        platformFeeAmount: quote.platformFeeAmount,
+        sellerNetAmount: quote.sellerNetAmount,
+        totalPayable: quote.totalWithFee,
       };
     }
     const updated = await buildEscrowDetail(req.params.escrowId);

@@ -112,20 +112,25 @@ function callbackUrlForProvider(providerId: string) {
 
 export function formatFundingInstruction(escrow: EscrowRecord, payment: any) {
   const currency = escrow.currency === "NAIRA" ? "NGN" : escrow.currency;
-  const total = new Intl.NumberFormat("en-NG").format(payment.totalPayable || escrow.amount);
-  const escrowAmount = new Intl.NumberFormat("en-NG").format(escrow.amount);
+  const isCrypto = escrow.currency === "USDC" || escrow.currency === "USDT";
+  const formatVal = (val: number) => isCrypto
+    ? val.toFixed(2)
+    : new Intl.NumberFormat("en-NG").format(val);
+
+  const total = formatVal(payment.totalPayable || escrow.amount);
+  const escrowAmount = formatVal(escrow.amount);
   
   const feePayer = escrow.feePayer || "buyer";
   const totalFee = payment.platformFeeAmount || 0;
   let displayedFee = "";
 
   if (feePayer === "buyer") {
-    displayedFee = `${currency} ${new Intl.NumberFormat("en-NG").format(totalFee)}`;
+    displayedFee = `${currency} ${formatVal(totalFee)}`;
   } else if (feePayer === "seller") {
     displayedFee = `${currency} 0 (paid by seller)`;
   } else if (feePayer === "split") {
-    const buyerFee = Math.round(totalFee / 2);
-    displayedFee = `${currency} ${new Intl.NumberFormat("en-NG").format(buyerFee)} (50/50 split)`;
+    const buyerFee = isCrypto ? parseFloat((totalFee / 2).toFixed(6)) : Math.round(totalFee / 2);
+    displayedFee = `${currency} ${formatVal(buyerFee)} (50/50 split)`;
   }
 
   if (payment.authorizationUrl) {

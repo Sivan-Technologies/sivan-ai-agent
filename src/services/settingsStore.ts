@@ -50,7 +50,7 @@ export interface PlatformSettings {
   deliveryInspectionWindowDays: number;
   outageStatusPageUrl: string;
   outageContacts: string;
-  cryptoNetwork: "solana" | "avalanche" | "ethereum" | "arbitrum";
+  cryptoNetwork: "solana" | "avalanche" | "ethereum" | "arbitrum" | "base" | "celo" | "stellar" | "bsc";
   networkMode: "devnet" | "mainnet";
   usdtEnabled: boolean;
   version: number;
@@ -223,7 +223,7 @@ export class SettingsStore {
       deliveryInspectionWindowDays: Number(row.delivery_inspection_window_days ?? 3),
       outageStatusPageUrl: row.outage_status_page_url || "",
       outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
-      cryptoNetwork: ["solana", "avalanche", "ethereum", "arbitrum"].includes(row.crypto_network) ? row.crypto_network : (process.env.CRYPTO_NETWORK as any) || "solana",
+      cryptoNetwork: ["solana", "avalanche", "ethereum", "arbitrum", "base", "celo", "stellar", "bsc"].includes(row.crypto_network) ? row.crypto_network : (process.env.CRYPTO_NETWORK as any) || "solana",
       networkMode: ["devnet", "mainnet"].includes(row.network_mode) ? row.network_mode : (process.env.NETWORK_MODE as any) || "devnet",
       usdtEnabled: Boolean(row.usdt_enabled ?? 0),
       version: Number(row.version),
@@ -602,7 +602,7 @@ export class SettingsStore {
     deliveryInspectionWindowDays?: number;
     outageStatusPageUrl?: string;
     outageContacts?: string;
-    cryptoNetwork?: "solana" | "avalanche" | "ethereum" | "arbitrum";
+    cryptoNetwork?: "solana" | "avalanche" | "ethereum" | "arbitrum" | "base" | "celo" | "stellar" | "bsc";
     networkMode?: "devnet" | "mainnet";
     usdtEnabled?: boolean;
     expectedVersion: number;
@@ -696,8 +696,8 @@ export class SettingsStore {
     if (resolved.nairaPaymentMethod !== "bank_transfer") {
       throw new Error("Sivan only supports bank-transfer Naira payments");
     }
-    if (!["solana", "avalanche", "ethereum", "arbitrum"].includes(resolved.cryptoNetwork)) {
-      throw new Error("Crypto network must be solana, avalanche, ethereum, or arbitrum");
+    if (!["solana", "avalanche", "ethereum", "arbitrum", "base", "celo", "stellar", "bsc"].includes(resolved.cryptoNetwork)) {
+      throw new Error("Crypto network must be solana, avalanche, ethereum, arbitrum, base, celo, stellar, or bsc");
     }
     if (!["devnet", "mainnet"].includes(resolved.networkMode)) {
       throw new Error("Network mode must be devnet or mainnet");

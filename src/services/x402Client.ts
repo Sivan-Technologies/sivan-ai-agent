@@ -161,7 +161,7 @@ export class X402Client {
           return {
             facilitatorId: `payai_${activeNetwork || "facilitator"}`,
             paymentId,
-            status: "pending",
+            status: "pending" as const,
             amount,
             currency,
             createdAt: new Date().toISOString(),
@@ -207,7 +207,7 @@ export class X402Client {
             return {
               facilitatorId: "payai_settlement",
               paymentId,
-              status: "settled",
+              status: "settled" as const,
               transactionHash: settleRes.data?.transaction,
               amount: 0,
               currency: "USDC",
@@ -240,7 +240,7 @@ export class X402Client {
           return {
             facilitatorId: "payai_facilitator",
             paymentId,
-            status: "pending",
+            status: "pending" as const,
             amount: 0,
             currency: "USDC",
             createdAt: new Date().toISOString(),
