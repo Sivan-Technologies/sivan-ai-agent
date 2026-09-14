@@ -31,15 +31,15 @@ export function requireCoreApiAuth(req: Request, res: Response, next: NextFuncti
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const candidateSecrets = [
-    expectedSecret,
-    "SIVAN_CORE_INTERNAL_SECRET_KEY_2026_TEST_PROD_QUALIFIED",
-    "sivan_core_test_secret",
-    "Yu3w1j5s-I7SgaxBNOAVcaUrW0SpkrlKoo7zppgnMrI",
-  ].filter(Boolean) as string[];
+  if (!expectedSecret) {
+    if (allowInsecureLocalAuth()) {
+      warn("CORE_API_SECRET not configured; allowing insecure local task ingress because ALLOW_INSECURE_LOCAL_AUTH=true");
+      return next();
+    }
+    return res.status(503).json({ error: "CORE_API_SECRET is not configured" });
+  }
 
-  const isMatched = candidateSecrets.some((secret) => safeEquals(providedSecret, secret));
-  if (!isMatched) {
+  if (!safeEquals(providedSecret, expectedSecret)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
