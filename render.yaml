@@ -19,7 +19,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: FRONTEND_URL
-        value: https://sivan-admin-hub-test.vercel.app
+        value: https://admin.sivantech.online
       - key: SYNAPSE_API_KEY
         sync: false
       - key: SYNAPSE_RPC_URL
@@ -45,7 +45,7 @@ services:
       - key: NOTIFICATION_SECRET
         sync: false
       - key: NOTIFICATION_URL
-        value: https://test-sivan.sivantech.online
+        value: https://api-staging.sivantech.online
       - key: TELEGRAM_NOTIFICATION_URL
         sync: false
       - key: TELEGRAM_NOTIFICATION_SECRET
@@ -72,7 +72,7 @@ services:
       - key: FLUTTERWAVE_BASE_URL
         value: https://api.flutterwave.com
       - key: FLUTTERWAVE_CALLBACK_URL
-        value: https://sivan-escrow-agent-test.onrender.com/payment/success
+        value: https://api-staging.sivantech.online/payment/success
       - key: FLUTTERWAVE_PAYMENT_METHODS
         value: bank_transfer
       # PalmPay — backup provider (sandbox)
@@ -122,7 +122,7 @@ services:
       - key: LIVE_DATABASE_URL
         sync: false
       - key: FRONTEND_URL
-        value: https://admin.sivan.online
+        value: https://admin.sivantech.online
       - key: SYNAPSE_API_KEY
         sync: false
       - key: SYNAPSE_RPC_URL
@@ -171,7 +171,7 @@ services:
       - key: FLUTTERWAVE_BASE_URL
         value: https://api.flutterwave.com
       - key: FLUTTERWAVE_CALLBACK_URL
-        value: https://sivan-escrow-agent-live.onrender.com/payment/success
+        value: https://api.sivantech.online/payment/success
       - key: FLUTTERWAVE_PAYMENT_METHODS
         value: bank_transfer
       # PalmPay — backup provider (live/production)
