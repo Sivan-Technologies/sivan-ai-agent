@@ -1,8 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BscSettlementService, bscSettlementService } from '../src/services/bscSettlement';
 
 describe('BNB Chain (BSC) Settlement Engine Test Suite', () => {
   const service = new BscSettlementService();
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it('correctly identifies BNB Chain / BSC agreements', () => {
     expect(service.isBscAgreement({ network: 'bsc' })).toBe(true);
@@ -30,6 +34,20 @@ describe('BNB Chain (BSC) Settlement Engine Test Suite', () => {
   });
 
   it('executes simulated BSC settlement and returns verified BscScan receipt', async () => {
+    const mockTxHash = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+    const mockExplorerUrl = `https://bscscan.com/tx/${mockTxHash}`;
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        txHash: mockTxHash,
+        explorerUrl: mockExplorerUrl,
+      }),
+      text: async () => '',
+    })));
+
     const result = await service.executeSettlement({
       agreementId: 'agr_bsc_valid_001',
       sellerUserId: 'usr_seller_2',

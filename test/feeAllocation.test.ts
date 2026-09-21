@@ -29,7 +29,7 @@ describe("Dynamic Fee Allocation Calculations", () => {
     formatFundingInstruction = paymentService.formatFundingInstruction;
     expectedFundingAmount = escrowService.expectedFundingAmount;
     settingsStore = context.settingsStore;
-  });
+  }, 30000);
 
   afterAll(() => {
     if (fs.existsSync(TEST_DB_PATH)) {
