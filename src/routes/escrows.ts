@@ -615,11 +615,45 @@ router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res
       parsed.data.actorWhatsapp,
       "whatsapp_dm"
     );
+
+    // Unified cross-channel cancellation push: notify counterparty (seller) and actor (buyer)
+    const titleSnip = ((updated as any).purpose || "Service Agreement").slice(0, 50);
+    const sellerPhone = (updated as any).sellerWhatsapp as string | undefined;
+    if (sellerPhone) {
+      const sellerMsg =
+        `🚫 Service Agreement Cancelled\n\n` +
+        `The client has cancelled the service agreement:\n` +
+        `"${titleSnip}"\n\n` +
+        `Ref: ${updated.escrowId}\n` +
+        `No funds have been charged. You can start a new agreement anytime.`;
+      void sendOrQueueWhatsAppNotification({
+        to: sellerPhone.startsWith("whatsapp:") ? sellerPhone : `whatsapp:${sellerPhone}`,
+        message: sellerMsg,
+        reason: "agreement_cancelled_notify_seller",
+        escrowId: updated.escrowId,
+      });
+    }
+    const buyerPhone = parsed.data.actorWhatsapp;
+    if (buyerPhone) {
+      const buyerMsg =
+        `🚫 Agreement Cancelled\n\n` +
+        `You have cancelled the service agreement:\n` +
+        `"${titleSnip}"\n\n` +
+        `Ref: ${updated.escrowId}`;
+      void sendOrQueueWhatsAppNotification({
+        to: buyerPhone.startsWith("whatsapp:") ? buyerPhone : `whatsapp:${buyerPhone}`,
+        message: buyerMsg,
+        reason: "agreement_cancelled_confirm_buyer",
+        escrowId: updated.escrowId,
+      });
+    }
+
     res.status(200).json(updated);
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Escrow cancellation failed" });
   }
 });
+
 
 router.post("/api/escrows/:escrowId/dispute", requireCoreApiAuth, async (req, res) => {
   try {
