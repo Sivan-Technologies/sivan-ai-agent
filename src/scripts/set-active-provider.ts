@@ -8,8 +8,10 @@ async function main() {
     platformMode: current.platformMode,
   });
 
-  if (current.activePaymentProvider === "nomba") {
-    console.log("Nomba is already the active payment provider!");
+  const targetProvider = (process.argv[2] || "paystack").trim().toLowerCase();
+
+  if (current.activePaymentProvider === targetProvider) {
+    console.log(`${targetProvider} is already the active payment provider!`);
     return;
   }
 
@@ -18,7 +20,7 @@ async function main() {
     nairaFeeFixed: current.nairaFeeFixed,
     usdcFeePercent: current.usdcFeePercent,
     usdcFeeFixed: current.usdcFeeFixed,
-    activePaymentProvider: "nomba",
+    activePaymentProvider: targetProvider,
     expectedVersion: current.version,
     updatedBy: "system_cli",
   });

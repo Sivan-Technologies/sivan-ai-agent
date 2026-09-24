@@ -10,6 +10,7 @@ import {
   escrowStore,
   monnifyClient,
   flutterwaveClient,
+  paystackClient,
   settingsStore,
 } from "../context";
 import { getPayoutVerificationTestResolution } from "../services/payoutVerificationTestMode";
@@ -97,7 +98,18 @@ router.post("/api/users/payout-account", requireCoreApiAuth, async (req, res) =>
     const settings = await settingsStore.getSettings();
     const activeProvider = settings.activePaymentProvider?.toLowerCase();
 
-    if (flutterwaveClient.isCollectionConfigured()) {
+    if ((activeProvider === "paystack" || !activeProvider) && paystackClient.isCollectionConfigured()) {
+      try {
+        resolution = await paystackClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
+        verificationProvider = "paystack_name_enquiry";
+      } catch (paystackErr: any) {
+        warn("Paystack account verification failed, trying fallback to Flutterwave/Monnify", {
+          paystackError: paystackErr?.message || String(paystackErr),
+        });
+      }
+    }
+
+    if (!resolution && flutterwaveClient.isCollectionConfigured()) {
       try {
         resolution = await flutterwaveClient.resolveBankAccount(parsed.data.accountNumber, parsed.data.bankCode);
         verificationProvider = "flutterwave_name_enquiry";
