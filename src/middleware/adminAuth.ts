@@ -53,7 +53,7 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
       (req as any).adminUser = payload.adminIdentifier || payload.sub || "admin";
       return next();
     } catch (err) {
-      if (!req.headers["x-admin-key"]) {
+      if (!req.headers["x-admin-key"] && !req.headers["x-admin-api-key"]) {
         return res.status(401).json({ error: "Unauthorized: invalid or expired token" });
       }
     }
@@ -71,7 +71,8 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
     return next();
   }
 
-  const providedKey = req.headers["x-admin-key"];
+  const rawKey = req.headers["x-admin-key"] || req.headers["x-admin-api-key"];
+  const providedKey = Array.isArray(rawKey) ? rawKey[0] : rawKey;
   if (typeof providedKey !== "string" || !safeEquals(providedKey, adminApiKey)) {
     return res.status(401).json({ error: "Unauthorized: invalid or missing admin key" });
   }

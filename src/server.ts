@@ -81,20 +81,40 @@ function hasValidStaticServiceAuth(req: express.Request) {
 // module import, so that importing this module - as the test suite does - does
 // not require the variable to be set. An import-time throw took the whole
 // suite down with it.
-const corsOrigin = process.env.FRONTEND_URL;
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://admin.sivantech.online",
+  "https://staging.sivantech.online",
+  "https://app.sivantech.online",
+  "https://sivan-admin-hub-test-e32o.onrender.com",
+];
+
+const envAllowedOrigins = [process.env.FRONTEND_URL, process.env.ALLOWED_ORIGINS]
+  .filter(Boolean)
+  .flatMap((val) => (val as string).split(","))
+  .map((s) => s.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+const allowedOriginsList = Array.from(new Set([...envAllowedOrigins, ...DEFAULT_ALLOWED_ORIGINS]));
 const isDevelopment = process.env.NODE_ENV === "development";
 
 export function assertCorsOriginConfigured(): void {
-  if (!corsOrigin && !isDevelopment) {
-    if (process.env.STRICT_CORS !== "false") {
-      throw new Error(
-        "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
-      );
-    }
+  if (!allowedOriginsList.length && !isDevelopment && process.env.STRICT_CORS !== "false") {
+    throw new Error(
+      "FRONTEND_URL must be specified unless NODE_ENV=development; CORS wildcard is disabled."
+    );
   }
 }
 
-app.use(cors({ origin: corsOrigin || (isDevelopment ? "*" : false) }));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (isDevelopment || allowedOriginsList.includes(origin) || allowedOriginsList.some((allowed) => origin.startsWith(allowed))) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  credentials: true,
+}));
 
 
 // Basic rate limiting to protect public mutation endpoints. Read-only and service calls are exempt.
