@@ -155,7 +155,19 @@ export class X402Client {
           // Standard x402 facilitator (PayAI): query /supported to verify network and fee payer
           const supportedRes = await this.axiosInstance.get("/supported");
           const kinds: any[] = supportedRes.data?.kinds || [];
-          const matchedKind = kinds.find((k: any) => k.network === activeNetwork);
+          const matchedKind = kinds.find((k: any) =>
+            k.network === activeNetwork ||
+            (activeNetwork === "base-sepolia" && k.network === "eip155:84532") ||
+            (activeNetwork === "base-mainnet" && k.network === "eip155:8453") ||
+            (activeNetwork === "solana-devnet" && k.network === "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1") ||
+            (activeNetwork === "solana-mainnet" && k.network === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp") ||
+            (activeNetwork === "celo-alfajores" && (k.network === "eip155:44787" || k.network === "eip155:11142220")) ||
+            (activeNetwork === "celo-mainnet" && k.network === "eip155:42220") ||
+            (activeNetwork === "arbitrum-one" && k.network === "eip155:42161") ||
+            (activeNetwork === "arbitrum-sepolia" && k.network === "eip155:421614") ||
+            (activeNetwork === "avalanche-fuji" && k.network === "eip155:43113") ||
+            (activeNetwork === "avalanche-mainnet" && k.network === "eip155:43114")
+          );
 
           const paymentId = `x402_${(activeNetwork || "net").replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
           return {

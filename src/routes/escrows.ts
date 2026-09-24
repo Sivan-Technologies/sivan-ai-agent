@@ -29,6 +29,7 @@ import {
   formatFundingInstruction,
   fundingDeadlineForEscrow,
   calculateEscrowPayoutQuote,
+  resolveCryptoRecipient,
 } from "../services/paymentService";
 import {
   buildEscrowDetail,
@@ -309,7 +310,8 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
       const fundingAmount = quote.totalWithFee;
 
       try {
-        const recipient = config.sap.agentPublicKey || "sivan-escrow-agent";
+        const agreementNetwork = (accepted as any).network || (accepted as any).cryptoNetwork;
+        const recipient = (await resolveCryptoRecipient(agreementNetwork)) || config.sap.agentPublicKey || "sivan-escrow-agent";
         if (usdcChannel === "sap") {
           paymentResult = await paymentRouter.processUsdcSapEscrow(fundingAmount, recipient);
         } else {

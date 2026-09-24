@@ -65,7 +65,7 @@ export class PaymentRouter {
     return {
       method: currency,
       status: facility.status,
-      reference: facility.facilitatorId,
+      reference: facility.paymentId || facility.facilitatorId,
       paymentId: facility.paymentId,
       details: facility,
     };

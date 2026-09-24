@@ -49,6 +49,24 @@ export async function getFormattedCryptoNetworkLabel(overrideNetwork?: string): 
   return `${overrideNetwork || settings.cryptoNetwork || "Solana"} ${settings.networkMode || "Devnet"}`;
 }
 
+export async function resolveCryptoRecipient(overrideNetwork?: string): Promise<string> {
+  const settings = await settingsStore.getSettings();
+  const net = (overrideNetwork || settings.cryptoNetwork || "solana").toLowerCase();
+  if (["base", "celo", "ethereum", "arbitrum", "avalanche", "bsc", "bnb"].includes(net)) {
+    return (
+      process.env.TESTNET_WALLET ||
+      process.env.BASE_TESTNET_WALLET ||
+      process.env.EVM_TESTNET_WALLET ||
+      (config.sap.agentPublicKey?.startsWith("0x") ? config.sap.agentPublicKey : "") ||
+      "0x0000000000000000000000000000000000000000"
+    );
+  }
+  if (net === "stellar") {
+    return process.env.STELLAR_TESTNET_WALLET || (config.sap.agentPublicKey?.startsWith("G") ? config.sap.agentPublicKey : "");
+  }
+  return config.sap.agentPublicKey || "sivan-escrow-agent";
+}
+
 export function createProviderForId(provider?: string, platformMode?: "test" | "live" | "maintenance") {
   if (!provider) {
     throw new Error(
@@ -319,7 +337,8 @@ export async function createNairaPaymentInstruction(escrow: EscrowRecord, option
 
 export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
   const usdcChannel = process.env.USDC_CHANNEL || "x402";
-  const recipient = config.sap.agentPublicKey || "sivan-escrow-agent";
+  const agreementNetwork = (escrow as any).network || (escrow as any).cryptoNetwork;
+  const recipient = (await resolveCryptoRecipient(agreementNetwork)) || config.sap.agentPublicKey || "sivan-escrow-agent";
   let paymentResult: any;
 
   try {
@@ -362,7 +381,6 @@ export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options
     (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
     "SivanUSDCPlatformDepositWalletAddressPlaceholder";
 
-  const agreementNetwork = (escrow as any).network || (escrow as any).cryptoNetwork;
   const networkLabel = await getFormattedCryptoNetworkLabel(agreementNetwork);
 
   return {
@@ -389,16 +407,28 @@ export async function activePaymentInstructionForEscrow(detail: any) {
   if (!detail?.escrow.paymentReference) return null;
 
   if (detail.escrow.currency === "USDC" || detail.escrow.currency === "USDT") {
-    const rawMetadata = detail.escrow.paymentMetadata || {};
+    let rawMetadata = detail.escrow.paymentMetadata || {};
+    if (!rawMetadata.depositAddress && !rawMetadata.details?.depositAddress && detail.transactions?.length) {
+      const fundingTx = detail.transactions.find((tx: any) => tx.reference === detail.escrow.paymentReference);
+      if (fundingTx?.rawPayload) {
+        try {
+          rawMetadata = JSON.parse(fundingTx.rawPayload);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const agreementNetwork = detail.escrow.network || detail.escrow.cryptoNetwork || rawMetadata.network || rawMetadata.cryptoNetwork;
+    const networkLabel = await getFormattedCryptoNetworkLabel(agreementNetwork);
+
     const depositAddress =
       rawMetadata.depositAddress ||
       rawMetadata.details?.depositAddress ||
       rawMetadata.details?.address ||
+      (await resolveCryptoRecipient(agreementNetwork)) ||
       (config.sap.agentPublicKey && config.sap.agentPublicKey !== "your-sap-agent-public-key" ? config.sap.agentPublicKey : null) ||
       "SivanUSDCPlatformDepositWalletAddressPlaceholder";
-
-    const agreementNetwork = detail.escrow.network || detail.escrow.cryptoNetwork || rawMetadata.network || rawMetadata.cryptoNetwork;
-    const networkLabel = await getFormattedCryptoNetworkLabel(agreementNetwork);
 
     return {
       provider: detail.escrow.paymentProvider || "x402",
