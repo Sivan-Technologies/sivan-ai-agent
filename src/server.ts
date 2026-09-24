@@ -242,9 +242,18 @@ export default app;
 if (require.main === module) {
   // Refuse to boot a real deployment that would serve a permissive CORS policy.
   // Checked here rather than at import so the test suite can load this module.
-  assertCorsOriginConfigured();
-  app.listen(port, () => {
-    info(`Webhook server listening on port ${port}`);
+  try {
+    assertCorsOriginConfigured();
+  } catch (corsErr: any) {
+    error("CORS configuration error — aborting startup", corsErr?.message || corsErr);
+    process.exit(1);
+  }
+  const server = app.listen(port, () => {
+    info(`Sivan Ai payment server listening on port ${port} (env: ${process.env.NODE_ENV || "development"})`);
+  });
+  server.on("error", (err: any) => {
+    error("Server failed to bind to port", { port, message: err?.message || err });
+    process.exit(1);
   });
 }
 

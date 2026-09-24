@@ -9,7 +9,7 @@ services:
       - key: NODE_VERSION
         value: "20"
       - key: NODE_ENV
-        value: production
+        value: staging
       - key: PORT
         value: 4000
       - key: DATABASE_MODE
