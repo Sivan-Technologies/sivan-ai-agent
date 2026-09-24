@@ -53,7 +53,9 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
       (req as any).adminUser = payload.adminIdentifier || payload.sub || "admin";
       return next();
     } catch (err) {
-      return res.status(401).json({ error: "Unauthorized: invalid or expired token" });
+      if (!req.headers["x-admin-key"]) {
+        return res.status(401).json({ error: "Unauthorized: invalid or expired token" });
+      }
     }
   }
 
