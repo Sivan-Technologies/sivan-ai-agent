@@ -253,8 +253,11 @@ router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, as
 router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = escrowActionSchema.safeParse(req.body);
-    if (!parsed.success || !parsed.data.actorWhatsapp) {
-      return res.status(400).json({ error: "Seller WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    const actorIdentity = parsed.success
+      ? (parsed.data.actorWhatsapp || parsed.data.actorUserId)
+      : (req.body?.actorWhatsapp || req.body?.actorUserId || req.body?.sellerUserId);
+    if (!actorIdentity) {
+      return res.status(400).json({ error: "Seller identity is required", details: parsed.success ? [] : formatZodError(parsed.error) });
     }
     const detailBefore = await buildEscrowDetail(req.params.escrowId);
     if (!detailBefore) return res.status(404).json({ error: "Escrow not found" });
@@ -269,7 +272,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
       }
     }
 
-    const accepted = await escrowStore.acceptEscrow(req.params.escrowId, parsed.data.actorWhatsapp);
+    const accepted = await escrowStore.acceptEscrow(req.params.escrowId, actorIdentity);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
       const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
