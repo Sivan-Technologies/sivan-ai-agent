@@ -486,7 +486,10 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
         }
       } catch (err: any) {
         if (err?.response?.status === 404 || String(err?.message || "").includes("404") || String(err?.message || "").includes("status code 404")) {
-          log("External USDC facilitator 404 note (settled via Sivan Payment Protocol):", err?.message || err);
+          capturePaymentWarning("External USDC facilitator 404 note (settled via Sivan Payment Protocol)", {
+            error: err?.message || String(err),
+            escrowId: req.params.escrowId,
+          });
         } else {
           captureOperationalError("Autonomous USDC release transaction failed", err);
         }
