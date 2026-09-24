@@ -57,9 +57,10 @@ export class PaymentRouter {
     };
   }
 
-  public async processCryptoEscrow(amount: number, currency: "USDC" | "USDT" = "USDC", recipient: string): Promise<PaymentResult> {
+  public async processCryptoEscrow(amount: number, currency: "USDC" | "USDT" = "USDC", recipient: string, metadata: Record<string, any> = {}): Promise<PaymentResult> {
     const facility = await this.x402Client.createPaymentFacility(amount, currency, recipient, {
       purpose: "agent-service-payment",
+      ...metadata,
     });
 
     return {
@@ -71,12 +72,12 @@ export class PaymentRouter {
     };
   }
 
-  public async processUsdcEscrow(amount: number, recipient: string): Promise<PaymentResult> {
-    return this.processCryptoEscrow(amount, "USDC", recipient);
+  public async processUsdcEscrow(amount: number, recipient: string, metadata: Record<string, any> = {}): Promise<PaymentResult> {
+    return this.processCryptoEscrow(amount, "USDC", recipient, metadata);
   }
 
-  public async processUsdtEscrow(amount: number, recipient: string): Promise<PaymentResult> {
-    return this.processCryptoEscrow(amount, "USDT", recipient);
+  public async processUsdtEscrow(amount: number, recipient: string, metadata: Record<string, any> = {}): Promise<PaymentResult> {
+    return this.processCryptoEscrow(amount, "USDT", recipient, metadata);
   }
 
   public async processUsdcSapEscrow(amount: number, recipient: string): Promise<PaymentResult> {

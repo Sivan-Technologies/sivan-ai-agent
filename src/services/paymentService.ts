@@ -345,7 +345,7 @@ export async function createUsdcPaymentInstruction(escrow: EscrowRecord, options
     if (usdcChannel === "sap") {
       paymentResult = await paymentRouter.processUsdcSapEscrow(escrow.amount, recipient);
     } else {
-      paymentResult = await paymentRouter.processUsdcEscrow(escrow.amount, recipient);
+      paymentResult = await paymentRouter.processUsdcEscrow(escrow.amount, recipient, { network: agreementNetwork });
     }
   } catch (err: any) {
     paymentResult = {

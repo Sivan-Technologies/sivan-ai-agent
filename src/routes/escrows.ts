@@ -167,6 +167,7 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       clientRequestId: input.clientRequestId,
       createdByChannel: input.channel,
       feePayer: input.feePayer,
+      network: input.network || input.cryptoNetwork,
     });
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
@@ -315,7 +316,7 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         if (usdcChannel === "sap") {
           paymentResult = await paymentRouter.processUsdcSapEscrow(fundingAmount, recipient);
         } else {
-          paymentResult = await paymentRouter.processUsdcEscrow(fundingAmount, recipient);
+          paymentResult = await paymentRouter.processUsdcEscrow(fundingAmount, recipient, { network: agreementNetwork });
         }
       } catch (err: any) {
         warn("Failed to create on-chain USDC payment facility, using fallback mock reference", err);

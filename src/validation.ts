@@ -62,6 +62,8 @@ export const escrowCreateSchema = z.object({
   channel: z.enum(["whatsapp_dm", "whatsapp_group", "admin", "api"]).default("api"),
   clientRequestId: z.string().trim().min(8).max(120).optional(),
   feePayer: z.enum(["buyer", "seller", "split"]).default("buyer"),
+  network: z.string().trim().min(1).max(60).optional(),
+  cryptoNetwork: z.string().trim().min(1).max(60).optional(),
 });
 
 export const userProfileSchema = z.object({
@@ -95,6 +97,8 @@ export const escrowActionSchema = z.object({
   actorWhatsapp: z.string().trim().min(1).max(120).optional(),
   actorUserId: actorUserId.optional(),
   reason: z.string().trim().min(2).max(1000).optional(),
+  network: z.string().trim().min(1).max(60).optional(),
+  cryptoNetwork: z.string().trim().min(1).max(60).optional(),
 });
 
 // Shared so every participant endpoint spells identity the same way, and so

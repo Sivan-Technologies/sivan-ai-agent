@@ -101,6 +101,7 @@ export interface EscrowRecord {
   releasedBy?: string;
   releasedAt?: string;
   feePayer: "buyer" | "seller" | "split";
+  network?: string;
   aiDisputeRecommendation?: string;
   createdByChannel: string;
   createdAt: string;
@@ -398,6 +399,7 @@ export class EscrowStore {
       releasedBy: row.released_by || undefined,
       releasedAt: row.released_at || undefined,
       feePayer: row.fee_payer || "buyer",
+      network: row.network || undefined,
       aiDisputeRecommendation: row.ai_dispute_recommendation || undefined,
       createdByChannel: row.created_by_channel,
       createdAt: row.created_at,
@@ -611,6 +613,7 @@ export class EscrowStore {
         released_at TEXT,
         client_request_id TEXT,
         fee_payer TEXT NOT NULL DEFAULT 'buyer',
+        network TEXT,
         created_by_channel TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -734,6 +737,7 @@ export class EscrowStore {
     this.ensureSqliteColumn("escrows", "payment_checked_at", "TEXT");
     this.ensureSqliteColumn("escrows", "reconciliation_flags", "TEXT");
     this.ensureSqliteColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
+    this.ensureSqliteColumn("escrows", "network", "TEXT");
     this.ensureSqliteColumn("escrows", "ai_dispute_recommendation", "TEXT");
     this.ensureSqliteColumn("escrow_events", "hash", "TEXT");
     this.ensureSqliteColumn("escrow_events", "previous_hash", "TEXT");
@@ -814,6 +818,7 @@ export class EscrowStore {
       await this.ensurePostgresColumn("escrows", "payment_checked_at", "TEXT");
       await this.ensurePostgresColumn("escrows", "reconciliation_flags", "TEXT");
       await this.ensurePostgresColumn("escrows", "fee_payer", "TEXT NOT NULL DEFAULT 'buyer'");
+      await this.ensurePostgresColumn("escrows", "network", "TEXT");
       await this.ensurePostgresColumn("escrows", "ai_dispute_recommendation", "TEXT");
       await this.ensurePostgresColumn("escrow_events", "hash", "TEXT");
       await this.ensurePostgresColumn("escrow_events", "previous_hash", "TEXT");
@@ -1326,6 +1331,7 @@ export class EscrowStore {
     purpose: string;
     createdByChannel: string;
     feePayer?: "buyer" | "seller" | "split";
+    network?: string;
   }): Promise<EscrowRecord> {
     await this.initializeSchema();
     const now = new Date().toISOString();
@@ -1333,15 +1339,16 @@ export class EscrowStore {
     const status: EscrowStatus = input.sellerUserId ? "PENDING_ACCEPTANCE" : "PENDING_PROFILE";
     const settlementPolicy: SettlementPolicy = input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release";
     const feePayer = input.feePayer || "buyer";
+    const network = input.network || (input.currency === "NAIRA" ? "celo" : "solana");
 
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
         INSERT INTO escrows (
           escrow_id, buyer_user_id, seller_user_id, seller_whatsapp, amount, currency,
-          purpose, status, settlement_policy, client_request_id, fee_payer, created_by_channel, created_at, updated_at
+          purpose, status, settlement_policy, client_request_id, fee_payer, network, created_by_channel, created_at, updated_at
         ) VALUES (
           @escrowId, @buyerUserId, @sellerUserId, @sellerWhatsapp, @amount, @currency,
-          @purpose, @status, @settlementPolicy, @clientRequestId, @feePayer, @createdByChannel, @now, @now
+          @purpose, @status, @settlementPolicy, @clientRequestId, @feePayer, @network, @createdByChannel, @now, @now
         )
       `).run({
         ...input,
@@ -1352,14 +1359,15 @@ export class EscrowStore {
         sellerUserId: input.sellerUserId || null,
         sellerWhatsapp: input.sellerWhatsapp || null,
         feePayer,
+        network,
         now,
       });
     } else {
       await this.pool!.query(
         `INSERT INTO escrows (
           escrow_id, buyer_user_id, seller_user_id, seller_whatsapp, amount, currency,
-          purpose, status, settlement_policy, client_request_id, fee_payer, created_by_channel, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          purpose, status, settlement_policy, client_request_id, fee_payer, network, created_by_channel, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           escrowId,
           input.buyerUserId,
@@ -1372,6 +1380,7 @@ export class EscrowStore {
           settlementPolicy,
           input.clientRequestId || null,
           feePayer,
+          network,
           input.createdByChannel,
           now,
           now,
