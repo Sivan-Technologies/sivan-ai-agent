@@ -11,6 +11,8 @@ pids
 *.pid
 *.seed
 *.pid.lock
+data/
+.data/
 
 # Coverage and caches
 coverage
