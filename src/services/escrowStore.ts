@@ -223,6 +223,9 @@ function whatsappLookupVariants(whatsappNumber: string) {
 
 function whatsappIdentityMatches(left?: string | null, right?: string | null): boolean {
   if (!left || !right) return false;
+  const cleanLeft = left.trim().toLowerCase().replace(/^@/, "").replace(/^whatsapp:/i, "");
+  const cleanRight = right.trim().toLowerCase().replace(/^@/, "").replace(/^whatsapp:/i, "");
+  if (cleanLeft && cleanRight && cleanLeft === cleanRight) return true;
   const leftDigits = left.replace(/\D/g, "");
   const rightDigits = right.replace(/\D/g, "");
   return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
