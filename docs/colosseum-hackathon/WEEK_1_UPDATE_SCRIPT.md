@@ -13,7 +13,7 @@ Spoken:
 "Hi Colosseum, I'm Samson Micheal, founder and CEO of Sivan Ai. We are building the chat native payment AI on Solana. In peer to peer digital commerce and freelance deals, buyers are terrified of paying first and sellers are terrified of working for free. Sivan solves this directly inside Telegram with non-custodial Solana x402 service agreements."
 
 On Screen:
-Show Telegram chat with Sivan Ai (@Sivan_Ai) generating a 10 USDC service agreement card in 2 taps.
+Show Telegram chat with Sivan Ai (@SivanAi_bot) generating a 10 USDC service agreement card in 2 taps.
 
 --------------------------------------------------------------------------------
 

@@ -14,7 +14,7 @@ Spoken:
 "Hi Colosseum, I'm Samson Micheal, founder and CEO of Sivan Ai, building from Abuja, Nigeria. This week for Week 2, we focused heavily on autonomous multi-agent settlement, full Solana devnet x402 integrations, and our WebMCP tool server standard for AI agents."
 
 On Screen:
-Show Sivan Ai Telegram bot (@Sivan_Ai) and the WebMCP Tool Architecture.
+Show Sivan Ai Telegram live bot (@SivanAi_bot) and the WebMCP Tool Architecture.
 
 --------------------------------------------------------------------------------
 
