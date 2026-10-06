@@ -95,7 +95,7 @@ function generateDeed() {
 <body>
 
   <div class="logo-container">
-    <img class="logo-img" src="/Users/user/Documents/Project X/Sivan/home_page/public/sivan-logo.png" alt="Sivan Technologies Logo" />
+    <img class="logo-img" src="/Users/user/Documents/Project X/Sivan/asset/sivan logo.png" alt="Sivan Technologies Logo" />
   </div>
 
   <h1>DEED OF PARTNERSHIP</h1>
@@ -185,15 +185,13 @@ function generateDeed() {
 </html>
   `;
 
-  // Write to Sivan/docs/
-  const docPath1 = '/Users/user/Documents/Project X/Sivan/docs/Sivan_Technologies_Partnership_Deed.doc';
-  fs.writeFileSync(docPath1, content.trim());
-  console.log(`Successfully generated Partnership Deed at: ${docPath1}`);
+  // Write strictly to the private deeds folder inside sivan-escrow-agent — never to a public web directory
+  const deedsDir = '/Users/user/Documents/Project X/Sivan/sivan-escrow-agent/docs/deeds';
+  if (!fs.existsSync(deedsDir)) fs.mkdirSync(deedsDir, { recursive: true });
 
-  // Write to home_page/public/docs/
-  const docPath2 = '/Users/user/Documents/Project X/Sivan/home_page/public/docs/Sivan_Technologies_Partnership_Deed.doc';
-  fs.writeFileSync(docPath2, content.trim());
-  console.log(`Successfully generated public Partnership Deed at: ${docPath2}`);
+  const docPath = path.join(deedsDir, 'Sivan_Technologies_Partnership_Deed.doc');
+  fs.writeFileSync(docPath, content.trim());
+  console.log(`Successfully generated Partnership Deed at: ${docPath}`);
 }
 
 generateDeed();
