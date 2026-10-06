@@ -58,3 +58,8 @@ whatsapp-bot/
 
 # local database / runtime data
 .data/
+
+# Generated private deed documents — never commit real deeds to version control
+docs/deeds/*.pdf
+docs/deeds/*.doc
+!docs/deeds/.gitkeep

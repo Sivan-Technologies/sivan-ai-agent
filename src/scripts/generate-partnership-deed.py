@@ -13,12 +13,14 @@ BORDER_COLOR = colors.HexColor("#CBD5E1")     # Light gray
 
 # ─── PATHS ────────────────────────────────────────────────────────────────────
 WORKSPACE_DIR = "/Users/user/Documents/Project X/Sivan"
-DOCS_DIR = os.path.join(WORKSPACE_DIR, "docs")
-HOME_PAGE_DIR = os.path.join(WORKSPACE_DIR, "home_page")
+ESCROW_AGENT_DIR = os.path.join(WORKSPACE_DIR, "sivan-escrow-agent")
+DEEDS_DIR = os.path.join(ESCROW_AGENT_DIR, "docs", "deeds")
+ASSET_DIR = os.path.join(WORKSPACE_DIR, "asset")
 
-LOGO_PATH = os.path.join(HOME_PAGE_DIR, "public", "sivan-logo.png")
-SAMSON_SIG_PATH = os.path.join(DOCS_DIR, "samson signautre.png")
-JONATHAN_SIG_PATH = os.path.join(DOCS_DIR, "jonathan signature.jpeg")
+# Canonical logo and signature assets (never from a public web folder)
+LOGO_PATH = os.path.join(ASSET_DIR, "sivan logo.png")
+SAMSON_SIG_PATH = os.path.join(WORKSPACE_DIR, "docs", "samson signautre.png")
+JONATHAN_SIG_PATH = os.path.join(WORKSPACE_DIR, "docs", "jonathan signature.jpeg")
 
 HAS_LOGO = os.path.exists(LOGO_PATH)
 HAS_SAMSON_SIG = os.path.exists(SAMSON_SIG_PATH)
@@ -49,13 +51,14 @@ def draw_legal_decorations(canvas_obj, doc):
 
 # ─── MAIN BUILDER ─────────────────────────────────────────────────────────────
 def build_deed_pdf():
-    # Setup document target paths
-    target_path_docs = os.path.join(DOCS_DIR, "Sivan_Technologies_Partnership_Deed.pdf")
-    target_path_public = os.path.join(HOME_PAGE_DIR, "public", "docs", "Sivan_Technologies_Partnership_Deed.pdf")
-    
-    # We will build to DOCS_DIR first, then copy to target_path_public
+    # Ensure the private deeds directory exists
+    os.makedirs(DEEDS_DIR, exist_ok=True)
+
+    # Output goes strictly to the private docs/deeds/ folder — never to a public web directory
+    target_path = os.path.join(DEEDS_DIR, "Sivan_Technologies_Partnership_Deed.pdf")
+
     doc = SimpleDocTemplate(
-        target_path_docs,
+        target_path,
         pagesize=letter,
         leftMargin=54,  # 0.75 in
         rightMargin=54, # 0.75 in
@@ -278,10 +281,7 @@ def build_deed_pdf():
         onLaterPages=draw_legal_decorations
     )
     
-    # Copy from DOCS_DIR to target_path_public
-    import shutil
-    shutil.copyfile(target_path_docs, target_path_public)
-    print("Success: Sivan_Technologies_Partnership_Deed.pdf compiled and copied.")
+    print(f"Success: Sivan_Technologies_Partnership_Deed.pdf saved to private deeds folder: {target_path}")
 
 if __name__ == "__main__":
     build_deed_pdf()
