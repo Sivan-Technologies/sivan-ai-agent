@@ -13,8 +13,7 @@ import { escrowStore } from "../context";
 import { queueWhatsAppNotification, sendOrQueueWhatsAppNotification } from "./notificationDispatcher";
 import { escrowCreatedMessage, participantLifecycleMessage } from "./messageFormatter";
 import { buildParticipantDeal } from "./dealCardBuilder";
-// TEMPORARY until step 9 moves buildEscrowDetail into escrowDetailBuilder.ts
-import { buildEscrowDetail } from "./escrowService";
+import { buildEscrowDetail } from "./escrowDetailBuilder";
 import { getPresignedDownloadUrl } from "./storageService";
 
 export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, options: { notifyBuyer?: boolean; notifySeller?: boolean } = {}) {
