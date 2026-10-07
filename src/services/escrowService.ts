@@ -34,6 +34,10 @@ import {
 import type { NormalizedPaymentEvent } from "./paymentEventNormalizer";
 import { isSandboxPaymentReference } from "./payoutVerificationTestMode";
 import { getTransactionTrace, syncEscrowTransactionReferences } from "./transactionReferences";
+import { parseMaybeJson, firstPresent } from "./escrowUtils";
+
+// --- god-service split: public API barrel re-exports (callers unchanged) ---
+export * from "./escrowUtils";
 
 let lastAbuseTrendAlertAt = 0;
 
@@ -47,22 +51,6 @@ function displayCurrency(currency: string) {
 
 function displayAmount(amount: number) {
   return new Intl.NumberFormat("en-NG").format(amount);
-}
-
-export function parseMaybeJson(value: any) {
-  if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-export function firstPresent(...values: any[]) {
-  for (const value of values) {
-    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
-  }
-  return undefined;
 }
 
 export function queueWhatsAppNotification(params: {
