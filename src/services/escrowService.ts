@@ -34,24 +34,17 @@ import {
 import type { NormalizedPaymentEvent } from "./paymentEventNormalizer";
 import { isSandboxPaymentReference } from "./payoutVerificationTestMode";
 import { getTransactionTrace, syncEscrowTransactionReferences } from "./transactionReferences";
-import { parseMaybeJson, firstPresent } from "./escrowUtils";
+import {
+  sellerInviteMessage,
+  escrowCreatedMessage,
+  participantLifecycleMessage,
+} from "./messageFormatter";
 
 // --- god-service split: public API barrel re-exports (callers unchanged) ---
 export * from "./escrowUtils";
+export * from "./messageFormatter";
 
 let lastAbuseTrendAlertAt = 0;
-
-export function sellerInviteMessage(escrowId: string, currency: string, amount: number, purpose: string) {
-  return `You have been invited to Sivan service agreement ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
-}
-
-function displayCurrency(currency: string) {
-  return currency === "NAIRA" ? "NGN" : currency;
-}
-
-function displayAmount(amount: number) {
-  return new Intl.NumberFormat("en-NG").format(amount);
-}
 
 export function queueWhatsAppNotification(params: {
   to: string;
@@ -160,29 +153,6 @@ export function queueSellerInviteNotification(params: {
     escrowId: params.escrowId,
     context: params.context,
   });
-}
-
-export function escrowCreatedMessage(escrow: EscrowRecord, role: "buyer" | "seller") {
-  const currency = displayCurrency(escrow.currency);
-  const amount = displayAmount(escrow.amount);
-  if (role === "buyer") {
-    return [
-      `Sivan agreement created: ${escrow.escrowId}`,
-      `${escrow.purpose}`,
-      `${currency} ${amount}`,
-      "",
-      "We have sent the agreement to the other party.",
-      `Reply STATUS ${escrow.escrowId} to view the agreement or track acceptance.`,
-    ].join("\n");
-  }
-  return [
-    `You have been invited to a Sivan service agreement: ${escrow.escrowId}`,
-    `${escrow.purpose}`,
-    `${currency} ${amount}`,
-    "",
-    `Reply ACCEPT ${escrow.escrowId} to accept the deal.`,
-    `Reply STATUS ${escrow.escrowId} to view the agreement first.`,
-  ].join("\n");
 }
 
 export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, options: { notifyBuyer?: boolean; notifySeller?: boolean } = {}) {
@@ -550,20 +520,6 @@ export async function notifyEscrowParticipants(escrow: EscrowRecord, message: st
   }));
 }
 
-
-export function participantLifecycleMessage(escrow: EscrowRecord, statusLine: string, nextLine: string) {
-  const currency = displayCurrency(escrow.currency);
-  return [
-    `Sivan update for ${escrow.escrowId}`,
-    `${escrow.purpose}`,
-    `${currency} ${new Intl.NumberFormat("en-NG").format(escrow.amount)}`,
-    "",
-    statusLine,
-    nextLine,
-    "",
-    `Reply STATUS ${escrow.escrowId} to view the agreement.`,
-  ].join("\n");
-}
 
 export function whatsappIdentityMatches(left?: string | null, right?: string | null) {
   if (!left || !right) return false;
