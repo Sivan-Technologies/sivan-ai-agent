@@ -7,6 +7,7 @@
  */
 
 import crypto from "crypto";
+import type { Pool } from "pg";
 import type { EscrowCurrency, PayoutAccountRecord, StoreProvider } from './types.js';
 
 export function detectProvider(databaseUrl: string, provider?: string): StoreProvider {
@@ -14,6 +15,48 @@ export function detectProvider(databaseUrl: string, provider?: string): StorePro
     return "postgres";
   }
   return "sqlite";
+}
+
+/**
+ * One Postgres schema per process, shared by every store in that process.
+ *
+ * Vitest runs each test file in its own worker, so this gives each suite the
+ * isolation it gets from a temp SQLite file, while the five stores inside a
+ * suite still share one namespace exactly as they share one SQLite file.
+ * It is random per run, so nothing leaks between runs and no two concurrent
+ * workers ever race to create the same schema.
+ */
+const TEST_PG_SCHEMA = `t_${crypto.randomBytes(8).toString("hex")}`;
+
+export interface StoreTarget {
+  databaseUrl: string;
+  provider: StoreProvider;
+  /** Postgres schema to isolate into. Only set under DATABASE_MODE=test_pg. */
+  schema?: string;
+}
+
+/**
+ * Decide which engine a store instance talks to.
+ *
+ * Normally this is just detectProvider(). Under DATABASE_MODE=test_pg it
+ * instead forces every store onto the Postgres instance at TEST_DATABASE_URL,
+ * OVERRIDING the caller's argument -- 17 test files hardcode
+ * DATABASE_PROVIDER="sqlite" and those files must not be edited, so the
+ * override has to outrank them.
+ *
+ * Each caller keeps its own isolated Postgres schema, derived from the
+ * sqlite path it asked for. That preserves the per-suite isolation the
+ * temp-file-per-suite pattern gives under SQLite.
+ */
+export function resolveStoreTarget(databaseUrl: string, provider?: string): StoreTarget {
+  if (process.env.DATABASE_MODE === "test_pg") {
+    const url = process.env.TEST_DATABASE_URL;
+    if (!url) {
+      throw new Error("DATABASE_MODE=test_pg requires TEST_DATABASE_URL to point at a Postgres instance");
+    }
+    return { databaseUrl: url, provider: "postgres", schema: TEST_PG_SCHEMA };
+  }
+  return { databaseUrl, provider: detectProvider(databaseUrl, provider) };
 }
 
 export function id(prefix: string) {
@@ -95,5 +138,28 @@ export class Mutex {
     this.queue = next;
     await current;
     return release!;
+  }
+}
+
+/**
+ * Serialise schema DDL across every process sharing a test_pg database.
+ *
+ * CREATE TABLE/SCHEMA IF NOT EXISTS is NOT race-safe in Postgres: two workers
+ * running it concurrently collide on the catalog indexes
+ * (pg_type_typname_nsp_index, pg_class_relname_nsp_index). A session advisory
+ * lock makes initialisation single-file. test_pg only.
+ */
+export async function withSchemaLock<T>(pool: Pool, fn: () => Promise<T>): Promise<T> {
+  const KEY = 727401;
+  const client = await pool.connect();
+  try {
+    await client.query(`SELECT pg_advisory_lock(${KEY})`);
+    return await fn();
+  } finally {
+    try {
+      await client.query(`SELECT pg_advisory_unlock(${KEY})`);
+    } finally {
+      client.release();
+    }
   }
 }

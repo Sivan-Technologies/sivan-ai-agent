@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { Pool } from "pg";
 import { warn } from "../lib/logger";
+import { resolveStoreTarget } from './store/guards.js';
 
 export interface PlatformSettings {
   id?: string;
@@ -147,8 +148,14 @@ export class SettingsStore {
   private cachedSettings: PlatformSettings | null = null;
   private cacheExpiresAt = 0;
 
-  constructor(private databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
-    this.provider = detectProvider(databaseUrl, provider);
+  private databaseUrl: string;
+  private readonly testSchema?: string;
+
+  constructor(databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
+    const target = resolveStoreTarget(databaseUrl, provider);
+    this.databaseUrl = target.databaseUrl;
+    this.provider = target.provider;
+    this.testSchema = target.schema;
     if (this.provider === "sqlite") {
       const folder = path.dirname(databaseUrl);
       if (!fs.existsSync(folder)) {
@@ -159,7 +166,8 @@ export class SettingsStore {
       this.initialized = true;
     } else {
       this.pool = new Pool({
-        connectionString: databaseUrl,
+        connectionString: this.databaseUrl,
+        ...(this.testSchema ? { options: `-c search_path=${this.testSchema}` } : {}),
         max: Number(process.env.POSTGRES_POOL_MAX || "5"),
         connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "15000"),
         query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "20000"),
@@ -396,6 +404,9 @@ export class SettingsStore {
   }
 
   public async initializeSchema(): Promise<void> {
+    if (this.testSchema && this.provider === "postgres") {
+      await this.pool!.query(`CREATE SCHEMA IF NOT EXISTS ${this.testSchema}`);
+    }
     if (this.initialized) return;
     if (this.provider === "sqlite") {
       this.initializeSchemaSync();

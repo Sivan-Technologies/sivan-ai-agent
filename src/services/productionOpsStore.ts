@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { Pool } from "pg";
+import { resolveStoreTarget } from './store/guards.js';
 
 type StoreProvider = "sqlite" | "postgres";
 
@@ -93,9 +94,15 @@ export class ProductionOpsStore {
   private pool?: Pool;
   private initialized = false;
 
-  constructor(private databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
+  private databaseUrl: string;
+  private readonly testSchema?: string;
+
+  constructor(databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
     if (!databaseUrl) throw new Error("DATABASE_URL is required for production ops persistence");
-    this.provider = detectProvider(databaseUrl, provider);
+    const target = resolveStoreTarget(databaseUrl, provider);
+    this.databaseUrl = target.databaseUrl;
+    this.provider = target.provider;
+    this.testSchema = target.schema;
 
     if (this.provider === "sqlite") {
       const folder = path.dirname(databaseUrl);
@@ -105,7 +112,8 @@ export class ProductionOpsStore {
       this.initialized = true;
     } else {
       this.pool = new Pool({
-        connectionString: databaseUrl,
+        connectionString: this.databaseUrl,
+        ...(this.testSchema ? { options: `-c search_path=${this.testSchema}` } : {}),
         max: Number(process.env.POSTGRES_POOL_MAX || "3"),
         connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "5000"),
         query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "8000"),
@@ -189,6 +197,9 @@ export class ProductionOpsStore {
   }
 
   public async initializeSchema() {
+    if (this.testSchema && this.provider === "postgres") {
+      await this.pool!.query(`CREATE SCHEMA IF NOT EXISTS ${this.testSchema}`);
+    }
     if (this.initialized) return;
     if (this.provider === "sqlite") {
       this.initializeSchemaSync();

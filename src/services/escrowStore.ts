@@ -15,7 +15,7 @@ import type {
 export * from './store/types.js';
 
 import {
-  detectProvider, id, whatsappLookupVariants, whatsappIdentityMatches,
+  detectProvider, resolveStoreTarget, withSchemaLock, id, whatsappLookupVariants, whatsappIdentityMatches,
   payoutEncryptionKey, payoutAccountToken, highValueThreshold,
   payoutNameMatchAcceptable, encryptAccountNumber, decryptAccountNumber,
   maskAccountNumber, Mutex,
@@ -33,19 +33,27 @@ export class EscrowStore {
     return this.transactionStorage.getStore() || this._pool;
   }
 
-  constructor(private databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
+  private databaseUrl: string;
+  /** Postgres schema this store is confined to. Only set under DATABASE_MODE=test_pg. */
+  private readonly testSchema?: string;
+
+  constructor(databaseUrl: string, provider = process.env.DATABASE_PROVIDER) {
     if (!databaseUrl) throw new Error("DATABASE_URL is required for escrow persistence");
-    this.provider = detectProvider(databaseUrl, provider);
+    const target = resolveStoreTarget(databaseUrl, provider);
+    this.databaseUrl = target.databaseUrl;
+    this.provider = target.provider;
+    this.testSchema = target.schema;
 
     if (this.provider === "sqlite") {
-      const folder = path.dirname(databaseUrl);
+      const folder = path.dirname(this.databaseUrl);
       if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
-      this.sqlite = new Database(databaseUrl);
+      this.sqlite = new Database(this.databaseUrl);
       this.initializeSchemaSync();
       this.initialized = true;
     } else {
       this._pool = new Pool({
-        connectionString: databaseUrl,
+        connectionString: this.databaseUrl,
+        ...(this.testSchema ? { options: `-c search_path=${this.testSchema}` } : {}),
         max: Number(process.env.POSTGRES_POOL_MAX || "5"),
         connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || "30000"),
         query_timeout: Number(process.env.POSTGRES_QUERY_TIMEOUT_MS || "60000"),
@@ -509,7 +517,27 @@ export class EscrowStore {
     if (this.initialized) return;
     if (this.provider === "sqlite") {
       this.initializeSchemaSync();
+    } else if (this.testSchema) {
+      await withSchemaLock(this._pool!, () => this.initializePostgresSchema());
+      this.initialized = true;
+      return;
     } else {
+      await this.initializePostgresSchema();
+    }
+    this.initialized = true;
+  }
+
+  /**
+   * Postgres DDL for the escrow schema. Extracted so it can be run under
+   * an advisory lock in test_pg mode (concurrent IF NOT EXISTS is not
+   * race-safe). Identical statements to the inline version it replaced.
+   */
+  private async initializePostgresSchema(): Promise<void> {
+      if (this.testSchema) {
+        // test_pg only; never reachable in production. The schema name is
+        // unique per process, so this cannot collide with another worker.
+        await this.pool!.query(`CREATE SCHEMA IF NOT EXISTS ${this.testSchema}`);
+      }
       await this.pool!.query(this.schemaSql("DOUBLE PRECISION"));
       await this.ensurePostgresColumn("users", "email", "TEXT UNIQUE");
       await this.ensurePostgresColumn("users", "password_hash", "TEXT");
@@ -558,9 +586,8 @@ export class EscrowStore {
 
       await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_client_request_id ON escrows(client_request_id)");
       await this.pool!.query("CREATE INDEX IF NOT EXISTS idx_escrows_inspection_expires ON escrows(inspection_expires_at) WHERE status = 'DELIVERED'");
-    }
-    this.initialized = true;
   }
+
 
   private async ensurePostgresColumn(table: string, column: string, definition: string) {
     await this.pool!.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
