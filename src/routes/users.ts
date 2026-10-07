@@ -202,7 +202,28 @@ router.get("/api/paystack/banks", requireCoreApiAuth, async (req, res) => {
 
 router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
   try {
-    const parsed = participantEscrowQuerySchema.safeParse(req.query);
+    /**
+     * A REPEATED QUERY KEY MUST NOT 400 THE WHOLE LOOKUP.
+     *
+     * Express parses ?actorUserId=a&actorUserId=b into an array, which this
+     * schema rejects as "expected string, received array" - and the caller
+     * (sivan-payment) swallows the 400 and shows the user an empty list.
+     * Repeating a key is a caller bug, but the honest response to "here are
+     * two candidate ids" is to consider both, not to deny the user every deal
+     * they have. Arrays are flattened into the identity set below.
+     */
+    const extraUserIds: string[] = [];
+    const extraWhatsapp: string[] = [];
+    const flattened: Record<string, unknown> = { ...req.query };
+    for (const [key, value] of Object.entries(req.query)) {
+      if (!Array.isArray(value)) continue;
+      const values = value.map((item) => String(item)).filter(Boolean);
+      flattened[key] = values[0];
+      if (key === "actorUserId") extraUserIds.push(...values.slice(1));
+      if (key === "actorWhatsapp") extraWhatsapp.push(...values.slice(1));
+    }
+
+    const parsed = participantEscrowQuerySchema.safeParse(flattened);
     if (!parsed.success) {
       return res.status(400).json({ error: "Actor identity is required", details: formatZodError(parsed.error) });
     }
@@ -215,6 +236,8 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
     if (reqActorUserId) {
       userIds.add(reqActorUserId);
     }
+    for (const id of extraUserIds) userIds.add(id);
+    for (const phone of extraWhatsapp) whatsappNumbers.add(phone);
     if (actorTelegramId) {
       const foundUser = await escrowStore.findUserByTelegramId(actorTelegramId);
       if (foundUser?.userId) {
@@ -261,18 +284,46 @@ router.get("/api/users/escrows", requireCoreApiAuth, async (req, res) => {
     const primaryPhone = actorWhatsapp || Array.from(whatsappNumbers)[0];
     const primaryUserId = reqActorUserId || Array.from(userIds)[0];
 
+    /**
+     * Build the summary against EVERY identity we resolved, not just one.
+     *
+     * The lookup above deliberately accepts several identifiers (userId,
+     * WhatsApp number, Telegram id, email) and merges whatever they resolve
+     * to. Picking a single "primary" afterwards threw that away:
+     * buildParticipantDealSummary returns null when the actor it is handed is
+     * not a participant in that specific escrow, so one wrong guess silently
+     * dropped the deal from the response.
+     *
+     * That is exactly what happened to sivan-payment. It always appends its
+     * own `actorUserId` as a fallback (identity.routes.ts), and that id is
+     * the PAYMENT service's user id — a value this service has never seen.
+     * `reqActorUserId` therefore won, the role lookup failed for every row,
+     * and a web user whose escrows were found by EMAIL received `deals: []`.
+     * The deals were fetched correctly and then discarded at the last step.
+     *
+     * Each escrow now matches if ANY resolved identity is a participant.
+     */
+    const candidateIdentities: Array<{ phone?: string; userId?: string }> = [
+      ...(primaryPhone || primaryUserId ? [{ phone: primaryPhone, userId: primaryUserId }] : []),
+      ...Array.from(whatsappNumbers).map((phone) => ({ phone })),
+      ...Array.from(userIds).map((userId) => ({ userId })),
+    ];
+
     const deals = await Promise.all(escrows.map(async (escrow) => {
-      try {
-        return await buildParticipantDealSummary(escrow, primaryPhone, primaryUserId);
-      } catch (err: any) {
-        console.warn("Skipping participant deal summary", {
-          escrowId: escrow.escrowId,
-          actorWhatsapp: primaryPhone,
-          actorUserId: primaryUserId,
-          error: err?.message || err,
-        });
-        return null;
+      for (const identity of candidateIdentities) {
+        try {
+          const summary = await buildParticipantDealSummary(escrow, identity.phone, identity.userId);
+          if (summary) return summary;
+        } catch (err: any) {
+          console.warn("Skipping participant deal summary", {
+            escrowId: escrow.escrowId,
+            actorWhatsapp: identity.phone,
+            actorUserId: identity.userId,
+            error: err?.message || err,
+          });
+        }
       }
+      return null;
     }));
     res.status(200).json({ deals: deals.filter(Boolean) });
   } catch (err: any) {

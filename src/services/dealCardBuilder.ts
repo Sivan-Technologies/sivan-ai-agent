@@ -81,6 +81,15 @@ export async function buildParticipantDealSummary(
   return {
     escrow: {
       escrowId: escrow.escrowId,
+      /**
+       * Where the deal was struck. sivan-payment reads this exact field to
+       * label a deal as whatsapp / telegram / web in the user's agreement
+       * list (identity.routes.ts). It was never included in this payload, so
+       * every WhatsApp and Telegram deal arrived unlabelled and fell through
+       * to the default — the web app told users a WhatsApp deal was created
+       * on the web.
+       */
+      createdByChannel: escrow.createdByChannel,
       amount: escrow.amount,
       currency: escrow.currency,
       status: escrow.status,
