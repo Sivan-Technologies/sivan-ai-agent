@@ -12,8 +12,7 @@ import { getProviderForEscrow } from "./paymentService";
 import { isSandboxPaymentReference } from "./payoutVerificationTestMode";
 import { participantLifecycleMessage } from "./messageFormatter";
 import { notifyEscrowParticipants, notifyEscrowFundedParticipants } from "./notificationOrchestrator";
-// TEMPORARY until reconcileEscrowPayment moves into paymentReconciliation.ts
-import { reconcileEscrowPayment } from "./escrowService";
+import { reconcileEscrowPayment } from "./paymentReconciliation";
 
 export async function refreshEscrowPaymentLifecycle(escrowId: string) {
   let escrow = await escrowStore.expirePendingPaymentIfDue(escrowId);
