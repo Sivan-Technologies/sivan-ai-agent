@@ -78,6 +78,29 @@ export async function buildParticipantDealSummary(
     }
   }
 
+  /**
+   * Seller readiness, computed from the records themselves.
+   *
+   * These two were previously derived from escrow.status alone:
+   *   sellerProfileComplete: !["PENDING_PROFILE"].includes(escrow.status)
+   *   payoutVerified:        !["PENDING_PROFILE"].includes(escrow.status)
+   *
+   * An escrow only enters PENDING_PROFILE when it has NO sellerUserId, and
+   * createEscrow receives one whenever a seller phone number was supplied
+   * (upsertUserByWhatsapp always returns a user, creating an empty one if
+   * needed). So a seller with no name and no payout account at all still
+   * produced sellerProfileComplete: true and payoutVerified: true on the deal
+   * card sent to WhatsApp and Telegram participants. payoutVerified in
+   * particular never consulted a payout account.
+   *
+   * Same checks buildEscrowDetail already used for the HTTP API, so the two
+   * surfaces now agree.
+   */
+  const seller = escrow.sellerUserId ? await escrowStore.getUserById(escrow.sellerUserId) : null;
+  const payout = escrow.sellerUserId ? await escrowStore.getPayoutAccount(escrow.sellerUserId) : null;
+  const sellerProfileComplete = Boolean(seller?.firstName && seller?.lastName);
+  const payoutVerified = Boolean(payout && payout.verificationStatus === "verified");
+
   return {
     escrow: {
       escrowId: escrow.escrowId,
@@ -114,8 +137,8 @@ export async function buildParticipantDealSummary(
         : {}),
     },
     readiness: {
-      sellerProfileComplete: !["PENDING_PROFILE"].includes(escrow.status),
-      payoutVerified: !["PENDING_PROFILE"].includes(escrow.status),
+      sellerProfileComplete,
+      payoutVerified,
       sellerAccepted: !["PENDING_ACCEPTANCE", "PENDING_PROFILE"].includes(escrow.status),
       fundingVerified: ["IN_PROGRESS", "COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
       buyerCompleted: ["COMPLETED", "PENDING_RELEASE", "RELEASED"].includes(escrow.status),
