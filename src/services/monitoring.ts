@@ -10,6 +10,9 @@ export interface OperationalEvent {
   context: Record<string, any>;
   error?: string;
   createdAt: string;
+  service?: string;
+  location?: string;
+  caller?: string;
 }
 
 const MAX_EVENTS = 100;
@@ -86,15 +89,79 @@ function safeAlertContext(context: Record<string, any>) {
   return Object.fromEntries(Object.entries(context || {}).map(([key, value]) => [key, redactAlertValue(key, value)]));
 }
 
-function formatTelegramAlert(event: OperationalEvent) {
+export function extractErrorLocation(err?: unknown): {
+  service: string;
+  location?: string;
+  caller?: string;
+} {
+  const service = process.env.SERVICE_NAME || "sivan-escrow-agent";
+  const stack =
+    (err instanceof Error && err.stack ? err.stack : "") ||
+    new Error().stack ||
+    "";
+
+  if (!stack) return { service };
+
+  const lines = stack.split("\n");
+  const frame = lines.find((line) => {
+    const isApp =
+      line.includes("/src/") ||
+      line.includes("src/") ||
+      line.includes("/dist/") ||
+      line.includes("dist/");
+    const isExcluded =
+      line.includes("node_modules") ||
+      line.includes("services/monitoring.") ||
+      line.includes("extractErrorLocation") ||
+      line.includes("captureOperationalError") ||
+      line.includes("capturePaymentWarning");
+    return isApp && !isExcluded;
+  });
+
+  if (!frame) return { service };
+
+  const namedMatch = frame.match(/at\s+(?:async\s+)?([^\s(]+)\s+\((?:.*\/)?((?:src|dist)\/[^:]+):(\d+)(?::\d+)?\)/);
+  if (namedMatch) {
+    return {
+      service,
+      caller: namedMatch[1],
+      location: `${namedMatch[2]}:${namedMatch[3]}`,
+    };
+  }
+
+  const anonMatch = frame.match(/at\s+(?:.*\/)?((?:src|dist)\/[^:]+):(\d+)(?::\d+)?/);
+  if (anonMatch) {
+    return {
+      service,
+      caller: "anonymous",
+      location: `${anonMatch[1]}:${anonMatch[2]}`,
+    };
+  }
+
+  return { service };
+}
+
+export function formatTelegramAlert(event: OperationalEvent) {
   const context = safeAlertContext(event.context);
+  const service = event.service || process.env.SERVICE_NAME || "sivan-escrow-agent";
   const lines = [
-    `Sivan ${event.level.toUpperCase()} alert`,
-    event.message,
-    `Time: ${event.createdAt}`,
+    `🚨 Sivan ${event.level.toUpperCase()} Alert`,
+    `Service: ${service}`,
   ];
-  if (event.error) lines.push(`Error: ${event.error}`);
-  if (Object.keys(context).length) lines.push(`Context: ${JSON.stringify(context).slice(0, 1500)}`);
+  if (event.location) {
+    lines.push(`Location: ${event.location}`);
+  }
+  if (event.caller && event.caller !== "anonymous") {
+    lines.push(`Caller: ${event.caller}()`);
+  }
+  lines.push(`Action: ${event.message}`);
+  lines.push(`Time: ${event.createdAt}`);
+  if (event.error) {
+    lines.push(`Error: ${event.error}`);
+  }
+  if (Object.keys(context).length) {
+    lines.push(`Context: ${JSON.stringify(context).slice(0, 1500)}`);
+  }
   return lines.join("\n");
 }
 
@@ -162,7 +229,9 @@ async function sendWebhookAlert(event: OperationalEvent) {
           : {}),
       },
       body: JSON.stringify({
-        service: "sivan-escrow-agent",
+        service: event.service || process.env.SERVICE_NAME || "sivan-escrow-agent",
+        location: event.location,
+        caller: event.caller,
         ...event,
         context: safeAlertContext(event.context),
       }),
@@ -174,12 +243,21 @@ async function sendWebhookAlert(event: OperationalEvent) {
 
 export function captureOperationalError(message: string, err?: unknown, context: Record<string, any> = {}) {
   const errorMessage = err instanceof Error ? err.message : err ? String(err) : undefined;
-  warn(message, context, errorMessage);
-  pushOperationalEvent({ level: "error", message, context, error: errorMessage });
+  const loc = extractErrorLocation(err);
+  warn(message, { ...context, location: loc.location, caller: loc.caller }, errorMessage);
+  pushOperationalEvent({
+    level: "error",
+    message,
+    context,
+    error: errorMessage,
+    service: loc.service,
+    location: loc.location,
+    caller: loc.caller,
+  });
 
   if (process.env.SENTRY_DSN) {
     Sentry.withScope((scope) => {
-      Object.entries(context).forEach(([key, value]) => scope.setExtra(key, value));
+      Object.entries({ ...context, location: loc.location, caller: loc.caller }).forEach(([key, value]) => scope.setExtra(key, value));
       if (err instanceof Error) {
         Sentry.captureException(err);
       } else {
@@ -190,12 +268,20 @@ export function captureOperationalError(message: string, err?: unknown, context:
 }
 
 export function capturePaymentWarning(message: string, context: Record<string, any> = {}) {
-  warn(message, context);
-  pushOperationalEvent({ level: "warning", message, context });
+  const loc = extractErrorLocation();
+  warn(message, { ...context, location: loc.location, caller: loc.caller });
+  pushOperationalEvent({
+    level: "warning",
+    message,
+    context,
+    service: loc.service,
+    location: loc.location,
+    caller: loc.caller,
+  });
 
   if (process.env.SENTRY_DSN) {
     Sentry.withScope((scope) => {
-      Object.entries(context).forEach(([key, value]) => scope.setExtra(key, value));
+      Object.entries({ ...context, location: loc.location, caller: loc.caller }).forEach(([key, value]) => scope.setExtra(key, value));
       Sentry.captureMessage(message, "warning");
     });
   }
