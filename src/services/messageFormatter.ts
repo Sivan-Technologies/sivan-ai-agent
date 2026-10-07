@@ -12,11 +12,11 @@ export function sellerInviteMessage(escrowId: string, currency: string, amount: 
   return `You have been invited to Sivan service agreement ${escrowId} for ${currency} ${amount}.\nPurpose: ${purpose}\nReply: accept ${escrowId}`;
 }
 
-export function displayCurrency(currency: string) {
+function displayCurrency(currency: string) {
   return currency === "NAIRA" ? "NGN" : currency;
 }
 
-export function displayAmount(amount: number) {
+function displayAmount(amount: number) {
   return new Intl.NumberFormat("en-NG").format(amount);
 }
 
