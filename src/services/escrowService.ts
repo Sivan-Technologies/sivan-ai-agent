@@ -39,10 +39,12 @@ import {
   escrowCreatedMessage,
   participantLifecycleMessage,
 } from "./messageFormatter";
+import { resolveR2MediaUrls } from "./mediaResolver";
 
 // --- god-service split: public API barrel re-exports (callers unchanged) ---
 export * from "./escrowUtils";
 export * from "./messageFormatter";
+export * from "./mediaResolver";
 
 let lastAbuseTrendAlertAt = 0;
 
@@ -319,45 +321,6 @@ export async function refreshEscrowPaymentLifecycleForRead(escrow: EscrowRecord 
     });
     return typeof escrow === "string" ? escrowStore.getEscrowById(escrow) : escrow;
   }
-}
-
-export async function resolveR2MediaUrls(events: any[]): Promise<any[]> {
-  const resolved = [];
-  for (const event of events) {
-    if (event.metadata && typeof event.metadata === "string" && event.metadata.includes("r2://")) {
-      try {
-        const meta = JSON.parse(event.metadata);
-        if (meta.media && Array.isArray(meta.media)) {
-          meta.media = await Promise.all(
-            meta.media.map(async (m: any) => {
-              if (m.url && m.url.startsWith("r2://")) {
-                const key = m.url.substring(5);
-                try {
-                  const presignedUrl = await getPresignedDownloadUrl(key);
-                  if (presignedUrl.includes("sivan-mock-presigned-url.test") && m.originalUrl) {
-                    return { ...m, url: m.originalUrl };
-                  }
-                  return { ...m, url: presignedUrl };
-                } catch (err) {
-                  return m;
-                }
-              }
-              return m;
-            })
-          );
-          resolved.push({
-            ...event,
-            metadata: JSON.stringify(meta),
-          });
-          continue;
-        }
-      } catch {
-        // fail-safe fallback
-      }
-    }
-    resolved.push(event);
-  }
-  return resolved;
 }
 
 export async function buildEscrowDetail(escrowId: string) {

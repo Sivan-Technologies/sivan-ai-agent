@@ -1,7 +1,7 @@
 import { EscrowStore } from "./escrowStore";
 import { AceDataClient } from "./aceData";
-import { getPresignedDownloadUrl } from "./storageService";
 import { info, warn, error } from "../lib/logger";
+import { resolveR2MediaUrls } from "./mediaResolver";
 
 export interface DisputeRecommendation {
   recommendedPayoutSellerPercent: number;
@@ -9,45 +9,6 @@ export interface DisputeRecommendation {
   confidenceScore: number;
   reasons: string[];
   justificationSummary: string;
-}
-
-async function localResolveR2MediaUrls(events: any[]): Promise<any[]> {
-  const resolved = [];
-  for (const event of events) {
-    if (event.metadata && typeof event.metadata === "string" && event.metadata.includes("r2://")) {
-      try {
-        const meta = JSON.parse(event.metadata);
-        if (meta.media && Array.isArray(meta.media)) {
-          meta.media = await Promise.all(
-            meta.media.map(async (m: any) => {
-              if (m.url && m.url.startsWith("r2://")) {
-                const key = m.url.substring(5);
-                try {
-                  const presignedUrl = await getPresignedDownloadUrl(key);
-                  if (presignedUrl.includes("sivan-mock-presigned-url.test") && m.originalUrl) {
-                    return { ...m, url: m.originalUrl };
-                  }
-                  return { ...m, url: presignedUrl };
-                } catch {
-                  return m;
-                }
-              }
-              return m;
-            })
-          );
-          resolved.push({
-            ...event,
-            metadata: JSON.stringify(meta),
-          });
-          continue;
-        }
-      } catch {
-        // fail-safe
-      }
-    }
-    resolved.push(event);
-  }
-  return resolved;
 }
 
 export class DisputeAnalystService {
@@ -75,7 +36,7 @@ export class DisputeAnalystService {
 
     // Gathers all events related to the agreement
     const events = await this.escrowStore.listEvents(escrowId, 100);
-    const resolvedEvents = await localResolveR2MediaUrls(events);
+    const resolvedEvents = await resolveR2MediaUrls(events);
 
     // Extract dispute reasons, delivery proofs, and evidence details
     const disputeOpened = resolvedEvents.find((e) => e.eventType === "dispute_opened");
