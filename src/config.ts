@@ -24,11 +24,14 @@ function envNumber(key: string, fallback: number) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-const databaseProvider = envValue("DATABASE_PROVIDER", "postgres");
+const isTestPg = process.env.DATABASE_MODE === "test_pg";
+const databaseProvider = isTestPg ? "postgres" : envValue("DATABASE_PROVIDER", "postgres");
 const databaseMode = (envValue("DATABASE_MODE", "test").toLowerCase() === "live" ? "live" : "test") as "test" | "live";
 const defaultDatabaseUrl = path.resolve(process.cwd(), "data", "sivan-escrow-agent.db");
 const databaseUrl =
-  databaseMode === "live"
+  isTestPg
+    ? envValue("TEST_POSTGRES_URL", envValue("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/sivan_test"))
+    : databaseMode === "live"
     ? envValue("LIVE_DATABASE_URL", envValue("DATABASE_URL", defaultDatabaseUrl))
     : envValue("DATABASE_URL", defaultDatabaseUrl);
 

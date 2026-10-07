@@ -21,7 +21,8 @@
     "verify:nomba-transfer": "ts-node src/scripts/nomba-transfer-proof.ts",
     "set-active-provider": "ts-node src/scripts/set-active-provider.ts",
     "cleanup:unfunded": "tsx scripts/cancelUnfundedAgreements.ts",
-    "test": "vitest --pool=forks"
+    "test": "vitest --pool=forks",
+    "test:pg": "DATABASE_MODE=test_pg DATABASE_PROVIDER=postgres vitest --pool=forks"
   },
   "author": "",
   "license": "MIT",
