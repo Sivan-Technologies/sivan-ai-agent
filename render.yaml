@@ -50,6 +50,18 @@ services:
         sync: false
       - key: TELEGRAM_NOTIFICATION_SECRET
         sync: false
+      - key: TELEGRAM_OPS_ALERT_BOT_TOKEN
+        value: 8858372924:AAEUSgLNRZcHOYsCXv4rxMAVs2xuqHIgf1A
+      - key: TELEGRAM_OPS_ALERT_CHAT_ID
+        value: "-1004465897328"
+      - key: TELEGRAM_DEBUG_ALERT_BOT_TOKEN
+        value: 8858372924:AAEUSgLNRZcHOYsCXv4rxMAVs2xuqHIgf1A
+      - key: TELEGRAM_DEBUG_ALERT_CHAT_ID
+        value: "-1004465897328"
+      - key: TELEGRAM_ALERT_BOT_TOKEN
+        value: 8858372924:AAEUSgLNRZcHOYsCXv4rxMAVs2xuqHIgf1A
+      - key: TELEGRAM_ALERT_CHAT_ID
+        value: "-1004465897328"
       - key: PAYOUT_VERIFICATION_TEST_MODE
         value: "true"
       - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
@@ -170,6 +182,18 @@ services:
         sync: false
       - key: TELEGRAM_NOTIFICATION_SECRET
         sync: false
+      - key: TELEGRAM_OPS_ALERT_BOT_TOKEN
+        value: 8858372924:AAEUSgLNRZcHOYsCXv4rxMAVs2xuqHIgf1A
+      - key: TELEGRAM_OPS_ALERT_CHAT_ID
+        value: "-1004465897328"
+      - key: TELEGRAM_DEBUG_ALERT_BOT_TOKEN
+        value: 8858372924:AAEUSgLNRZcHOYsCXv4rxMAVs2xuqHIgf1A
+      - key: TELEGRAM_DEBUG_ALERT_CHAT_ID
+        value: "-1004465897328"
+      - key: TELEGRAM_ALERT_BOT_TOKEN
+        value: 8858372924:AAEUSgLNRZcHOYsCXv4rxMAVs2xuqHIgf1A
+      - key: TELEGRAM_ALERT_CHAT_ID
+        value: "-1004465897328"
       - key: ACTIVE_PAYMENT_PROVIDER
         value: paystack
       - key: BACKUP_PAYMENT_PROVIDER
