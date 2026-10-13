@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { requiresNgnLedgerFunding } from "../services/ngnBalanceFundingGuard";
 import { requireCoreApiAuth } from "../middleware/apiAuth";
 import {
   escrowCreateSchema,
@@ -413,6 +414,12 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
     }
     const detail = await buildEscrowDetail(req.params.escrowId);
     if (!detail) return res.status(404).json({ error: "Escrow not found" });
+    if (requiresNgnLedgerFunding(detail.escrow.currency)) {
+      return res.status(503).json({
+        error: "NGN_LEDGER_FUNDING_REQUIRED",
+        message: "NGN balance funding requires a committed payment-ledger reservation. No funds were debited by this request.",
+      });
+    }
     if (!whatsappIdentityMatches(detail.buyer?.whatsappNumber, parsed.data.actorWhatsapp)) {
       return res.status(403).json({ error: "Only the escrow buyer can fund this agreement from balance" });
     }
@@ -823,4 +830,3 @@ router.get("/api/escrows/settings/limits", async (_req, res) => {
 });
 
 export default router;
-
