@@ -170,9 +170,11 @@ function telegramAlertDestination(channel: "ops" | "debug") {
     return {
       token:
         process.env.TELEGRAM_DEBUG_ALERT_BOT_TOKEN ||
+        process.env.TELEGRAM_OPS_ALERT_BOT_TOKEN ||
         process.env.TELEGRAM_ALERT_BOT_TOKEN,
       chatId:
         process.env.TELEGRAM_DEBUG_ALERT_CHAT_ID ||
+        process.env.TELEGRAM_OPS_ALERT_CHAT_ID ||
         process.env.TELEGRAM_ALERT_CHAT_ID,
     };
   }

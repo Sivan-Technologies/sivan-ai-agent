@@ -105,15 +105,33 @@ export class PaystackClient {
     };
   }
 
-  public async verifyWebhookSignature(rawBody: string, signature: string): Promise<boolean> {
+  public async verifyWebhookSignature(rawBody: string | Buffer, signature: string): Promise<boolean> {
     if (!signature) return false;
     log("Verifying Paystack webhook signature");
-    const secrets = [this.webhookSecret, this.secretKey].filter((secret, index, list): secret is string =>
-      Boolean(secret) && list.indexOf(secret) === index
-    );
-    const provided = Buffer.from(signature, "hex");
-    return secrets.some((secret) => {
-      const hash = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
+
+    const candidateSecrets = [
+      this.secretKey,
+      process.env.PAYSTACK_SECRET_KEY,
+      process.env.PAYSTACK_LIVE_SECRET_KEY,
+      process.env.PAYSTACK_TEST_SECRET_KEY,
+      this.webhookSecret,
+    ]
+      .map((s) => (s || "").trim())
+      .filter((secret, index, list): secret is string => Boolean(secret) && list.indexOf(secret) === index);
+
+    const cleanSig = signature.trim();
+    let provided: Buffer;
+    try {
+      provided = Buffer.from(cleanSig, "hex");
+    } catch {
+      return false;
+    }
+    if (provided.length === 0) return false;
+
+    const bodyBuf = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody, "utf8");
+
+    return candidateSecrets.some((secret) => {
+      const hash = crypto.createHmac("sha512", secret).update(bodyBuf).digest("hex");
       const expected = Buffer.from(hash, "hex");
       return expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
     });
