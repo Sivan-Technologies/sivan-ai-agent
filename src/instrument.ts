@@ -4,7 +4,7 @@ import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
 dotenv.config();
 
-const SECRET_KEY_PATTERN = /(secret|token|key|password|private|authorization|signature|accountNumber|account_number|authorizationUrl|paymentAuthorizationUrl)/i;
+const SECRET_KEY_PATTERN = /(secret|token|key|password|private|authorization|signature|credential|^pin$|accountNumber|account_number|authorizationUrl|paymentAuthorizationUrl)/i;
 const SECRET_VALUE_PATTERN = /(Bearer\s+[A-Za-z0-9._~+/=-]+|sk_(test|live)_[A-Za-z0-9]+|https:\/\/checkout\.paystack[^\s"']+)/gi;
 
 function envFlag(key: string, fallback = false) {
@@ -36,6 +36,7 @@ function redact(value: unknown, seen = new WeakSet<object>(), depth = 0): unknow
     );
   }
   if (typeof value === "string") {
+    if (/"(credential|pin)"\s*:/i.test(value)) return "[Filtered confirmation payload]";
     return value.replace(SECRET_VALUE_PATTERN, "[Filtered]");
   }
   return value;

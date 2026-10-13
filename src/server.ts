@@ -22,6 +22,8 @@ import webhooksRouter from "./routes/webhooks";
 import adminRouter from "./routes/admin";
 import opsRouter from "./routes/ops";
 import sandboxRouter from "./routes/sandbox";
+import { ngnAgreementRouter } from "./routes/ngnAgreements";
+import { ngnAgreementEventRuntime } from "./routes/ngnAgreementEvents";
 
 validateConfig();
 initializeDatabaseSchemas();
@@ -177,6 +179,9 @@ app.use((req, _res, next) => {
 app.use(healthRouter);
 app.use(usersRouter);
 app.use(escrowsRouter);
+const ngnEvents=ngnAgreementEventRuntime();
+app.use(ngnEvents.router);
+app.use(ngnAgreementRouter());
 app.use(webhooksRouter);
 app.use(adminRouter);
 app.use(opsRouter);
@@ -250,10 +255,11 @@ if (require.main === module) {
   }
   const server = app.listen(port, () => {
     info(`Sivan Ai payment server listening on port ${port} (env: ${process.env.NODE_ENV || "development"})`);
+    void ngnEvents.start().catch(()=>error('NGN notification worker could not start; check configuration and migrations'));
   });
+  server.once('close',()=>{void ngnEvents.stop();});
   server.on("error", (err: any) => {
     error("Server failed to bind to port", { port, message: err?.message || err });
     process.exit(1);
   });
 }
-

@@ -4,6 +4,9 @@
  * No default URL, embedded key, automatic write retry, provider or on-chain call.
  * Not wired to chat buttons until the payment runtime rollout gate is complete.
  */
+export class NgnAgreementClientError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
 export function createNgnAgreementClient(options: {
   baseUrl: string;
   getUserAccessToken: () => Promise<string>;
@@ -29,10 +32,11 @@ export function createNgnAgreementClient(options: {
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('application/json')) throw new Error('NGN service response unavailable. Check status before retrying.');
     const payload = await response.json() as { data?: unknown; error?: string };
-    if (!response.ok) throw new Error(
+    if (!response.ok) throw new NgnAgreementClientError(response.status,
       typeof payload.error === 'string' && /^[A-Z0-9_]{1,80}$/.test(payload.error)
         ? payload.error : 'NGN request failed. Check status before retrying.'
     );
+    if (!payload || typeof payload !== 'object' || !('data' in payload)) throw new Error('NGN response incomplete. Check status before retrying.');
     return payload.data;
   }
   function agreementPath(id: string) {
