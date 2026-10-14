@@ -1,5 +1,6 @@
 import {createHash,createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import {z} from 'zod';
+import {ngnConfirmationActions} from './ngnConfirmationActions';
 
 interface Sql {query(sql:string,params?:any[]):Promise<{rows:any[]}>}
 export type NgnTransaction=<T>(run:(sql:Sql)=>Promise<T>)=>Promise<T>;
@@ -52,7 +53,8 @@ export function createNgnEventInbox(transaction:NgnTransaction) {
       for(const r of event.recipients) for(const channel of ['whatsapp','telegram'] as const) {
         const destination=channel==='whatsapp'?r.whatsapp:r.telegramId;
         if(!destination) continue;
-        const payload=channel==='whatsapp'?{to:destination,message:message(a)}:{telegramId:destination,message:message(a)};
+        const payload=channel==='whatsapp'?{to:destination,message:message(a)}:{telegramId:destination,message:message(a),
+          ngnAgreement:{id:a.id,actions:ngnConfirmationActions(a.status,r.userId===a.buyer_id)}};
         await sql.query(`INSERT INTO ngn_agreement_notifications(id,agreement_id,sequence,channel,payload)
           VALUES ($1,$2,$3,$4,$5::jsonb)`,[`${event.id}:${channel}:${r.userId}`,a.id,event.sequence,channel,JSON.stringify(payload)]);
       }
