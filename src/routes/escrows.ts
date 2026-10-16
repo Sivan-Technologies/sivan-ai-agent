@@ -46,6 +46,7 @@ import {
   recordDisputeEvidence,
   recordDeliveryProof,
   whatsappIdentityMatches,
+  normalizeWhatsAppRecipient,
   containsExternalLink,
   externalDeliveryLinksAllowed,
 } from "../services/escrowService";
@@ -172,14 +173,19 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     });
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
-    if (updated && input.channel.startsWith("whatsapp")) {
-      await notifyEscrowCreatedParticipants(updated);
+    const hasSellerContact = Boolean(seller || updated?.sellerWhatsapp);
+    const hasBuyerContact = Boolean(input.channel.startsWith("whatsapp") || input.buyerWhatsapp || buyer.whatsappNumber || buyer.telegramUserId);
+    if (updated) {
+      await notifyEscrowCreatedParticipants(updated, {
+        notifyBuyer: hasBuyerContact,
+        notifySeller: hasSellerContact,
+      });
     }
     res.status(201).json({
       escrow: updated,
       payment: null,
-      buyerNotificationSent: Boolean(updated && input.channel.startsWith("whatsapp")),
-      sellerInviteSent: Boolean(seller && input.channel.startsWith("whatsapp")),
+      buyerNotificationSent: Boolean(hasBuyerContact),
+      sellerInviteSent: Boolean(hasSellerContact),
       risk: abuseDecision,
     });
   } catch (err: any) {
@@ -353,22 +359,46 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
       };
     }
     const updated = await buildEscrowDetail(req.params.escrowId);
-    if (updated?.escrow && payment) {
-      const buyer = updated.buyer;
-      if (buyer) {
-        const instruction = `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`;
-        const dealCard = await buildParticipantDeal(updated, buyer.whatsappNumber);
+    if (updated?.escrow) {
+      // 1. Notify the buyer that the seller has accepted
+      const buyerWhatsapp = normalizeWhatsAppRecipient(updated.buyer?.whatsappNumber || updated.escrow.buyerWhatsapp);
+      const buyerTelegramId = updated.buyer?.telegramUserId || undefined;
+      const instruction = payment
+        ? `Service provider accepted agreement ${updated.escrow.escrowId}.\n\n${formatFundingInstruction(updated.escrow, payment)}`
+        : `Service provider accepted agreement ${updated.escrow.escrowId}. Waiting for payment.`;
+
+      const buyerDealCard = await buildParticipantDeal(updated, buyerWhatsapp, updated.escrow.buyerUserId);
+      if (buyerWhatsapp || buyerTelegramId) {
         void sendOrQueueWhatsAppNotification({
-          to: buyer.whatsappNumber,
-          telegramUserId: buyer.telegramUserId || undefined,
+          to: buyerWhatsapp || "",
+          telegramUserId: buyerTelegramId,
           message: instruction,
           reason: "seller_accepted_payment_details",
           escrowId: updated.escrow.escrowId,
-          dealCard: dealCard ? {
-            escrow: dealCard.escrow,
-            participant: dealCard.participant,
+          dealCard: buyerDealCard ? {
+            escrow: buyerDealCard.escrow,
+            participant: buyerDealCard.participant,
           } : undefined,
         }).catch((err) => warn("Background buyer notification failed", err));
+      }
+
+      // 2. Notify the seller confirming their acceptance
+      const sellerWhatsapp = normalizeWhatsAppRecipient(updated.seller?.whatsappNumber || updated.escrow.sellerWhatsapp);
+      const sellerTelegramId = updated.seller?.telegramUserId || undefined;
+      const sellerMsg = `You accepted agreement ${updated.escrow.escrowId}.\nWaiting for buyer payment to lock funds before you begin work.`;
+      const sellerDealCard = await buildParticipantDeal(updated, sellerWhatsapp, updated.escrow.sellerUserId);
+      if (sellerWhatsapp || sellerTelegramId) {
+        void sendOrQueueWhatsAppNotification({
+          to: sellerWhatsapp || "",
+          telegramUserId: sellerTelegramId,
+          message: sellerMsg,
+          reason: "seller_accepted_confirmation",
+          escrowId: updated.escrow.escrowId,
+          dealCard: sellerDealCard ? {
+            escrow: sellerDealCard.escrow,
+            participant: sellerDealCard.participant,
+          } : undefined,
+        }).catch((err) => warn("Background seller acceptance notification failed", err));
       }
     }
     res.status(200).json({ escrow: updated, payment });
@@ -403,14 +433,17 @@ router.post("/api/escrows/:escrowId/test-fund", requireCoreApiAuth, async (req, 
     channel: "sandbox_test_override",
   });
   if (!funded) return res.status(409).json({ error: "Sandbox payment reference could not be funded" });
+  await notifyEscrowFundedParticipants(funded);
   res.status(200).json(await buildEscrowDetail(req.params.escrowId));
 });
 
 router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async (req, res) => {
   try {
     const parsed = escrowActionSchema.safeParse(req.body);
-    if (!parsed.success || !parsed.data.actorWhatsapp) {
-      return res.status(400).json({ error: "Buyer WhatsApp is required", details: parsed.success ? [] : formatZodError(parsed.error) });
+    const actorWhatsapp = parsed.success ? parsed.data.actorWhatsapp : req.body?.actorWhatsapp;
+    const actorUserId = parsed.success ? parsed.data.actorUserId : req.body?.actorUserId;
+    if (!actorWhatsapp && !actorUserId) {
+      return res.status(400).json({ error: "Buyer identity is required", details: parsed.success ? [] : formatZodError(parsed.error) });
     }
     const detail = await buildEscrowDetail(req.params.escrowId);
     if (!detail) return res.status(404).json({ error: "Escrow not found" });
@@ -420,7 +453,12 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
         message: "NGN balance funding requires a committed payment-ledger reservation. No funds were debited by this request.",
       });
     }
-    if (!whatsappIdentityMatches(detail.buyer?.whatsappNumber, parsed.data.actorWhatsapp)) {
+    const isBuyerUser = actorUserId && detail.escrow.buyerUserId === actorUserId;
+    const isBuyerPhone = actorWhatsapp && (
+      whatsappIdentityMatches(detail.buyer?.whatsappNumber, actorWhatsapp) ||
+      whatsappIdentityMatches(detail.escrow.buyerWhatsapp, actorWhatsapp)
+    );
+    if (!isBuyerUser && !isBuyerPhone) {
       return res.status(403).json({ error: "Only the escrow buyer can fund this agreement from balance" });
     }
     if (!["PENDING_PAYMENT", "PENDING_ACCEPTANCE"].includes(detail.escrow.status)) {
@@ -449,14 +487,7 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
 
     const updated = await buildEscrowDetail(req.params.escrowId);
     if (updated) {
-      await notifyEscrowParticipants(
-        updated.escrow,
-        participantLifecycleMessage(
-          updated.escrow,
-          `Payment of ${updated.escrow.amount} ${updated.escrow.currency} was confirmed from Sivan Balance.`,
-          `Work is now in progress.`
-        )
-      );
+      await notifyEscrowFundedParticipants(updated.escrow);
     }
 
     res.status(200).json({ success: true, escrow: updated });

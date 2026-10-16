@@ -59,7 +59,7 @@ export const escrowCreateSchema = z.object({
     (value) => !hasRestrictedPurposeTerm(value),
     "Service agreement purpose contains a restricted term"
   ),
-  channel: z.enum(["whatsapp_dm", "whatsapp_group", "admin", "api"]).default("api"),
+  channel: z.string().trim().min(1).max(40).default("api"),
   clientRequestId: z.string().trim().min(8).max(120).optional(),
   feePayer: z.enum(["buyer", "seller", "split"]).default("buyer"),
   network: z.string().trim().min(1).max(60).optional(),

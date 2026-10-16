@@ -49,7 +49,7 @@ export async function resolveActorUserId(
   if (actorUserId) {
     const byId = await escrowStore.getUserById(actorUserId);
     if (!byId) return null;
-    if (actorWhatsapp && !whatsappIdentityMatches(byId.whatsappNumber, actorWhatsapp)) {
+    if (actorWhatsapp && byId.whatsappNumber && !whatsappIdentityMatches(byId.whatsappNumber, actorWhatsapp)) {
       throw new ConflictingActorError();
     }
     return byId.userId;
@@ -58,7 +58,6 @@ export async function resolveActorUserId(
   if (!actorWhatsapp) return null;
   const byPhone = await escrowStore.findUserByWhatsapp(actorWhatsapp);
   return byPhone ? byPhone.userId : null;
-
 }
 
 /**
@@ -78,6 +77,11 @@ export async function roleForEscrowParticipant(
   actorWhatsapp?: string | null,
   actorUserId?: string | null
 ): Promise<"buyer" | "seller" | null> {
+  if (actorUserId) {
+    if (escrow.buyerUserId === actorUserId) return "buyer";
+    if (escrow.sellerUserId === actorUserId) return "seller";
+  }
+
   const resolvedUserId = await resolveActorUserId(actorWhatsapp, actorUserId);
 
   if (resolvedUserId) {
@@ -85,8 +89,10 @@ export async function roleForEscrowParticipant(
     if (escrow.sellerUserId === resolvedUserId) return "seller";
   }
 
-  // Unregistered / invited participant: no user row yet, match the raw number.
+  // Unregistered / invited participant: no user row yet, or phone / userId match directly.
   if (actorWhatsapp) {
+    if (escrow.buyerUserId === actorWhatsapp) return "buyer";
+    if (escrow.sellerUserId === actorWhatsapp) return "seller";
     if (escrow.buyerWhatsapp && whatsappIdentityMatches(escrow.buyerWhatsapp, actorWhatsapp)) return "buyer";
     if (escrow.sellerWhatsapp && whatsappIdentityMatches(escrow.sellerWhatsapp, actorWhatsapp)) return "seller";
   }

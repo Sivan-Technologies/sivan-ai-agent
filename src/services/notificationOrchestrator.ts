@@ -10,7 +10,7 @@
  */
 import { EscrowRecord } from "./escrowStore";
 import { escrowStore } from "../context";
-import { queueWhatsAppNotification, sendOrQueueWhatsAppNotification } from "./notificationDispatcher";
+import { queueWhatsAppNotification, sendOrQueueWhatsAppNotification, normalizeWhatsAppRecipient } from "./notificationDispatcher";
 import { escrowCreatedMessage, participantLifecycleMessage } from "./messageFormatter";
 import { buildParticipantDeal } from "./dealCardBuilder";
 import { buildEscrowDetail } from "./escrowDetailBuilder";
@@ -19,18 +19,19 @@ import { getPresignedDownloadUrl } from "./storageService";
 export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, options: { notifyBuyer?: boolean; notifySeller?: boolean } = {}) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   if (!detail) return;
-  const buyerWhatsapp = detail.buyer?.whatsappNumber;
-  const sellerWhatsapp = detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp;
-  const notifyBuyer = options.notifyBuyer ?? false;
-  const notifySeller = options.notifySeller ?? true;
+  const buyerWhatsapp = normalizeWhatsAppRecipient(detail.buyer?.whatsappNumber || detail.escrow.buyerWhatsapp);
+  const sellerWhatsapp = normalizeWhatsAppRecipient(detail.seller?.whatsappNumber || detail.escrow.sellerWhatsapp);
 
   const buyerTelegramId = detail.buyer?.telegramUserId || undefined;
   const sellerTelegramId = detail.seller?.telegramUserId || undefined;
 
+  const notifyBuyer = options.notifyBuyer ?? Boolean(buyerWhatsapp || buyerTelegramId);
+  const notifySeller = options.notifySeller ?? Boolean(sellerWhatsapp || sellerTelegramId);
+
   await Promise.all([
-    notifyBuyer && buyerWhatsapp ? buildParticipantDeal(detail, buyerWhatsapp).then((dealCard) =>
+    notifyBuyer && (buyerWhatsapp || buyerTelegramId) ? buildParticipantDeal(detail, buyerWhatsapp, detail.escrow.buyerUserId).then((dealCard) =>
       sendOrQueueWhatsAppNotification({
-        to: buyerWhatsapp,
+        to: buyerWhatsapp || "",
         telegramUserId: buyerTelegramId,
         message: escrowCreatedMessage(detail.escrow, "buyer"),
         reason: "buyer_agreement_created",
@@ -41,9 +42,9 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, opti
         } : undefined,
       })
     ) : Promise.resolve(),
-    notifySeller && sellerWhatsapp ? buildParticipantDeal(detail, sellerWhatsapp).then((dealCard) =>
+    notifySeller && (sellerWhatsapp || sellerTelegramId) ? buildParticipantDeal(detail, sellerWhatsapp, detail.escrow.sellerUserId).then((dealCard) =>
       sendOrQueueWhatsAppNotification({
-        to: sellerWhatsapp,
+        to: sellerWhatsapp || "",
         telegramUserId: sellerTelegramId,
         message: escrowCreatedMessage(detail.escrow, "seller"),
         reason: "seller_invite",
@@ -121,8 +122,8 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
     return undefined;
   };
 
-  const buyerWhatsapp = detail.buyer?.whatsappNumber || (rawBuyer.startsWith("whatsapp:") ? rawBuyer : undefined);
-  const sellerWhatsapp = detail.seller?.whatsappNumber || (rawSeller.startsWith("whatsapp:") ? rawSeller : undefined);
+  const buyerWhatsapp = normalizeWhatsAppRecipient(detail.buyer?.whatsappNumber || rawBuyer);
+  const sellerWhatsapp = normalizeWhatsAppRecipient(detail.seller?.whatsappNumber || rawSeller);
 
   const buyerTelegramUserId = detail.buyer?.telegramUserId || extractTgId(rawBuyer);
   const sellerTelegramUserId = detail.seller?.telegramUserId || extractTgId(rawSeller);
@@ -137,9 +138,9 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   );
 
   await Promise.all([
-    buyerTarget ? buildParticipantDeal(detail, buyerTarget).then((dealCard) =>
+    (buyerWhatsapp || buyerTelegramUserId) ? buildParticipantDeal(detail, buyerWhatsapp, detail.escrow.buyerUserId).then((dealCard) =>
       queueWhatsAppNotification({
-        to: buyerWhatsapp || (rawBuyer.startsWith("whatsapp:") ? rawBuyer : ""),
+        to: buyerWhatsapp || "",
         telegramUserId: buyerTelegramUserId || undefined,
         message,
         reason: "escrow_funded",
@@ -150,9 +151,9 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
         } : undefined,
       })
     ) : Promise.resolve(),
-    sellerTarget ? buildParticipantDeal(detail, sellerTarget).then((dealCard) =>
+    (sellerWhatsapp || sellerTelegramUserId) ? buildParticipantDeal(detail, sellerWhatsapp, detail.escrow.sellerUserId).then((dealCard) =>
       queueWhatsAppNotification({
-        to: sellerWhatsapp || (rawSeller.startsWith("whatsapp:") ? rawSeller : ""),
+        to: sellerWhatsapp || "",
         telegramUserId: sellerTelegramUserId || undefined,
         message,
         reason: "escrow_funded",
@@ -172,7 +173,7 @@ export async function notifyBuyerDeliverySubmitted(
   media: Array<{ url: string }> = []
 ) {
   const detail = await buildEscrowDetail(escrow.escrowId);
-  const buyerWhatsapp = detail?.buyer?.whatsappNumber;
+  const buyerWhatsapp = normalizeWhatsAppRecipient(detail?.buyer?.whatsappNumber || detail?.escrow?.buyerWhatsapp);
   const buyerTelegramUserId = detail?.buyer?.telegramUserId;
   if (!detail || (!buyerWhatsapp && !buyerTelegramUserId)) return;
   const dealCard = await buildParticipantDeal(detail, buyerWhatsapp || `tg:${buyerTelegramUserId}`);

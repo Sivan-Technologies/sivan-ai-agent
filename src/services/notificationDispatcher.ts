@@ -23,6 +23,31 @@ export function queueWhatsAppNotification(params: {
   void sendOrQueueWhatsAppNotification(params);
 }
 
+export function normalizeWhatsAppRecipient(to?: string | null): string | null {
+  if (!to) return null;
+  const trimmed = to.trim();
+  if (trimmed.startsWith("web:") || trimmed.startsWith("telegram:") || trimmed.startsWith("tg:")) {
+    return null;
+  }
+  if (trimmed.startsWith("whatsapp:")) {
+    const raw = trimmed.replace(/^whatsapp:/, "").trim();
+    if (/^\+[1-9]\d{1,14}$/.test(raw)) return trimmed;
+    if (/^\d{10,15}$/.test(raw)) return `whatsapp:+${raw}`;
+    return trimmed;
+  }
+  const cleanDigits = trimmed.replace(/\D/g, "");
+  if (trimmed.startsWith("+") && /^\+[1-9]\d{1,14}$/.test(trimmed)) {
+    return `whatsapp:${trimmed}`;
+  }
+  if (cleanDigits.startsWith("0") && cleanDigits.length === 11) {
+    return `whatsapp:+234${cleanDigits.slice(1)}`;
+  }
+  if (cleanDigits.length >= 10 && cleanDigits.length <= 15) {
+    return `whatsapp:+${cleanDigits}`;
+  }
+  return null;
+}
+
 /**
  * Deliver one participant notification.
  *
@@ -65,15 +90,16 @@ export async function sendOrQueueWhatsAppNotification(params: {
     params.media
   );
 
-  if (!params.to?.startsWith("whatsapp:")) return;
+  const whatsappAddress = normalizeWhatsAppRecipient(params.to);
+  if (!whatsappAddress) return;
 
   try {
-    await notifyWhatsAppBotStrict(params.to, params.message, params.dealCard, params.media);
+    await notifyWhatsAppBotStrict(whatsappAddress, params.message, params.dealCard, params.media);
   } catch (err) {
 
     const context = {
       escrowId: params.escrowId,
-      to: params.to,
+      to: whatsappAddress,
       reason: params.reason,
       ...params.context,
     };
@@ -88,7 +114,7 @@ export async function sendOrQueueWhatsAppNotification(params: {
     }
     try {
       await opsStore.enqueueJob("whatsapp_notification", {
-        to: params.to,
+        to: whatsappAddress,
         message: params.message,
         escrowId: params.escrowId,
         reason: params.reason,

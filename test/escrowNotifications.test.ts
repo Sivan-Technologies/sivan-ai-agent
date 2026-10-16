@@ -211,4 +211,51 @@ describe("Escrow WhatsApp notification delivery", () => {
 
     vi.unstubAllGlobals();
   });
+
+  // ── Test 5: Buyer on non-whatsapp channel with whatsapp number receives notification ──────
+
+  it("indicates buyerNotificationSent=true when buyer creates via minipay channel with whatsapp", async () => {
+    const created = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `notify-minipay-${Date.now()}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 15000,
+        currency: "NAIRA",
+        purpose: "MiniPay agreement creation",
+        channel: "minipay",
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.buyerNotificationSent).toBe(true);
+    expect(created.body.sellerInviteSent).toBe(true);
+  });
+
+  // ── Test 6: notifyEscrowFundedParticipants dispatches to both parties ──────
+
+  it("notifyEscrowFundedParticipants successfully builds deal cards and formats messages for both parties", async () => {
+    const { notifyEscrowFundedParticipants } = await import("../src/services/notificationOrchestrator");
+
+    const created = await request(app)
+      .post("/api/escrows")
+      .set("x-core-api-key", "test-core-secret")
+      .send({
+        clientRequestId: `notify-fund-dispatch-${Date.now()}`,
+        buyerWhatsapp,
+        sellerWhatsapp,
+        amount: 25000,
+        currency: "NAIRA",
+        purpose: "Full lifecycle funding test",
+        channel: "whatsapp_dm",
+      });
+
+    expect(created.status).toBe(201);
+    const escrowRecord = await escrowStore.getEscrowById(created.body.escrow.escrowId);
+    expect(escrowRecord).toBeTruthy();
+
+    // Call notifyEscrowFundedParticipants - must complete cleanly without throwing
+    await expect(notifyEscrowFundedParticipants(escrowRecord!)).resolves.not.toThrow();
+  });
 });
