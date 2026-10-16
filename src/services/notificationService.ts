@@ -38,43 +38,68 @@ export async function notifyWhatsAppBot(to: string, message: string, dealCard?: 
  * Never throws. A notification is an enhancement to an escrow action that has
  * already succeeded; failing to deliver one must not roll back a payment.
  */
+export function getWhatsAppBaseUrl(): string {
+  const raw = (
+    process.env.WHATSAPP_NOTIFICATION_URL ||
+    config.app.notificationUrl ||
+    process.env.NOTIFICATION_URL ||
+    process.env.CORE_API_BASE_URL ||
+    (config.databaseMode === "live" ? "https://api.sivantech.online" : "https://api-staging.sivantech.online")
+  ).trim().replace(/\/$/, "");
+
+  let base = raw.replace(/\/api\/notify$/, "");
+  // If routing through the Cloudflare Sivantech gateway without /api/whatsapp, prefix /api/whatsapp
+  if (base.includes("sivantech.online") && !base.includes("/api/whatsapp")) {
+    base = `${base}/api/whatsapp`;
+  }
+  return base;
+}
+
+export function getTelegramBaseUrl(): string {
+  const raw = (
+    process.env.TELEGRAM_NOTIFICATION_URL ||
+    config.app.telegramNotificationUrl ||
+    process.env.TELEGRAM_BOT_URL ||
+    process.env.CORE_API_BASE_URL ||
+    (config.databaseMode === "live" ? "https://api.sivantech.online" : "https://api-staging.sivantech.online")
+  ).trim().replace(/\/$/, "");
+
+  let base = raw.replace(/\/api\/notify$/, "");
+  // If routing through Cloudflare Sivantech gateway without /api/telegram, prefix /api/telegram
+  if (base.includes("sivantech.online") && !base.includes("/api/telegram") && !base.includes("telegram.sivantech.online")) {
+    base = `${base}/api/telegram`;
+  }
+  return base;
+}
+
+/**
+ * Push an update to the Telegram layer.
+ */
 export async function notifyTelegramBot(to: string, message: string, dealCard?: any, telegramUserId?: string, media?: string[]) {
-  const notifyUrl = process.env.TELEGRAM_NOTIFICATION_URL || config.app.telegramNotificationUrl || process.env.TELEGRAM_BOT_URL;
-  if (!notifyUrl) return; // Telegram layer not deployed. Nothing to do.
+  const notifyBase = getTelegramBaseUrl();
+  if (!notifyBase) return; // Telegram layer not deployed. Nothing to do.
 
-  // Nothing to address the message to. Without this a phone-less, unlinked user
-  // would POST { phone: "" } and the layer would scan its whole identity store
-  // looking for a blank phone.
   if (!telegramUserId && !to) return;
-
 
   const secret = config.app.telegramNotificationSecret;
 
   try {
-    const response = await fetch(`${notifyUrl.replace(/\/$/, "")}/api/notify`, {
+    const response = await fetch(`${notifyBase}/api/notify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-target-service": "telegram",
         ...(secret ? { "x-notify-secret": secret } : {}),
       },
       body: JSON.stringify({
-        // The Telegram layer's own field names. It uses telegramId directly as
-        // the chat id when present, and only falls back to scanning its linked
-        // identities for the phone when it is absent. Send both: the id is the
-        // reliable route, the phone still reaches users linked the old way
-        // whose id we have not recorded yet.
         ...(telegramUserId ? { telegramId: telegramUserId } : {}),
         ...(to ? { phone: to } : {}),
         message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
         ...(dealCard ? { dealCard } : {}),
         ...(media && media.length ? { media } : {}),
       }),
-
     });
 
-    // 404 is the normal, expected answer for a user who has never linked
-    // Telegram - which is most users. Logging it as an error would bury real
-    // failures in noise.
     if (response.status === 404) return;
 
     if (!response.ok) {
@@ -87,10 +112,10 @@ export async function notifyTelegramBot(to: string, message: string, dealCard?: 
 }
 
 export async function notifyWhatsAppBotStrict(to: string, message: string, dealCard?: any, media?: string[]) {
-  const notifyUrl = config.app.notificationUrl;
+  const notifyBase = getWhatsAppBaseUrl();
   const secret = config.app.notificationSecret;
 
-  if (!notifyUrl) {
+  if (!notifyBase) {
     return;
   }
 
@@ -99,10 +124,11 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await fetch(`${notifyUrl}/api/notify`, {
+      const response = await fetch(`${notifyBase}/api/notify`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-target-service": "whatsapp-bot",
           ...(secret ? { "x-notify-secret": secret } : {}),
         },
         body: JSON.stringify({
@@ -136,10 +162,10 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
 }
 
 export async function getWhatsAppProviderStatus() {
-  const notifyUrl = config.app.notificationUrl;
+  const notifyBase = getWhatsAppBaseUrl();
   const secret = config.app.notificationSecret;
 
-  if (!notifyUrl) {
+  if (!notifyBase) {
     return {
       activeProvider: "unknown",
       configured: false,
@@ -151,8 +177,9 @@ export async function getWhatsAppProviderStatus() {
     };
   }
 
-  const response = await fetch(`${notifyUrl}/api/whatsapp-provider`, {
+  const response = await fetch(`${notifyBase}/api/whatsapp-provider`, {
     headers: {
+      "x-target-service": "whatsapp-bot",
       ...(secret ? { "x-notify-secret": secret } : {}),
     },
   });
@@ -175,17 +202,18 @@ export async function getWhatsAppProviderStatus() {
 }
 
 export async function switchWhatsAppProvider(provider: "twilio" | "meta") {
-  const notifyUrl = config.app.notificationUrl;
+  const notifyBase = getWhatsAppBaseUrl();
   const secret = config.app.notificationSecret;
 
-  if (!notifyUrl) {
+  if (!notifyBase) {
     throw new Error("NOTIFICATION_URL is not configured");
   }
 
-  const response = await fetch(`${notifyUrl}/api/whatsapp-provider`, {
+  const response = await fetch(`${notifyBase}/api/whatsapp-provider`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-target-service": "whatsapp-bot",
       ...(secret ? { "x-notify-secret": secret } : {}),
     },
     body: JSON.stringify({ provider }),
