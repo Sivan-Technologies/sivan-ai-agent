@@ -284,32 +284,37 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
     const accepted = await escrowStore.acceptEscrow(req.params.escrowId, actorIdentity);
     let payment: any = null;
     if (accepted.currency === "NAIRA" && !accepted.paymentReference) {
-      const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
-      if (sandboxPayment) {
-        const fundingExpiresAt = accepted.fundingExpiresAt || await fundingDeadlineForEscrow(accepted);
-        await escrowStore.attachPayment({
-          escrowId: accepted.escrowId,
-          paymentReference: sandboxPayment.reference,
-          paymentAuthorizationUrl: sandboxPayment.authorizationUrl,
-          paymentProvider: sandboxPayment.provider,
-          paymentMetadata: {
+      try {
+        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
+      } catch (paymentErr: any) {
+        warn("Failed to initialize active payment provider checkout, checking sandbox fallback", paymentErr?.message || paymentErr);
+        const sandboxPayment = createSandboxPaymentInstruction(accepted.escrowId);
+        if (sandboxPayment) {
+          const fundingExpiresAt = accepted.fundingExpiresAt || await fundingDeadlineForEscrow(accepted);
+          await escrowStore.attachPayment({
+            escrowId: accepted.escrowId,
+            paymentReference: sandboxPayment.reference,
+            paymentAuthorizationUrl: sandboxPayment.authorizationUrl,
+            paymentProvider: sandboxPayment.provider,
+            paymentMetadata: {
+              provider: sandboxPayment.provider,
+              reference: sandboxPayment.reference,
+              fundingExpiresAt,
+              testOnly: true,
+            },
+            fundingExpiresAt,
+            status: "PENDING_PAYMENT",
+          });
+          payment = {
             provider: sandboxPayment.provider,
             reference: sandboxPayment.reference,
+            authorizationUrl: sandboxPayment.authorizationUrl,
             fundingExpiresAt,
             testOnly: true,
-          },
-          fundingExpiresAt,
-          status: "PENDING_PAYMENT",
-        });
-        payment = {
-          provider: sandboxPayment.provider,
-          reference: sandboxPayment.reference,
-          authorizationUrl: sandboxPayment.authorizationUrl,
-          fundingExpiresAt,
-          testOnly: true,
-        };
-      } else {
-        payment = await createNairaPaymentInstruction(accepted, { buyerWhatsapp: detailBefore.buyer?.whatsappNumber });
+          };
+        } else {
+          throw paymentErr;
+        }
       }
     } else if (accepted.currency === "USDC" && !accepted.paymentReference) {
       const usdcChannel = process.env.USDC_CHANNEL || "x402";

@@ -288,7 +288,9 @@ export async function calculateEscrowPayoutQuote(
 }
 
 export async function createNairaPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
-  const provider = escrow.paymentProvider ? await getProviderForEscrow(escrow) : await getActiveNairaPaymentProvider();
+  const provider = (escrow.paymentProvider && !options.regenerate && !escrow.paymentProvider.endsWith("_sandbox_override"))
+    ? await getProviderForEscrow(escrow)
+    : await getActiveNairaPaymentProvider();
   const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
   const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
   const transaction = await provider.initializeBankTransferPayment({
@@ -458,6 +460,12 @@ export async function activePaymentInstructionForEscrow(detail: any) {
   const paymentRef = detail.escrow.paymentReference as string;
   let authorizationUrl: string | undefined =
     detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl;
+
+  // Stale or legacy sandbox link pointing to non-existent /pay path — invalidate so fresh provider instruction is generated
+  if (authorizationUrl && authorizationUrl.includes("vercel.app")) {
+    return null;
+  }
+
   if (!authorizationUrl && /^sandbox-/i.test(paymentRef)) {
     authorizationUrl = `https://sivantech.online/pay?reference=${encodeURIComponent(paymentRef)}`;
   }
