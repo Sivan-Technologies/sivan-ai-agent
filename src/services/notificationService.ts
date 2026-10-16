@@ -94,7 +94,7 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
     return;
   }
 
-  const maxAttempts = 2;
+  const maxAttempts = 3;
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -118,14 +118,16 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
       const payload = await response.text();
       const isWarmingUp = response.status === 503 || /UPSTREAM_UNAVAILABLE|suspended/i.test(payload);
       if (isWarmingUp && attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 2500));
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
         continue;
       }
       throw new Error(`WhatsApp notify failed: ${response.status} ${payload}`);
-    } catch (err) {
+    } catch (err: any) {
       lastError = err;
-      if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 2500));
+      const isWarmingUp = /UPSTREAM_UNAVAILABLE|suspended|aborted|timeout|503/i.test(err?.message || "");
+      if (isWarmingUp && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
+        continue;
       }
     }
   }

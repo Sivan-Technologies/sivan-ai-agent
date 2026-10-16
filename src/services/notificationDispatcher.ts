@@ -78,8 +78,11 @@ export async function sendOrQueueWhatsAppNotification(params: {
       ...params.context,
     };
     const isRateLimited = err instanceof Error && /\b429\b|Too Many Requests/i.test(err.message);
+    const isWarmingUp = err instanceof Error && /\b503\b|UPSTREAM_UNAVAILABLE|suspended|timeout|aborted/i.test(err.message);
     if (isRateLimited) {
       capturePaymentWarning("WhatsApp notification rate-limited; queued for retry", context);
+    } else if (isWarmingUp) {
+      capturePaymentWarning("WhatsApp bot warming up; queued for background retry", context);
     } else {
       captureOperationalError("Failed to send WhatsApp notification", err, context);
     }
