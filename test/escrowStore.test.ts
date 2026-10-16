@@ -351,6 +351,31 @@ describe("EscrowStore", () => {
     expect(transactions[0].status).toBe("cancelled");
   });
 
+  it("allows buyer to cancel when actor whatsapp number has varying prefix formats", async () => {
+    const escrowStore = freshStore();
+    // User saved with plain international format
+    const buyer = await escrowStore.upsertUserByWhatsapp("+2349136717403", "buyer");
+    const seller = await escrowStore.upsertUserByWhatsapp("+2349136717404", "seller");
+    const escrow = await escrowStore.createEscrow({
+      buyerUserId: buyer.userId,
+      sellerUserId: seller.userId,
+      sellerWhatsapp: seller.whatsappNumber,
+      amount: 6000,
+      currency: "NAIRA",
+      purpose: "Virtual asst",
+      createdByChannel: "whatsapp_dm",
+    });
+
+    // Cancelled using twilio whatsapp: prefix format
+    const cancelled = await escrowStore.cancelUnfundedEscrow(escrow.escrowId, "whatsapp:+2349136717403", "whatsapp_dm");
+    expect(cancelled.status).toBe("CANCELLED");
+
+    // Also verify listEscrowsForWhatsapp works when searched with whatsapp: prefix
+    const list = await escrowStore.listEscrowsForWhatsapp("whatsapp:+2349136717403");
+    expect(list.length).toBeGreaterThanOrEqual(1);
+    expect(list[0].escrowId).toBe(escrow.escrowId);
+  });
+
   it("blocks cancellation after escrow funding", async () => {
     const escrowStore = freshStore();
     const buyer = await escrowStore.upsertUserByWhatsapp("whatsapp:+2348000000031", "buyer");

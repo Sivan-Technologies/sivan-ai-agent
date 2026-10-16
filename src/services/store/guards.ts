@@ -66,12 +66,28 @@ export function id(prefix: string) {
 export function whatsappLookupVariants(whatsappNumber: string) {
   const trimmed = whatsappNumber.trim();
   const digits = trimmed.replace(/\D/g, "");
-  return Array.from(new Set([
-    trimmed,
-    digits ? `whatsapp:+${digits}` : "",
-    digits ? `whatsapp:${digits}` : "",
-    digits,
-  ].filter(Boolean)));
+  const variants = new Set<string>();
+  if (trimmed) variants.add(trimmed);
+  if (digits) {
+    variants.add(digits);
+    variants.add(`+${digits}`);
+    variants.add(`whatsapp:+${digits}`);
+    variants.add(`whatsapp:${digits}`);
+
+    if (digits.startsWith("234") && digits.length === 13) {
+      const local = `0${digits.slice(3)}`;
+      variants.add(local);
+      variants.add(`+${digits}`);
+      variants.add(`whatsapp:+${digits}`);
+    } else if (digits.startsWith("0") && digits.length === 11) {
+      const intl = `234${digits.slice(1)}`;
+      variants.add(intl);
+      variants.add(`+${intl}`);
+      variants.add(`whatsapp:+${intl}`);
+      variants.add(`whatsapp:${intl}`);
+    }
+  }
+  return Array.from(variants);
 }
 
 export function whatsappIdentityMatches(left?: string | null, right?: string | null): boolean {

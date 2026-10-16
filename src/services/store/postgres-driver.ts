@@ -1162,7 +1162,10 @@ export class PostgresDriver implements EscrowStoreDriver {
   private async assertBuyerActor(escrow: EscrowRecord, actor: string): Promise<void> {
     if (actor === "system-sweep") return;
     const buyer = await this.getUserById(escrow.buyerUserId);
-    if (!buyer || buyer.whatsappNumber !== actor) {
+    const matchesBuyer =
+      (buyer && whatsappIdentityMatches(buyer.whatsappNumber, actor)) ||
+      (escrow.buyerWhatsapp && whatsappIdentityMatches(escrow.buyerWhatsapp, actor));
+    if (!matchesBuyer) {
       throw new Error("Only the buyer can perform this escrow action");
     }
   }
@@ -1172,8 +1175,8 @@ export class PostgresDriver implements EscrowStoreDriver {
       this.getUserById(escrow.buyerUserId),
       escrow.sellerUserId ? this.getUserById(escrow.sellerUserId) : Promise.resolve(null),
     ]);
-    const allowed = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.sellerWhatsapp].filter(Boolean);
-    if (!allowed.includes(actor)) {
+    const allowed = [buyer?.whatsappNumber, seller?.whatsappNumber, escrow.buyerWhatsapp, escrow.sellerWhatsapp].filter(Boolean);
+    if (!allowed.some((num) => whatsappIdentityMatches(num, actor))) {
       throw new Error("Only escrow participants can perform this escrow action");
     }
   }
