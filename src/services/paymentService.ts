@@ -293,18 +293,45 @@ export async function calculateEscrowPayoutQuote(
 }
 
 export async function createNairaPaymentInstruction(escrow: EscrowRecord, options: { regenerate?: boolean; buyerWhatsapp?: string } = {}) {
-  const provider = (escrow.paymentProvider && !options.regenerate && !escrow.paymentProvider.endsWith("_sandbox_override"))
-    ? await getProviderForEscrow(escrow)
-    : await getActiveNairaPaymentProvider();
+  const settings = await settingsStore.getSettings();
   const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
-  const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
-  const transaction = await provider.initializeBankTransferPayment({
-    amount: payoutQuote.totalWithFee,
-    customerEmail: nairaCustomerEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId),
-    callbackUrl: callbackUrlForProvider(provider.id),
-    escrowId: escrow.escrowId,
-    paymentReference,
-  });
+  const customerEmail = nairaCustomerEmailForWhatsapp(options.buyerWhatsapp || escrow.buyerUserId);
+
+  let primaryProviderId = "paystack";
+  if (escrow.paymentProvider && !options.regenerate && !escrow.paymentProvider.endsWith("_sandbox_override") && escrow.paymentProvider.toLowerCase() !== "nomba") {
+    primaryProviderId = escrow.paymentProvider;
+  }
+
+  let provider = createProviderForId(primaryProviderId, settings.platformMode);
+  let transaction: any;
+
+  try {
+    const paymentReference = uniqueProviderReference(provider.id, escrow.escrowId);
+    transaction = await provider.initializeBankTransferPayment({
+      amount: payoutQuote.totalWithFee,
+      customerEmail,
+      callbackUrl: callbackUrlForProvider(provider.id),
+      escrowId: escrow.escrowId,
+      paymentReference,
+    });
+  } catch (primaryErr: any) {
+    // If Paystack is down / throws, fall back to Flutterwave
+    if (primaryProviderId === "paystack" && providerConfigured("flutterwave")) {
+      console.warn("Paystack checkout initialization failed, attempting Flutterwave fallback...", primaryErr?.message || primaryErr);
+      provider = createProviderForId("flutterwave", settings.platformMode);
+      const fallbackReference = uniqueProviderReference(provider.id, escrow.escrowId);
+      transaction = await provider.initializeBankTransferPayment({
+        amount: payoutQuote.totalWithFee,
+        customerEmail,
+        callbackUrl: callbackUrlForProvider(provider.id),
+        escrowId: escrow.escrowId,
+        paymentReference: fallbackReference,
+      });
+    } else {
+      throw primaryErr;
+    }
+  }
+
   const fundingExpiresAt = escrow.fundingExpiresAt || await fundingDeadlineForEscrow(escrow);
   await escrowStore.attachPayment({
     escrowId: escrow.escrowId,
@@ -466,13 +493,17 @@ export async function activePaymentInstructionForEscrow(detail: any) {
   let authorizationUrl: string | undefined =
     detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl;
 
-  // Stale or legacy sandbox link pointing to non-existent /pay path or sandbox-nomba — invalidate so fresh provider instruction is generated
-  if (authorizationUrl && (authorizationUrl.includes("vercel.app") || authorizationUrl.includes("sandbox-nomba") || paymentRef.includes("nomba"))) {
+  // Invalidate any stale sandbox reference or vercel sandbox link so fresh official provider checkout is generated
+  if (
+    paymentRef.startsWith("sandbox-") ||
+    (authorizationUrl && (
+      authorizationUrl.includes("vercel.app") ||
+      authorizationUrl.includes("sandbox-nomba") ||
+      paymentRef.includes("nomba") ||
+      authorizationUrl.includes("/pay?reference=")
+    ))
+  ) {
     return null;
-  }
-
-  if (!authorizationUrl && /^sandbox-/i.test(paymentRef)) {
-    authorizationUrl = `https://sivantech.online/pay?reference=${encodeURIComponent(paymentRef)}`;
   }
 
   return {

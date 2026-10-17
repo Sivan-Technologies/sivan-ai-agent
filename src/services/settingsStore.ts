@@ -95,8 +95,8 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   nairaPlatformActiveExposureLimit: 10000000,
   trustedUserSuccessfulEscrows: 3,
   establishedUserSuccessfulEscrows: 10,
-  activePaymentProvider: process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
-  backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
+  activePaymentProvider: "paystack",
+  backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "flutterwave",
   emergencyPaymentProvider: process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
   paymentProviderFallbackEnabled: true,
   platformMode: "live",
@@ -196,8 +196,8 @@ export class SettingsStore {
       nairaPlatformActiveExposureLimit: Number(row.naira_platform_active_exposure_limit ?? 10000000),
       trustedUserSuccessfulEscrows: Number(row.trusted_user_successful_escrows ?? 3),
       establishedUserSuccessfulEscrows: Number(row.established_user_successful_escrows ?? 10),
-      activePaymentProvider: row.active_payment_provider || process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
-      backupPaymentProvider: row.backup_payment_provider || process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
+      activePaymentProvider: (row.active_payment_provider && row.active_payment_provider.toLowerCase() !== "nomba" ? row.active_payment_provider : "paystack"),
+      backupPaymentProvider: row.backup_payment_provider || process.env.BACKUP_PAYMENT_PROVIDER || "flutterwave",
       emergencyPaymentProvider: row.emergency_payment_provider || process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
       paymentProviderFallbackEnabled: Boolean(row.payment_provider_fallback_enabled ?? (process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0)),
       platformMode: ["test", "live", "maintenance"].includes(row.platform_mode) ? row.platform_mode : (process.env.PLATFORM_MODE as any) || "test",
@@ -376,8 +376,8 @@ export class SettingsStore {
         )
       `).run({
         now,
-        activePaymentProvider: process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
-        backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
+        activePaymentProvider: "paystack",
+        backupPaymentProvider: process.env.BACKUP_PAYMENT_PROVIDER || "flutterwave",
         emergencyPaymentProvider: process.env.EMERGENCY_PAYMENT_PROVIDER || "flutterwave",
         paymentProviderFallbackEnabled: process.env.PAYMENT_PROVIDER_FALLBACK_ENABLED === "true" ? 1 : 0,
         platformMode: process.env.PLATFORM_MODE || "test",
@@ -400,6 +400,8 @@ export class SettingsStore {
         outageStatusPageUrl: process.env.OUTAGE_STATUS_PAGE_URL || "",
         outageContacts: process.env.OUTAGE_CONTACTS || "Telegram @Sivan_Ai",
       });
+    } else {
+      this.sqlite!.exec("UPDATE platform_settings SET active_payment_provider = 'paystack' WHERE active_payment_provider = 'nomba' OR active_payment_provider IS NULL;");
     }
   }
 
@@ -532,6 +534,8 @@ export class SettingsStore {
           new Date().toISOString(),
         ]
       );
+    } else {
+      await this.pool!.query("UPDATE platform_settings SET active_payment_provider = 'paystack' WHERE active_payment_provider = 'nomba' OR active_payment_provider IS NULL");
     }
     this.initialized = true;
   }
