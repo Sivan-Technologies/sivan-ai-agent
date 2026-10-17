@@ -82,22 +82,27 @@ export function providerConfigured(provider: string) {
   if (normalized === "monnify") return monnifyClient.isCollectionConfigured();
   if (normalized === "palmpay") return palmpayClient.isCollectionConfigured();
   if (normalized === "flutterwave") return flutterwaveClient.isCollectionConfigured();
-  if (normalized === "nomba") return new NombaPayoutClient(config.databaseMode).isCollectionConfigured();
+  // Nomba is payout transfer-only rail, not checkout pay-in
+  if (normalized === "nomba") return false;
   return false;
 }
 
 export async function getActiveNairaPaymentProvider() {
   const settings = await settingsStore.getSettings();
-  if (!providerConfigured(settings.activePaymentProvider)) {
-    throw new Error(`Active Naira payment provider is not configured: ${settings.activePaymentProvider}`);
-  }
-  return createProviderForId(settings.activePaymentProvider, settings.platformMode);
+  const providerId = providerConfigured(settings.activePaymentProvider)
+    ? settings.activePaymentProvider
+    : "paystack";
+  return createProviderForId(providerId, settings.platformMode);
 }
 
 export async function getProviderForEscrow(escrow: Pick<EscrowRecord, "paymentProvider">) {
   const settings = await settingsStore.getSettings();
+  let providerId = escrow.paymentProvider || settings.activePaymentProvider;
+  if (!providerConfigured(providerId) || providerId.toLowerCase() === "nomba") {
+    providerId = "paystack";
+  }
   return createProviderForId(
-    escrow.paymentProvider || settings.activePaymentProvider,
+    providerId,
     settings.platformMode
   );
 }
@@ -461,8 +466,8 @@ export async function activePaymentInstructionForEscrow(detail: any) {
   let authorizationUrl: string | undefined =
     detail.escrow.paymentAuthorizationUrl || rawPayload.authorizationUrl;
 
-  // Stale or legacy sandbox link pointing to non-existent /pay path — invalidate so fresh provider instruction is generated
-  if (authorizationUrl && authorizationUrl.includes("vercel.app")) {
+  // Stale or legacy sandbox link pointing to non-existent /pay path or sandbox-nomba — invalidate so fresh provider instruction is generated
+  if (authorizationUrl && (authorizationUrl.includes("vercel.app") || authorizationUrl.includes("sandbox-nomba") || paymentRef.includes("nomba"))) {
     return null;
   }
 
