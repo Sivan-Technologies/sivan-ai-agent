@@ -1339,7 +1339,7 @@ export class EscrowStore {
     const status: EscrowStatus = input.sellerUserId ? "PENDING_ACCEPTANCE" : "PENDING_PROFILE";
     const settlementPolicy: SettlementPolicy = input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release";
     const feePayer = input.feePayer || "buyer";
-    const network = input.network || (input.currency === "NAIRA" ? "celo" : "solana");
+    const network = input.network || (input.currency === "NAIRA" ? "Sivan Instant" : "solana");
 
     if (this.provider === "sqlite") {
       this.sqlite!.prepare(`
