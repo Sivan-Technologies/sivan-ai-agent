@@ -3,7 +3,7 @@ services:
     name: sivan-escrow-agent-test
     env: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
@@ -135,7 +135,7 @@ services:
     name: sivan-escrow-agent-live
     env: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_VERSION

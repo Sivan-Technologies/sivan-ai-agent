@@ -436,11 +436,11 @@ export class WorkflowStore {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
       return this.sqlite!.prepare(`SELECT * FROM workflow_tasks ORDER BY created_at DESC`).all()
-        .map((row) => this.mapTaskRow(row))
+        .map((row: any) => this.mapTaskRow(row))
         .filter(Boolean) as WorkflowTaskRecord[];
     }
     const result = await this.pool!.query(`SELECT * FROM workflow_tasks ORDER BY created_at DESC`);
-    return result.rows.map((row) => this.mapTaskRow(row)).filter(Boolean) as WorkflowTaskRecord[];
+    return result.rows.map((row: any) => this.mapTaskRow(row)).filter(Boolean) as WorkflowTaskRecord[];
   }
 
   public async getTaskById(taskId: string): Promise<WorkflowTaskRecord | null> {
@@ -456,10 +456,10 @@ export class WorkflowStore {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
       return this.sqlite!.prepare(`SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT @limit`).all({ limit })
-        .map((row) => this.mapWebhookRow(row));
+        .map((row: any) => this.mapWebhookRow(row));
     }
     const result = await this.pool!.query(`SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT $1`, [limit]);
-    return result.rows.map((row) => this.mapWebhookRow(row));
+    return result.rows.map((row: any) => this.mapWebhookRow(row));
   }
 
   public async close(): Promise<void> {

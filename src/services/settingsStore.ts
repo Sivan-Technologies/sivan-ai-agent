@@ -946,10 +946,10 @@ export class SettingsStore {
     await this.initializeSchema();
     if (this.provider === "sqlite") {
       return (this.sqlite!.prepare(`SELECT * FROM audit_history ORDER BY changed_at DESC LIMIT @limit`).all({ limit }) as any[])
-        .map((row) => this.mapAuditRow(row));
+        .map((row: any) => this.mapAuditRow(row));
     }
     const result = await this.pool!.query(`SELECT * FROM audit_history ORDER BY changed_at DESC LIMIT $1`, [limit]);
-    return result.rows.map((row) => this.mapAuditRow(row));
+    return result.rows.map((row: any) => this.mapAuditRow(row));
   }
 
   public calculateNairaFee(amount: number, settings: PlatformSettings): FeeCalculation {
