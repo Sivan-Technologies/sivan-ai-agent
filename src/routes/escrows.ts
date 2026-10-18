@@ -420,7 +420,8 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
     }
     const detail = await buildEscrowDetail(req.params.escrowId);
     if (!detail) return res.status(404).json({ error: "Escrow not found" });
-    if (requiresNgnLedgerFunding(detail.escrow.currency)) {
+    const paymentRef = (parsed.success && parsed.data.paymentReference) ? parsed.data.paymentReference : (req.body?.paymentReference || null);
+    if (requiresNgnLedgerFunding(detail.escrow.currency) && !paymentRef) {
       return res.status(503).json({
         error: "NGN_LEDGER_FUNDING_REQUIRED",
         message: "NGN balance funding requires a committed payment-ledger reservation. No funds were debited by this request.",
@@ -438,17 +439,17 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
       return res.status(409).json({ error: "This agreement is not pending payment" });
     }
 
-    const paymentRef = detail.escrow.paymentReference || `bal-${detail.escrow.escrowId}`;
+    const finalPaymentRef = paymentRef || detail.escrow.paymentReference || `bal-${detail.escrow.escrowId}`;
     if (!detail.escrow.paymentReference) {
       await escrowStore.attachPayment({
         escrowId: detail.escrow.escrowId,
-        paymentReference: paymentRef,
+        paymentReference: finalPaymentRef,
         paymentProvider: "sivan_balance",
         status: "PENDING_PAYMENT",
       });
     }
 
-    const funded = await escrowStore.markFundedByPaymentReference(paymentRef, {
+    const funded = await escrowStore.markFundedByPaymentReference(finalPaymentRef, {
       amount: detail.escrow.amount,
       escrowAmount: detail.escrow.amount,
       currency: detail.escrow.currency,

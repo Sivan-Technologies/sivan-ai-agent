@@ -96,6 +96,7 @@ const actorUserId = z.string().trim().min(1).max(120);
 export const escrowActionSchema = z.object({
   actorWhatsapp: z.string().trim().min(1).max(120).optional(),
   actorUserId: actorUserId.optional(),
+  paymentReference: z.string().trim().min(1).max(160).optional(),
   reason: z.string().trim().min(2).max(1000).optional(),
   network: z.string().trim().min(1).max(60).optional(),
   cryptoNetwork: z.string().trim().min(1).max(60).optional(),
