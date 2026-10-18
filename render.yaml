@@ -64,6 +64,8 @@ services:
         value: "-1004465897328"
       - key: PAYOUT_VERIFICATION_TEST_MODE
         value: "true"
+      - key: TEST_FRONTEND_URL
+        value: https://staging.sivantech.online
       - key: PAYOUT_VERIFICATION_TEST_ACCOUNT_NUMBERS
         value: "*"
       - key: ACTIVE_PAYMENT_PROVIDER

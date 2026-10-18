@@ -83,6 +83,7 @@ describe("payout verification test mode", () => {
     });
     expect(payment?.provider).toBe("paystack_sandbox_override");
     expect(payment?.reference).toMatch(/^sandbox-paystack-SIV-TEST-1-/);
+    expect(payment?.authorizationUrl).toMatch(/^https:\/\/staging\.sivantech\.online\/pay\?reference=sandbox-paystack-SIV-TEST-1-/);
   });
 
   it("creates a sandbox payment reference only under the controlled test mode", () => {

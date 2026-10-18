@@ -100,7 +100,7 @@ export function createSandboxPaymentInstruction(
   const providerId = rawProvider.trim().toLowerCase() === "nomba" ? "paystack" : rawProvider.trim().toLowerCase();
   const reference = `sandbox-${providerId}-${escrowId}-${Date.now()}`;
 
-  const testFrontendHost = env.TEST_FRONTEND_URL || env.PAYSTACK_TEST_FRONTEND_URL || "https://app.sivantech.online";
+  const testFrontendHost = env.TEST_FRONTEND_URL || env.PAYSTACK_TEST_FRONTEND_URL || "https://staging.sivantech.online";
   const authorizationUrl = `${testFrontendHost.replace(/\/$/, "")}/pay?reference=${reference}`;
 
   return {
