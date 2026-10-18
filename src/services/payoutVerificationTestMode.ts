@@ -99,7 +99,7 @@ export function createSandboxPaymentInstruction(
   const providerId = activeProvider.trim().toLowerCase();
   const reference = `sandbox-${providerId}-${escrowId}-${Date.now()}`;
 
-  const testFrontendHost = env.TEST_FRONTEND_URL || env.PAYSTACK_TEST_FRONTEND_URL || "https://sivan-payments-user-test.vercel.app";
+  const testFrontendHost = env.TEST_FRONTEND_URL || env.PAYSTACK_TEST_FRONTEND_URL || "https://staging.sivantech.online";
   const authorizationUrl = `${testFrontendHost.replace(/\/$/, "")}/pay?reference=${reference}`;
 
   return {
