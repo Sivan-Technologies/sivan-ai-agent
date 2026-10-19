@@ -252,7 +252,7 @@ export class EscrowStore implements EscrowStoreDriver {
     escrowId: string,
     actor: string,
     channel: string,
-    opts: { nairaHighValueAmount?: number; usdcHighValueAmount?: number } = {},
+    opts: { nairaHighValueAmount?: number; usdcHighValueAmount?: number; autoReleaseEnabled?: boolean } = {},
   ): Promise<EscrowRecord> {
     return this.driver.requestRelease(escrowId, actor, channel, opts);
   }

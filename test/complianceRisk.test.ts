@@ -1,12 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { hasBlockingComplianceRisk, scoreComplianceRisk } from "../src/services/complianceRisk";
-import { settingsStore } from "../src/context";
-
 const TEST_DB_PATH = path.resolve(__dirname, "../data/test-compliance-risk.db");
 process.env.DATABASE_URL = TEST_DB_PATH;
 process.env.DATABASE_PROVIDER = "sqlite";
+
+const { hasBlockingComplianceRisk, scoreComplianceRisk } = await import("../src/services/complianceRisk");
+const { settingsStore } = await import("../src/context");
 
 beforeAll(async () => {
   if (fs.existsSync(TEST_DB_PATH)) {

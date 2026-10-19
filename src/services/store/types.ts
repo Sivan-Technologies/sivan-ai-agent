@@ -23,7 +23,7 @@ export type EscrowStatus =
   | "EXPIRED"
   | "CANCELLED";
 
-export type SettlementPolicy = "manual_naira_release" | "autonomous_usdc_release";
+export type SettlementPolicy = "manual_naira_release" | "autonomous_usdc_release" | "autonomous_naira_release";
 export type NameMatchLevel = "strong" | "medium" | "weak" | "failed";
 export type StoreProvider = "sqlite" | "postgres";
 
@@ -288,7 +288,7 @@ export interface EscrowStoreDriver {
   findEscrowByPaymentReference(paymentReference: string): Promise<EscrowRecord | null>;
   getTransactionByReference(reference: string): Promise<EscrowTransactionRecord | null>;
   getTransactionByProviderReference(provider: string, reference: string): Promise<EscrowTransactionRecord | null>;
-  requestRelease(escrowId: string, actor: string, channel: string, opts?: { nairaHighValueAmount?: number; usdcHighValueAmount?: number }): Promise<EscrowRecord>;
+  requestRelease(escrowId: string, actor: string, channel: string, opts?: { nairaHighValueAmount?: number; usdcHighValueAmount?: number; autoReleaseEnabled?: boolean }): Promise<EscrowRecord>;
   transitionEscrow(
     escrowId: string,
     nextStatus: EscrowStatus,

@@ -53,6 +53,7 @@ import {
 import {
   isSandboxPaymentReference,
 } from "../services/payoutVerificationTestMode";
+import { releaseAgreementToSivanBalance } from "../services/paymentBalanceClient";
 import { info, warn } from "../lib/logger";
 
 const router = Router();
@@ -244,6 +245,8 @@ router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, as
       return res.status(200).json({
         escrow: detail,
         payment: activeInstruction,
+        paymentReference: activeInstruction.reference,
+        totalPayable: activeInstruction.totalPayable,
       });
     }
 
@@ -252,7 +255,12 @@ router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, as
       buyerWhatsapp: parsed.data.actorWhatsapp,
     });
     const updated = await buildEscrowDetail(req.params.escrowId);
-    res.status(200).json({ escrow: updated, payment });
+    res.status(200).json({
+      escrow: updated,
+      payment,
+      paymentReference: payment.reference,
+      totalPayable: payment.totalPayable,
+    });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Payment instruction refresh failed" });
   }
@@ -482,8 +490,9 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
       parsed.data.actorWhatsapp || "unknown",
       "whatsapp_dm",
       {
-        nairaHighValueAmount: settings.nairaHighValueReviewAmount,
+        nairaHighValueAmount: settings.autoReleaseThresholdNgn ?? settings.nairaHighValueReviewAmount,
         usdcHighValueAmount: settings.usdcHighValueReviewAmount,
+        autoReleaseEnabled: settings.autoReleaseEnabled,
       }
     );
     const isInternalBalance =
@@ -491,6 +500,24 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
       updated.paymentProvider === "balance" ||
       String(updated.paymentReference || "").startsWith("agr_fund_") ||
       String(updated.paymentReference || "").startsWith("bal-");
+
+    if (updated.status === "RELEASED") {
+      const payoutQuote = await calculateEscrowPayoutQuote(
+        updated.amount,
+        updated.currency,
+        updated.feePayer || "buyer"
+      );
+      await releaseAgreementToSivanBalance(
+        updated,
+        payoutQuote.sellerNetAmount,
+        payoutQuote.platformFeeAmount
+      ).catch((balErr) => {
+        warn("Balance release sync warning on autonomous release", {
+          escrowId: updated.escrowId,
+          error: balErr?.message || String(balErr),
+        });
+      });
+    }
 
     if (updated.currency === "USDC" && updated.status === "RELEASED" && updated.paymentReference && !isInternalBalance) {
       try {
@@ -518,8 +545,14 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
       updated,
       participantLifecycleMessage(
         updated,
-        updated.status === "PENDING_RELEASE" ? "Completion confirmation is under provider review." : "Completion confirmation needs manual review.",
-        updated.status === "PENDING_RELEASE"
+        updated.status === "RELEASED"
+          ? "Payment has been released to the seller's Sivan balance."
+          : updated.status === "PENDING_RELEASE"
+          ? "Completion confirmation is under provider review."
+          : "Completion confirmation needs manual review.",
+        updated.status === "RELEASED"
+          ? "Funds are now available in the seller's Sivan account balance."
+          : updated.status === "PENDING_RELEASE"
           ? "Sivan will notify both parties when the service agreement is closed."
           : "Sivan support will review this before the agreement is closed."
       )

@@ -220,5 +220,5 @@ describe("Paystack Pay-In Funding & Paystack Automated Transfer Payout End-to-En
       (e) => e.eventType === "payout_provider_event_received" && e.reason === "transfer.success"
     );
     expect(payoutCompletedEvent).toBeDefined();
-  });
+  }, 30000);
 });

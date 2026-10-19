@@ -44,6 +44,7 @@ import {
 } from "../services/notificationService";
 import { calculateEscrowPayoutQuote, getProviderForEscrow, providerConfigured as configCheck } from "../services/paymentService";
 import { getActivePayoutProvider, getPayoutProviderForEscrow, createPayoutProvider } from "../services/payoutProvider";
+import { releaseAgreementToSivanBalance } from "../services/paymentBalanceClient";
 import { runDailyReconciliation } from "../services/reconciliationService";
 import {
   capturePaymentWarning,
@@ -315,6 +316,17 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       grossAmount: payoutQuote.grossAmount,
       platformFeeAmount: payoutQuote.platformFeeAmount,
       sellerNetAmount: payoutQuote.sellerNetAmount,
+    });
+    // Atomically release hold and credit seller's spendable balance in Sivan Payment Protocol
+    await releaseAgreementToSivanBalance(
+      updated,
+      payoutQuote.sellerNetAmount,
+      payoutQuote.platformFeeAmount
+    ).catch((balErr) => {
+      warn("Balance release sync warning on admin release approval", {
+        escrowId: updated.escrowId,
+        error: balErr?.message || String(balErr),
+      });
     });
     await notifyEscrowParticipants(
       updated,
@@ -642,6 +654,7 @@ router.post("/admin/settings", requireAdminAuth, logAdminAction("update_settings
       queueWorkerEnabled: updates.queueWorkerEnabled ?? current.queueWorkerEnabled,
       stuckEscrowAlertMinutes: updates.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
       autoReleaseEnabled: updates.autoReleaseEnabled ?? current.autoReleaseEnabled,
+      autoReleaseThresholdNgn: updates.autoReleaseThresholdNgn ?? updates.nairaHighValueReviewAmount ?? current.autoReleaseThresholdNgn ?? current.nairaHighValueReviewAmount,
       deliveryInspectionWindowDays: updates.deliveryInspectionWindowDays ?? current.deliveryInspectionWindowDays,
       outageStatusPageUrl: updates.outageStatusPageUrl ?? current.outageStatusPageUrl,
       outageContacts: updates.outageContacts ?? current.outageContacts,

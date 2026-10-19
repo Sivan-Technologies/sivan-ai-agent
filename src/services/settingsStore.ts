@@ -48,6 +48,7 @@ export interface PlatformSettings {
   queueWorkerEnabled: boolean;
   stuckEscrowAlertMinutes: number;
   autoReleaseEnabled: boolean;
+  autoReleaseThresholdNgn: number;
   deliveryInspectionWindowDays: number;
   outageStatusPageUrl: string;
   outageContacts: string;
@@ -120,6 +121,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   queueWorkerEnabled: true,
   stuckEscrowAlertMinutes: 120,
   autoReleaseEnabled: true,
+  autoReleaseThresholdNgn: 500000,
   deliveryInspectionWindowDays: 3,
   outageStatusPageUrl: "https://status.sivantech.online",
   outageContacts: "support@sivantech.online",
@@ -228,6 +230,7 @@ export class SettingsStore {
       queueWorkerEnabled: Boolean(row.queue_worker_enabled ?? 0),
       stuckEscrowAlertMinutes: Number(row.stuck_escrow_alert_minutes ?? 1440),
       autoReleaseEnabled: Boolean(row.auto_release_enabled ?? 1),
+      autoReleaseThresholdNgn: Number(row.auto_release_threshold_ngn ?? row.naira_high_value_review_amount ?? 500000),
       deliveryInspectionWindowDays: Number(row.delivery_inspection_window_days ?? 3),
       outageStatusPageUrl: row.outage_status_page_url || "",
       outageContacts: row.outage_contacts || "Telegram @Sivan_Ai",
@@ -614,6 +617,7 @@ export class SettingsStore {
     queueWorkerEnabled?: boolean;
     stuckEscrowAlertMinutes?: number;
     autoReleaseEnabled?: boolean;
+    autoReleaseThresholdNgn?: number;
     deliveryInspectionWindowDays?: number;
     outageStatusPageUrl?: string;
     outageContacts?: string;
@@ -667,6 +671,7 @@ export class SettingsStore {
       queueWorkerEnabled: settings.queueWorkerEnabled ?? current.queueWorkerEnabled,
       stuckEscrowAlertMinutes: settings.stuckEscrowAlertMinutes ?? current.stuckEscrowAlertMinutes,
       autoReleaseEnabled: settings.autoReleaseEnabled ?? current.autoReleaseEnabled,
+      autoReleaseThresholdNgn: settings.autoReleaseThresholdNgn ?? settings.nairaHighValueReviewAmount ?? current.autoReleaseThresholdNgn ?? current.nairaHighValueReviewAmount ?? 500000,
       deliveryInspectionWindowDays: settings.deliveryInspectionWindowDays ?? current.deliveryInspectionWindowDays,
       outageStatusPageUrl: settings.outageStatusPageUrl ?? current.outageStatusPageUrl,
       outageContacts: settings.outageContacts ?? current.outageContacts,

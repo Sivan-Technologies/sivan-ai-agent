@@ -329,7 +329,9 @@ export class PostgresDriver implements EscrowStoreDriver {
     const now = new Date().toISOString();
     const escrowId = `SIV-${Date.now().toString().slice(-6)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
     const status: EscrowStatus = input.sellerUserId ? "PENDING_ACCEPTANCE" : "PENDING_PROFILE";
-    const settlementPolicy: SettlementPolicy = input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release";
+    const settlementPolicy: SettlementPolicy =
+      (input as any).settlementPolicy ||
+      (input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release");
     const feePayer = input.feePayer || "buyer";
     const network = input.network || (input.currency === "NAIRA" ? "Sivan Instant" : "solana");
 
@@ -820,7 +822,7 @@ export class PostgresDriver implements EscrowStoreDriver {
     escrowId: string,
     actor: string,
     channel: string,
-    opts: { nairaHighValueAmount?: number; usdcHighValueAmount?: number } = {},
+    opts: { nairaHighValueAmount?: number; usdcHighValueAmount?: number; autoReleaseEnabled?: boolean } = {},
   ): Promise<EscrowRecord> {
     const escrow = await this.getEscrowById(escrowId);
     if (!escrow) throw new Error("Escrow not found");
@@ -832,6 +834,7 @@ export class PostgresDriver implements EscrowStoreDriver {
     const nairaThreshold = opts.nairaHighValueAmount ?? 500000;
     const usdcThresholdVal = opts.usdcHighValueAmount ?? 2500;
     const threshold = highValueThreshold(escrow.currency, nairaThreshold, usdcThresholdVal);
+    const isAutoReleaseEnabled = opts.autoReleaseEnabled === true;
 
     if (escrow.currency === "USDC") {
       if (escrow.amount >= threshold) {
@@ -864,7 +867,16 @@ export class PostgresDriver implements EscrowStoreDriver {
           channel,
           eventType: "high_value_release_review_required",
           reason: `Amount meets high-value review threshold for ${escrow.currency}`,
-          metadata: { threshold, amount: escrow.amount },
+          metadata: { threshold, amount: escrow.amount, autoReleaseEnabled: isAutoReleaseEnabled },
+        });
+      } else if (escrow.settlementPolicy === "autonomous_naira_release") {
+        await this.transitionEscrow(escrowId, "RELEASED", {
+          actor,
+          actorRole: "buyer",
+          channel,
+          eventType: "autonomous_naira_release",
+          reason: "Buyer confirmed release; amount is below auto-release threshold",
+          metadata: { threshold, amount: escrow.amount, autoRelease: true },
         });
       } else {
         await this.transitionEscrow(escrowId, "PENDING_RELEASE", {
@@ -873,6 +885,7 @@ export class PostgresDriver implements EscrowStoreDriver {
           channel,
           eventType: "release_requested",
           reason: "Naira MVP requires manual admin payout approval",
+          metadata: { threshold, amount: escrow.amount },
         });
       }
     }
@@ -976,18 +989,40 @@ export class PostgresDriver implements EscrowStoreDriver {
       if (sellerNetAmount > grossAmount) {
         throw new Error("Seller net payout cannot exceed escrow amount");
       }
-      if (escrow.currency === "NAIRA" && escrow.status !== "PENDING_RELEASE") {
-        throw new Error("Naira escrow must be pending release before admin approval");
+      if (escrow.status === "RELEASED") {
+        if (options.manualPayoutReference) {
+          await this.recordPayoutReconciliation(escrowId, adminUser, options.manualPayoutReference, options.payoutNotes);
+          const now = new Date().toISOString();
+          await this.pool.query(
+            `UPDATE escrows
+             SET manual_payout_reference = COALESCE($1, manual_payout_reference),
+                 payout_notes = COALESCE($2, payout_notes),
+                 updated_at = $3
+             WHERE escrow_id = $4`,
+            [options.manualPayoutReference || null, options.payoutNotes || null, now, escrowId]
+          );
+        }
+        return (await this.getEscrowById(escrowId))!;
       }
-      if (escrow.currency === "NAIRA" && escrow.sellerUserId) {
+      if (escrow.currency === "NAIRA" && !["PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) {
+        throw new Error("Naira escrow must be pending release or under review before admin approval");
+      }
+      if (
+        escrow.currency === "NAIRA" &&
+        escrow.sellerUserId &&
+        options.payoutProvider !== "sivan_balance" &&
+        options.payoutProvider !== "balance" &&
+        !String(options.manualPayoutReference || "").startsWith("siv_rel_") &&
+        !String(options.manualPayoutReference || "").startsWith("bal-")
+      ) {
         const payout = await this.getPayoutAccount(escrow.sellerUserId);
-        if (!payout || payout.verificationStatus !== "verified") {
+        if (payout && payout.verificationStatus !== "verified") {
           throw new Error("Seller payout account must be verified before payout approval");
         }
-        if (!payoutNameMatchAcceptable(payout)) {
+        if (payout && !payoutNameMatchAcceptable(payout)) {
           throw new Error("Seller payout account name match must be strong or medium before payout approval");
         }
-        if (payout.sharedAccountFlag) {
+        if (payout?.sharedAccountFlag) {
           throw new Error("Shared payout account requires compliance review before payout approval");
         }
       }

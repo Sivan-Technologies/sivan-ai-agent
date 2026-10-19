@@ -226,6 +226,7 @@ export const adminSettingsSchema = z.object({
   queueWorkerEnabled: z.coerce.boolean().optional(),
   stuckEscrowAlertMinutes: z.coerce.number().int().positive().optional(),
   autoReleaseEnabled: z.coerce.boolean().optional(),
+  autoReleaseThresholdNgn: z.coerce.number().nonnegative().optional(),
   deliveryInspectionWindowDays: z.coerce.number().int().min(1).max(30).optional(),
   // Disaster Recovery
   outageStatusPageUrl: z.string().trim().optional(),

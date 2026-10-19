@@ -97,7 +97,7 @@ export function createSandboxPaymentInstruction(
   if (!isTestMode) return null;
 
   const rawProvider = env.ACTIVE_PAYMENT_PROVIDER || "paystack";
-  const providerId = rawProvider.trim().toLowerCase() === "nomba" ? "paystack" : rawProvider.trim().toLowerCase();
+  const providerId = rawProvider.trim().toLowerCase();
   const reference = `sandbox-${providerId}-${escrowId}-${Date.now()}`;
 
   const testFrontendHost = env.TEST_FRONTEND_URL || env.PAYSTACK_TEST_FRONTEND_URL || "https://staging.sivantech.online";

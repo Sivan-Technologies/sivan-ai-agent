@@ -43,9 +43,10 @@ export function getWhatsAppBaseUrl(): string {
     process.env.WHATSAPP_NOTIFICATION_URL ||
     config.app.notificationUrl ||
     process.env.NOTIFICATION_URL ||
-    process.env.CORE_API_BASE_URL ||
-    (config.databaseMode === "live" ? "https://api.sivantech.online" : "https://api-staging.sivantech.online")
+    ""
   ).trim().replace(/\/$/, "");
+
+  if (!raw) return "";
 
   let base = raw.replace(/\/api\/notify$/, "");
   // If routing through the Cloudflare Sivantech gateway without /api/whatsapp, prefix /api/whatsapp
@@ -60,9 +61,10 @@ export function getTelegramBaseUrl(): string {
     process.env.TELEGRAM_NOTIFICATION_URL ||
     config.app.telegramNotificationUrl ||
     process.env.TELEGRAM_BOT_URL ||
-    process.env.CORE_API_BASE_URL ||
-    (config.databaseMode === "live" ? "https://api.sivantech.online" : "https://api-staging.sivantech.online")
+    ""
   ).trim().replace(/\/$/, "");
+
+  if (!raw) return "";
 
   let base = raw.replace(/\/api\/notify$/, "");
   // If routing through Cloudflare Sivantech gateway without /api/telegram, prefix /api/telegram
