@@ -486,7 +486,13 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
         usdcHighValueAmount: settings.usdcHighValueReviewAmount,
       }
     );
-    if (updated.currency === "USDC" && updated.status === "RELEASED" && updated.paymentReference) {
+    const isInternalBalance =
+      updated.paymentProvider === "sivan_balance" ||
+      updated.paymentProvider === "balance" ||
+      String(updated.paymentReference || "").startsWith("agr_fund_") ||
+      String(updated.paymentReference || "").startsWith("bal-");
+
+    if (updated.currency === "USDC" && updated.status === "RELEASED" && updated.paymentReference && !isInternalBalance) {
       try {
         const paymentProvider = updated.paymentProvider || "x402";
         if (paymentProvider === "sap") {
