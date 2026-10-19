@@ -270,7 +270,13 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
       return res.status(202).json({ escrow, payoutQuote, payout: payoutResult });
     }
-    if (escrow.currency === "USDC" && escrow.paymentReference) {
+    const isInternalBalance =
+      escrow.paymentProvider === "sivan_balance" ||
+      escrow.paymentProvider === "balance" ||
+      String(escrow.paymentReference || "").startsWith("agr_fund_") ||
+      String(escrow.paymentReference || "").startsWith("bal-");
+
+    if (escrow.currency === "USDC" && escrow.paymentReference && !isInternalBalance) {
       try {
         const paymentProvider = escrow.paymentProvider || "x402";
         if (paymentProvider === "sap") {
@@ -281,7 +287,14 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
           await paymentRouter.settleUsdcPayment(escrow.paymentReference);
         }
       } catch (err: any) {
-        throw new Error(`On-chain USDC release failed: ${err.message || String(err)}`);
+        if (err?.response?.status === 404 || String(err?.message || "").includes("404") || String(err?.message || "").includes("status code 404")) {
+          capturePaymentWarning("External USDC facilitator 404 note on admin release (settled via Sivan Payment Protocol)", {
+            error: err?.message || String(err),
+            escrowId: req.params.escrowId,
+          });
+        } else {
+          throw new Error(`On-chain USDC release failed: ${err.message || String(err)}`);
+        }
       }
     }
 

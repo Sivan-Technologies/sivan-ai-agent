@@ -44,8 +44,12 @@ export class RetryWorker {
       });
       const dead = updated?.status === "dead" ? 1 : 0;
       const failed = dead ? 0 : 1;
-      warn("Retry queue job failed", { jobId: job.jobId, jobType: job.jobType, attempts: job.attempts, status: updated?.status, error: err.message || err });
-      captureOperationalError("Retry queue job failed", err, { jobId: job.jobId, jobType: job.jobType, status: updated?.status });
+      if (dead) {
+        warn("Retry queue job exhausted and marked dead", { jobId: job.jobId, jobType: job.jobType, attempts: job.attempts, status: updated?.status, error: err.message || err });
+        captureOperationalError("Retry queue job exhausted and marked dead", err, { jobId: job.jobId, jobType: job.jobType, attempts: job.attempts, status: updated?.status });
+      } else {
+        warn("Retry queue job failed, scheduled for retry", { jobId: job.jobId, jobType: job.jobType, attempts: job.attempts, status: updated?.status, error: err.message || err });
+      }
       return { processed: 1, succeeded: 0, failed, dead, idle: false };
     }
   }
