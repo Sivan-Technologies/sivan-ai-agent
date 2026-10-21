@@ -53,6 +53,8 @@ const whatsappAddress = z.string()
 export const escrowCreateSchema = z.object({
   buyerWhatsapp: whatsappAddress,
   sellerWhatsapp: whatsappAddress.optional(),
+  sellerUserId: z.string().trim().min(1).max(120).optional(),
+  sellerTelegramId: z.union([z.number(), z.string()]).optional(),
   amount: moneyAmount,
   currency: z.enum(["NAIRA", "USDC", "USDT"]),
   purpose: z.string().trim().min(3).max(1000).refine(

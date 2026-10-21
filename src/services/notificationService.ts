@@ -100,6 +100,7 @@ export async function notifyTelegramBot(to: string, message: string, dealCard?: 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-sivan-target-service": "telegram",
         "x-target-service": "telegram",
         ...(secret ? { "x-notify-secret": secret } : {}),
       },

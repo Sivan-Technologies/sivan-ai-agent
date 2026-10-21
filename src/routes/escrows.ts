@@ -155,14 +155,17 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
         return res.status(409).json({ ...reviewReason, policy, review });
       }
     }
-    const seller = input.sellerWhatsapp
-      ? await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller")
+    let seller = input.sellerUserId
+      ? await escrowStore.getUserById(input.sellerUserId)
       : null;
+    if (!seller && input.sellerWhatsapp) {
+      seller = await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller");
+    }
 
     const escrow = await escrowStore.createEscrow({
       buyerUserId: buyer.userId,
-      sellerUserId: seller?.userId,
-      sellerWhatsapp: input.sellerWhatsapp,
+      sellerUserId: seller?.userId || input.sellerUserId,
+      sellerWhatsapp: input.sellerWhatsapp || seller?.whatsappNumber,
       amount: input.amount,
       currency: input.currency,
       purpose: input.purpose,
@@ -173,11 +176,13 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
     });
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);
-    const hasSellerContact = Boolean(seller || updated?.sellerWhatsapp);
-    const hasBuyerContact = Boolean(input.channel.startsWith("whatsapp") || input.buyerWhatsapp || buyer.whatsappNumber || buyer.telegramUserId);
+    const hasSellerContact = Boolean(seller || updated?.sellerWhatsapp || updated?.sellerUserId);
+    const isWhatsAppCreator = input.channel.startsWith("whatsapp");
+    const hasBuyerContact = Boolean(isWhatsAppCreator || input.buyerWhatsapp || buyer.whatsappNumber || buyer.telegramUserId);
+    const notifyBuyerOutbound = !isWhatsAppCreator && Boolean(input.buyerWhatsapp || buyer.whatsappNumber || buyer.telegramUserId);
     if (updated) {
       await notifyEscrowCreatedParticipants(updated, {
-        notifyBuyer: hasBuyerContact,
+        notifyBuyer: notifyBuyerOutbound,
         notifySeller: hasSellerContact,
       });
     }
