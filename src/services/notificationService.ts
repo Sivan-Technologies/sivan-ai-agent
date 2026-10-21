@@ -140,6 +140,11 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          // Both header names are sent:
+          // - "x-sivan-target-service" is what the Cloudflare staging gateway
+          //   reads (cloudflare-worker-test-DEPLOY.js line 202) for service routing.
+          // - "x-target-service" is kept for direct-bot and legacy compatibility.
+          "x-sivan-target-service": "whatsapp-bot",
           "x-target-service": "whatsapp-bot",
           ...(secret ? { "x-notify-secret": secret } : {}),
         },
