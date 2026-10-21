@@ -48,9 +48,17 @@ export function getWhatsAppBaseUrl(): string {
 
   if (!raw) return "";
 
-  let base = raw.replace(/\/api\/notify$/, "");
-  // If routing through the Cloudflare Sivantech gateway without /api/whatsapp, prefix /api/whatsapp
-  if (base.includes("sivantech.online") && !base.includes("/api/whatsapp") && !base.includes("whatsapp.sivantech.online")) {
+  // Strip any trailing /api/notify so the caller can always append /api/notify itself.
+  // Also strip any /api/whatsapp suffix — the URL might already include it if the
+  // operator set NOTIFICATION_URL=https://api-staging.sivantech.online/api/whatsapp
+  // and we must not double it to /api/whatsapp/api/whatsapp.
+  let base = raw
+    .replace(/\/api\/notify$/, "")
+    .replace(/\/api\/whatsapp$/, "");
+
+  // Route through the Cloudflare Sivantech API gateway. Direct bot subdomains
+  // (whatsapp.sivantech.online) are kept as-is — they serve the bot directly.
+  if (base.includes("sivantech.online") && !base.includes("whatsapp.sivantech.online")) {
     base = `${base}/api/whatsapp`;
   }
   return base;
@@ -66,9 +74,11 @@ export function getTelegramBaseUrl(): string {
 
   if (!raw) return "";
 
-  let base = raw.replace(/\/api\/notify$/, "");
-  // If routing through Cloudflare Sivantech gateway without /api/telegram, prefix /api/telegram
-  if (base.includes("sivantech.online") && !base.includes("/api/telegram") && !base.includes("telegram.sivantech.online")) {
+  let base = raw
+    .replace(/\/api\/notify$/, "")
+    .replace(/\/api\/telegram$/, "");
+
+  if (base.includes("sivantech.online") && !base.includes("telegram.sivantech.online")) {
     base = `${base}/api/telegram`;
   }
   return base;
