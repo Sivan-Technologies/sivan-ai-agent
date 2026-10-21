@@ -50,7 +50,7 @@ export function getWhatsAppBaseUrl(): string {
 
   let base = raw.replace(/\/api\/notify$/, "");
   // If routing through the Cloudflare Sivantech gateway without /api/whatsapp, prefix /api/whatsapp
-  if (base.includes("sivantech.online") && !base.includes("/api/whatsapp")) {
+  if (base.includes("sivantech.online") && !base.includes("/api/whatsapp") && !base.includes("whatsapp.sivantech.online")) {
     base = `${base}/api/whatsapp`;
   }
   return base;
