@@ -10,6 +10,16 @@ services:
         value: "20"
       - key: NODE_ENV
         value: staging
+      - key: DEPLOYMENT_ENVIRONMENT
+        value: staging
+      - key: HOSTING_PROVIDER
+        value: render
+      # Instance and release use RENDER_INSTANCE_ID / RENDER_GIT_COMMIT.
+      # Keep unknown until the deployed database provider is confirmed.
+      - key: OPS_DATABASE_LABEL
+        value: unknown
+      - key: ENABLE_LOCAL_OPS_ALERTS
+        value: "false"
       - key: PORT
         value: 4000
       - key: DATABASE_MODE

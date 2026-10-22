@@ -38,11 +38,17 @@ describe("Operational Alert Diagnostic Location Tracking", () => {
       createdAt: "2026-10-07T14:45:00.000Z",
       error: "Your account or project has exceeded the quota.",
       context: { provider: "neon" },
+      deployment: { environment: "staging", hosting: "render", instance: "srv-test", release: "abc123", dependency: "neon-staging" },
     };
 
     const text = formatTelegramAlert(event);
     expect(text).toContain("🚨 Sivan ERROR Alert");
     expect(text).toContain("Service: sivan-escrow-agent");
+    expect(text).toContain("Environment: staging");
+    expect(text).toContain("Hosting: render");
+    expect(text).toContain("Instance: srv-test");
+    expect(text).toContain("Release: abc123");
+    expect(text).toContain("Event ID: ops-test-1");
     expect(text).toContain("Location: src/server.ts:208");
     expect(text).toContain("Caller: retryWorker.processBatch()");
     expect(text).toContain("Action: Background retry worker failed");

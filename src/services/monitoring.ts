@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 import { warn } from "../lib/logger";
+import { deploymentIdentity, externalOpsAlertsEnabled } from "./deploymentIdentity";
 
 export type OperationalEventLevel = "warning" | "error";
 
@@ -13,6 +14,7 @@ export interface OperationalEvent {
   service?: string;
   location?: string;
   caller?: string;
+  deployment?: ReturnType<typeof deploymentIdentity>;
 }
 
 const MAX_EVENTS = 100;
@@ -25,6 +27,7 @@ function pushOperationalEvent(event: Omit<OperationalEvent, "id" | "createdAt">)
     id: `ops-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     createdAt: new Date().toISOString(),
     ...event,
+    deployment: deploymentIdentity(),
   };
 
   operationalEvents.unshift(record);
@@ -41,9 +44,7 @@ const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown per unique alert 
 
 function isTestEvent(event: OperationalEvent): boolean {
   if (
-    process.env.NODE_ENV === "test" ||
-    process.env.VITEST ||
-    process.env.DISABLE_OPS_ALERTS === "true"
+    !externalOpsAlertsEnabled()
   ) {
     return true;
   }
@@ -182,10 +183,17 @@ export function extractErrorLocation(err?: unknown): {
 
 export function formatTelegramAlert(event: OperationalEvent) {
   const context = safeAlertContext(event.context);
+  const deployment = event.deployment || deploymentIdentity();
   const service = event.service || process.env.SERVICE_NAME || "sivan-escrow-agent";
   const lines = [
     `🚨 Sivan ${event.level.toUpperCase()} Alert`,
     `Service: ${service}`,
+    `Environment: ${deployment.environment}`,
+    `Hosting: ${deployment.hosting}`,
+    `Instance: ${deployment.instance}`,
+    `Release: ${deployment.release}`,
+    `Database label: ${deployment.dependency}`,
+    `Event ID: ${event.id}`,
   ];
   if (event.location) {
     lines.push(`Location: ${event.location}`);
@@ -285,8 +293,7 @@ async function sendWebhookAlert(event: OperationalEvent) {
 export function captureOperationalError(message: string, err?: unknown, context: Record<string, any> = {}) {
   const errorMessage = err instanceof Error ? err.message : err ? String(err) : undefined;
   const loc = extractErrorLocation(err);
-  warn(message, { ...context, location: loc.location, caller: loc.caller }, errorMessage);
-  pushOperationalEvent({
+  const event = pushOperationalEvent({
     level: "error",
     message,
     context,
@@ -295,9 +302,12 @@ export function captureOperationalError(message: string, err?: unknown, context:
     location: loc.location,
     caller: loc.caller,
   });
+  warn(message, { ...context, location: loc.location, caller: loc.caller, deployment: event.deployment, eventId: event.id }, errorMessage);
 
   if (process.env.SENTRY_DSN) {
     Sentry.withScope((scope) => {
+      Object.entries(event.deployment!).forEach(([key, value]) => scope.setTag(`deployment.${key}`, value));
+      scope.setExtra("operationalEventId", event.id);
       Object.entries({ ...context, location: loc.location, caller: loc.caller }).forEach(([key, value]) => scope.setExtra(key, value));
       if (err instanceof Error) {
         Sentry.captureException(err);
@@ -310,8 +320,7 @@ export function captureOperationalError(message: string, err?: unknown, context:
 
 export function capturePaymentWarning(message: string, context: Record<string, any> = {}) {
   const loc = extractErrorLocation();
-  warn(message, { ...context, location: loc.location, caller: loc.caller });
-  pushOperationalEvent({
+  const event = pushOperationalEvent({
     level: "warning",
     message,
     context,
@@ -319,9 +328,12 @@ export function capturePaymentWarning(message: string, context: Record<string, a
     location: loc.location,
     caller: loc.caller,
   });
+  warn(message, { ...context, location: loc.location, caller: loc.caller, deployment: event.deployment, eventId: event.id });
 
   if (process.env.SENTRY_DSN) {
     Sentry.withScope((scope) => {
+      Object.entries(event.deployment!).forEach(([key, value]) => scope.setTag(`deployment.${key}`, value));
+      scope.setExtra("operationalEventId", event.id);
       Object.entries({ ...context, location: loc.location, caller: loc.caller }).forEach(([key, value]) => scope.setExtra(key, value));
       Sentry.captureMessage(message, "warning");
     });
