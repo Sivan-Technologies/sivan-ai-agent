@@ -28,12 +28,9 @@ const isTestPg = process.env.DATABASE_MODE === "test_pg";
 const databaseProvider = isTestPg ? "postgres" : envValue("DATABASE_PROVIDER", "postgres");
 const databaseMode = (envValue("DATABASE_MODE", "test").toLowerCase() === "live" ? "live" : "test") as "test" | "live";
 const defaultDatabaseUrl = path.resolve(process.cwd(), "data", "sivan-escrow-agent.db");
-const databaseUrl =
-  isTestPg
-    ? envValue("TEST_POSTGRES_URL", envValue("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/sivan_test"))
-    : databaseMode === "live"
-    ? envValue("LIVE_DATABASE_URL", envValue("DATABASE_URL", defaultDatabaseUrl))
-    : envValue("DATABASE_URL", defaultDatabaseUrl);
+// Always use DATABASE_URL — LIVE_DATABASE_URL and TEST_POSTGRES_URL overrides removed
+// to prevent accidental connections to wrong/quota-exceeded Neon projects.
+const databaseUrl = envValue("DATABASE_URL", defaultDatabaseUrl);
 
 export const config = {
   databaseMode,
