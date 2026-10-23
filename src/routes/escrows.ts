@@ -471,7 +471,12 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
     }
 
     const finalPaymentRef = paymentRef || detail.escrow.paymentReference || `bal-${detail.escrow.escrowId}`;
-    if (!detail.escrow.paymentReference) {
+    // The agreement must be findable by the reference we are about to mark funded.
+    // When it still carries a provider reference from payment initialisation
+    // (for example a Paystack checkout that was never paid), attach the balance
+    // reference instead. attachPayment expires the superseded reference and
+    // records replacedBy, so the provider intent stays auditable.
+    if (detail.escrow.paymentReference !== finalPaymentRef) {
       await escrowStore.attachPayment({
         escrowId: detail.escrow.escrowId,
         paymentReference: finalPaymentRef,
