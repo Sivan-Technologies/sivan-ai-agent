@@ -162,10 +162,21 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       seller = await escrowStore.upsertUserByWhatsapp(input.sellerWhatsapp, "seller");
     }
 
+    // Resolve a real WhatsApp number for the seller.
+    // input.sellerWhatsapp may arrive as "tag:usr_xxx" when the buyer used a
+    // Sivan Tag — that is NOT a deliverable address.  Prefer the phone number
+    // from the resolved user record so the notification dispatcher always has
+    // a real +E.164 number to send to.
+    const resolvedSellerWhatsapp =
+      seller?.whatsappNumber ||
+      (input.sellerWhatsapp && !input.sellerWhatsapp.startsWith("tag:")
+        ? input.sellerWhatsapp
+        : undefined);
+
     const escrow = await escrowStore.createEscrow({
       buyerUserId: buyer.userId,
       sellerUserId: seller?.userId || input.sellerUserId,
-      sellerWhatsapp: input.sellerWhatsapp || seller?.whatsappNumber,
+      sellerWhatsapp: resolvedSellerWhatsapp,
       amount: input.amount,
       currency: input.currency,
       purpose: input.purpose,
