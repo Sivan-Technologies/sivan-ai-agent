@@ -54,7 +54,7 @@ import {
 import {
   isSandboxPaymentReference,
 } from "../services/payoutVerificationTestMode";
-import { releaseAgreementToSivanBalance } from "../services/paymentBalanceClient";
+import { releaseAgreementToSivanBalance, refundAgreementToSivanBalance } from "../services/paymentBalanceClient";
 import { info, warn } from "../lib/logger";
 
 const router = Router();
@@ -708,6 +708,27 @@ router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res
       "whatsapp_dm"
     );
 
+    // Cancelling must also unwind any balance hold. Without this the buyer
+    // keeps the money locked against a dead agreement, which is what happened
+    // to SIV-134182-7174. The payment service verifies a hold actually exists
+    // and is idempotent, so this is safe for never-funded agreements too.
+    const refundOutcome = await refundAgreementToSivanBalance(
+      updated as any,
+      `Agreement cancelled by ${parsed.data.actorWhatsapp}`
+    );
+    const heldFundsReturned = refundOutcome.success && !refundOutcome.data?.nothingToRefund;
+    if (!refundOutcome.success) {
+      console.error(
+        `[escrows][cancel] Could not unwind balance hold for ${updated.escrowId}: ${refundOutcome.error}`
+      );
+    }
+    const fundsLine = heldFundsReturned
+      ? `Any funds held for this agreement have been returned to the client's Sivan Balance.`
+      : `No funds have been charged.`;
+    const buyerFundsLine = heldFundsReturned
+      ? `${Number(updated.amount).toLocaleString()} ${String(updated.currency).toUpperCase()} has been returned to your Sivan Balance.`
+      : `No funds have been charged.`;
+
     // Unified cross-channel cancellation push: notify counterparty (seller) and actor (buyer)
     const titleSnip = ((updated as any).purpose || "Service Agreement").slice(0, 50);
     const sellerPhone = (updated as any).sellerWhatsapp as string | undefined;
@@ -717,7 +738,7 @@ router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res
         `The client has cancelled the service agreement:\n` +
         `"${titleSnip}"\n\n` +
         `Ref: ${updated.escrowId}\n` +
-        `No funds have been charged. You can start a new agreement anytime.`;
+        `${fundsLine} You can start a new agreement anytime.`;
       void sendOrQueueWhatsAppNotification({
         to: sellerPhone.startsWith("whatsapp:") ? sellerPhone : `whatsapp:${sellerPhone}`,
         message: sellerMsg,
@@ -731,7 +752,8 @@ router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res
         `🚫 Agreement Cancelled\n\n` +
         `You have cancelled the service agreement:\n` +
         `"${titleSnip}"\n\n` +
-        `Ref: ${updated.escrowId}`;
+        `Ref: ${updated.escrowId}\n\n` +
+        `${buyerFundsLine}`;
       void sendOrQueueWhatsAppNotification({
         to: buyerPhone.startsWith("whatsapp:") ? buyerPhone : `whatsapp:${buyerPhone}`,
         message: buyerMsg,

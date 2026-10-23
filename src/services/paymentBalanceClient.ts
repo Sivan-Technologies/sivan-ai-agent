@@ -109,3 +109,69 @@ export async function releaseAgreementToSivanBalance(
     return { success: false, error: err.message || String(err) };
   }
 }
+
+/**
+ * Returns a buyer's outstanding balance hold for an agreement. Used when an
+ * agreement is cancelled, so the money does not stay locked against an
+ * agreement that will never run. The payment service verifies that a hold
+ * actually exists and is idempotent, so this is safe to call for agreements
+ * that were never funded from balance.
+ */
+export async function refundAgreementToSivanBalance(escrow: {
+  escrowId: string;
+  buyerUserId?: string | null;
+  buyerWhatsapp?: string | null;
+  amount: number;
+  currency: string;
+}, reason?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  const buyerId = escrow.buyerUserId || escrow.buyerWhatsapp;
+  if (!buyerId) {
+    warn("[paymentBalanceClient] Cannot refund hold: missing buyer identity", { escrowId: escrow.escrowId });
+    return { success: false, error: "Missing buyer identity" };
+  }
+
+  const targetUrl = getPaymentApiUrl(`/api/users/${encodeURIComponent(buyerId)}/balance/refund-agreement`);
+  const secret = getPaymentServiceSecret();
+  const payload = {
+    agreementId: escrow.escrowId,
+    buyerUserId: buyerId,
+    amount: Number(escrow.amount),
+    currency: (escrow.currency === "NAIRA" ? "ngn" : escrow.currency).toLowerCase(),
+    reason: reason || "Agreement cancelled",
+  };
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-sivan-identity-link-secret": secret,
+        "x-admin-api-key": secret,
+      },
+      body: JSON.stringify(payload),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      warn("[paymentBalanceClient] Refund of agreement hold failed", {
+        escrowId: escrow.escrowId,
+        status: res.status,
+        response: json,
+      });
+      return { success: false, error: json?.error?.message || json?.error || "Balance refund call failed" };
+    }
+    const data = json?.data || json;
+    info("[paymentBalanceClient] Agreement hold settled with payment service", {
+      escrowId: escrow.escrowId,
+      buyerId,
+      refunded: !data?.nothingToRefund,
+      result: data,
+    });
+    return { success: true, data };
+  } catch (err: any) {
+    warn("[paymentBalanceClient] Error calling sivan-payment refund endpoint", {
+      escrowId: escrow.escrowId,
+      error: err.message || String(err),
+    });
+    return { success: false, error: err.message || String(err) };
+  }
+}
