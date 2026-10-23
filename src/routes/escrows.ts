@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { isPaymentInstructionBuyer } from "../services/paymentInstructionBuyer";
 import { requiresNgnLedgerFunding } from "../services/ngnBalanceFundingGuard";
 import { requireCoreApiAuth } from "../middleware/apiAuth";
 import {
@@ -247,7 +248,13 @@ router.post("/api/escrows/:escrowId/payment-instruction", requireCoreApiAuth, as
     }
     const detail = await buildEscrowDetail(req.params.escrowId);
     if (!detail) return res.status(404).json({ error: "Escrow not found" });
-    if (detail.buyer?.whatsappNumber !== parsed.data.actorWhatsapp) {
+    if (!isPaymentInstructionBuyer({
+      actorWhatsapp: parsed.data.actorWhatsapp,
+      actorUserId: parsed.data.actorUserId,
+      buyerUserId: detail.escrow.buyerUserId,
+      profileWhatsapp: detail.buyer?.whatsappNumber,
+      agreementWhatsapp: detail.escrow.buyerWhatsapp,
+    })) {
       return res.status(403).json({ error: "Only the escrow buyer can request payment details" });
     }
     if (detail.escrow.status === "EXPIRED") {
