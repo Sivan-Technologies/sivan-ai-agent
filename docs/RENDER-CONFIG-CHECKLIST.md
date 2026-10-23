@@ -2,6 +2,19 @@
 
 Service to edit: **`sivan-escrow-agent-test-gb84`**
 
+## Status as of 2026-10-23, verified against live behaviour
+
+| Variable | State |
+|---|---|
+| `IDENTITY_LINK_SERVICE_SECRET` | **applied.** Balance releases settle automatically. |
+| `PAYMENT_API_BASE_URL` | **applied.** Calls reach the staging payment service, no more 404. |
+| `ACTIVE_PAYMENT_PROVIDER` | **applied.** Agreements now stamp `paystack` with real Paystack references. |
+| `PAYSTACK_SECRET_KEY` | **applied.** `/admin/payment-providers` reports `configured: true`. |
+| `PAYSTACK_TRANSFER_ENABLED` | **applied.** Payout provider resolves to `paystack`. |
+| Queue worker | **running.** Jobs drain within 15s without a manual trigger. |
+
+**One new blocker, in code rather than configuration.** With Paystack active, releases no longer finalise: the transfer returns `pending`, `approve-release` returns 202 early, and the `transfer.success` webhook only logs. See `E2E-NGN-LIFECYCLE-2026-10-23.md`, run 5. Until that handler exists, finalise with the `payoutProvider: "manual_bank_transfer"` override on `approve-release`.
+
 ## Where to set these
 
 1. Go to **dashboard.render.com**

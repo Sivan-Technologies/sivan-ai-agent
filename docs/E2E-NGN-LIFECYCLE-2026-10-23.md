@@ -2,6 +2,66 @@
 
 ---
 
+## VERIFICATION RUN 5: Paystack is live, and it breaks release finalisation
+
+**Agreement:** `SIV-079573-57B7`, 3,000 NGN, buyer funded the full 3,500 gross.
+
+### Paystack is correctly active
+
+The configuration landed. `GET /admin/payment-providers` now reports `paystack` as `configured: true`, and the agreement went through the **real Paystack API** rather than the sandbox stub:
+
+| Field | Value |
+|---|---|
+| `paymentProvider` | `paystack` |
+| `paymentReference` | `T979319031158219` (genuine Paystack reference, not `sandbox-...`) |
+| `paymentAuthorizationUrl` | `https://checkout.paystack.com/lqr3fdf1p7kmhoe` |
+| payout provider at release | `paystack` |
+
+Pay in, delivery, proof and completion all worked. The fee quote also confirms the tiered model exactly: `platformFeeFixed 500`, `totalWithFee 3500`, `recipientNet 3000`.
+
+### Critical: no Paystack release can ever complete
+
+Switching the provider changed release from synchronous to asynchronous, and **the asynchronous half does not exist**.
+
+What happened:
+
+1. `approve-release` called the Paystack payout provider, which returned `status: "pending"` with `transferCode: TRF_SIM_1792779140391` and the message `Test mode: Simulated Paystack transfer queued`.
+2. `admin.ts:250` takes the `payoutResult.status !== "succeeded"` branch, writes a `payout_not_finalized` event, and **returns 202 early**.
+3. That early return happens before the status transition and before `releaseAgreementToSivanBalance`. The agreement stayed `PENDING_RELEASE`, the buyer's 3,000 stayed `held`, and the seller was credited nothing.
+
+The missing piece is the completion handler. The Paystack `transfer.success` webhook at `webhooks.ts:184` **only writes a log line**. Verified by inspection of the whole webhook block: it contains no reference to `RELEASED`, `recordManualPayoutApproval`, or `releaseAgreementToSivanBalance`. Every transition to `RELEASED` lives in the store drivers and is only reached from the admin approval path, which has already returned.
+
+So with Paystack selected there is **no code path that finalises a payout**. Not in test mode, where the transfer is simulated, and not in production either, since real Paystack transfers are always asynchronous and return `pending` or `otp` before a webhook confirms them.
+
+This did not show up earlier only because the Nomba test stub returned `succeeded` synchronously, which let the admin path run to completion.
+
+### Severity
+
+Every NGN release through Paystack will strand funds in `held` with the agreement frozen in `PENDING_RELEASE`. The buyer has paid, the seller has delivered, and the money stops. This is worse than the original D1 secret bug, because D1 at least reported `RELEASED` while failing, whereas this one halts the lifecycle outright.
+
+### Fix required
+
+Add a release completion path keyed on the payout provider's asynchronous result:
+
+1. On `transfer.success`, look up the agreement by transfer reference, transition it to `RELEASED`, and call `releaseAgreementToSivanBalance`.
+2. On `transfer.failed` or `transfer.reversed`, return the hold to the buyer rather than leaving it parked. A `payout_review` job is already enqueued, but nothing unwinds the hold.
+3. Reconcile anything left in `PENDING_RELEASE` past a threshold, since a dropped webhook currently means permanent limbo.
+
+### Workaround until that exists
+
+`POST /admin/escrows/:id/approve-release` accepts a `payoutProvider` override. Forcing the synchronous provider finalises correctly:
+
+```json
+{ "payoutProvider": "manual_bank_transfer",
+  "manualPayoutReference": "<your bank transfer reference>" }
+```
+
+Used on this agreement it returned 200 `RELEASED`, buyer settled to `available=0 held=0`, seller credited 3,000. Note this records a manual reference, so the actual bank transfer has to be performed out of band.
+
+---
+
+---
+
 ## VERIFICATION RUN 4, pay from balance, after the Paystack change
 
 **Agreement:** `SIV-086147-788C`, 3,000 NGN, buyer funded the full gross this time.
