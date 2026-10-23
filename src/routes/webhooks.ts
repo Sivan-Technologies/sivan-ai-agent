@@ -24,6 +24,7 @@ import {
   notifyEscrowFundedParticipants,
   expectedFundingAmount,
 } from "../services/escrowService";
+import { finalizeEscrowRelease } from "../services/releaseFinalizer";
 import { formatTaskSummary, notifyWhatsAppBot } from "../services/notificationService";
 import { getProviderForEscrow } from "../services/paymentService";
 import { normalizeSettlementEvent, normalizeVerifiedPaymentEvent } from "../services/paymentEventNormalizer";
@@ -187,6 +188,41 @@ router.post("/webhooks/paystack", async (req, res) => {
             reference: transferReference,
             transferCode,
           });
+
+          // This is the point the payout is actually confirmed. Paystack
+          // answers "pending" when the transfer is initiated, so without
+          // finalising here the agreement stays in PENDING_RELEASE forever
+          // and the seller is never credited.
+          try {
+            const finalized = await finalizeEscrowRelease({
+              escrowId: relatedTransaction.escrowId,
+              actor: "paystack_webhook",
+              payoutProvider: "paystack",
+              payoutReference: transferReference || transferCode,
+              payoutNotes: "Finalised from Paystack transfer.success",
+            });
+            info("Agreement release finalised from payout webhook", {
+              escrowId: relatedTransaction.escrowId,
+              reference: transferReference || transferCode,
+              alreadyReleased: finalized.alreadyReleased,
+              balanceCredited: finalized.balanceCredited,
+            });
+          } catch (finalErr: any) {
+            // The provider has paid out but we could not complete our side.
+            // That must not be swallowed: the seller has the money and our
+            // records disagree.
+            capturePaymentWarning("Paystack transfer succeeded but release finalisation failed", {
+              escrowId: relatedTransaction.escrowId,
+              reference: transferReference || transferCode,
+              error: finalErr?.message || String(finalErr),
+            });
+            await opsStore.enqueueJob("payout_review", {
+              escrowId: relatedTransaction.escrowId,
+              provider: "paystack",
+              reference: transferReference || transferCode,
+              reason: `Transfer succeeded but finalisation failed: ${finalErr?.message || String(finalErr)}`,
+            });
+          }
         } else if (normalizedWebhook.eventType === "transfer.failed" || normalizedWebhook.eventType === "transfer.reversed") {
           capturePaymentWarning(`Paystack transfer payout failed/reversed: ${normalizedWebhook.eventType}`, {
             escrowId: relatedTransaction.escrowId,

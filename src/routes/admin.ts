@@ -44,7 +44,7 @@ import {
 } from "../services/notificationService";
 import { calculateEscrowPayoutQuote, getProviderForEscrow, providerConfigured as configCheck } from "../services/paymentService";
 import { getActivePayoutProvider, getPayoutProviderForEscrow, createPayoutProvider } from "../services/payoutProvider";
-import { releaseAgreementToSivanBalance } from "../services/paymentBalanceClient";
+import { finalizeEscrowRelease } from "../services/releaseFinalizer";
 import { runDailyReconciliation } from "../services/reconciliationService";
 import {
   capturePaymentWarning,
@@ -269,6 +269,17 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
         reason: payoutResult.message,
         metadata: payoutResult,
       });
+      // A pending payout is not a finished one. The provider webhook will
+      // complete it, but queue it for review so nothing sits in
+      // PENDING_RELEASE unnoticed if that webhook never arrives.
+      await opsStore
+        .enqueueJob("payout_review", {
+          escrowId: escrow.escrowId,
+          provider: payoutResult.provider,
+          reference: payoutResult.reference,
+          reason: `Payout returned ${payoutResult.status}, awaiting provider confirmation`,
+        })
+        .catch(() => undefined);
       return res.status(202).json({ escrow, payoutQuote, payout: payoutResult });
     }
     const isInternalBalance =
@@ -299,43 +310,16 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       }
     }
 
-    const updated = await escrowStore.approveManualRelease(req.params.escrowId, adminUser, {
-      ...parsed.data,
-      manualPayoutReference: payoutResult?.reference || parsed.data.manualPayoutReference || "",
+    // Finalisation is shared with the payout webhook, so an asynchronous
+    // provider ends in exactly the same state as a synchronous one.
+    const finalized = await finalizeEscrowRelease({
+      escrowId: req.params.escrowId,
+      actor: adminUser,
       payoutProvider: payoutResult?.provider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
-      grossAmount: payoutQuote.grossAmount,
-      platformFeeAmount: payoutQuote.platformFeeAmount,
-      sellerNetAmount: payoutQuote.sellerNetAmount,
+      payoutReference: payoutResult?.reference || parsed.data.manualPayoutReference || "",
+      payoutNotes: parsed.data.payoutNotes,
     });
-    info("Manual payout approval recorded", {
-      escrowId: updated.escrowId,
-      adminUser,
-      manualPayoutReference: updated.manualPayoutReference,
-      payoutProvider: payoutResult?.provider || null,
-      releasedAt: updated.releasedAt,
-      grossAmount: payoutQuote.grossAmount,
-      platformFeeAmount: payoutQuote.platformFeeAmount,
-      sellerNetAmount: payoutQuote.sellerNetAmount,
-    });
-    // Atomically release hold and credit seller's spendable balance in Sivan Payment Protocol
-    await releaseAgreementToSivanBalance(
-      updated,
-      payoutQuote.sellerNetAmount,
-      payoutQuote.platformFeeAmount
-    ).catch((balErr) => {
-      warn("Balance release sync warning on admin release approval", {
-        escrowId: updated.escrowId,
-        error: balErr?.message || String(balErr),
-      });
-    });
-    await notifyEscrowParticipants(
-      updated,
-      participantLifecycleMessage(
-        updated,
-        `Service completed. Payout was confirmed for ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
-        `Payout provider: ${payoutResult?.provider || "manual_bank_transfer"}\nProvider reference: ${updated.manualPayoutReference || payoutResult?.reference || parsed.data.manualPayoutReference}`
-      )
-    );
+    const updated = finalized.escrow;
     res.status(200).json({ escrow: updated, payoutQuote, payout: payoutResult });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Release approval failed" });
