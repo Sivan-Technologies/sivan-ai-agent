@@ -490,7 +490,9 @@ router.post("/api/escrows/:escrowId/pay-from-balance", requireCoreApiAuth, async
 
     const updated = await buildEscrowDetail(req.params.escrowId);
     if (updated) {
-      await notifyEscrowFundedParticipants(updated.escrow);
+      await notifyEscrowFundedParticipants(updated.escrow, {
+        excludeWhatsapp: detail.buyer?.whatsappNumber || detail.escrow.buyerWhatsapp,
+      });
     }
 
     res.status(200).json({ success: true, escrow: updated });
@@ -576,7 +578,8 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
           : updated.status === "PENDING_RELEASE"
           ? "Sivan will notify both parties when the service agreement is closed."
           : "Sivan support will review this before the agreement is closed."
-      )
+      ),
+      { excludeWhatsapp: parsed.data.actorWhatsapp }
     );
     res.status(200).json(updated);
   } catch (err: any) {
@@ -607,7 +610,8 @@ router.post("/api/escrows/:escrowId/complete", requireCoreApiAuth, async (req, r
         updated,
         "Work has been confirmed as completed by the buyer.",
         "Payout release is being processed to the seller's payout account."
-      )
+      ),
+      { excludeWhatsapp: parsed.data.actorWhatsapp }
     );
     res.status(200).json(updated);
   } catch (err: any) {

@@ -72,7 +72,11 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, opti
  * number is all we have for them. It is skipped when it duplicates a phone we
  * already resolved from a user record.
  */
-export async function notifyEscrowParticipants(escrow: EscrowRecord, message: string) {
+export async function notifyEscrowParticipants(
+  escrow: EscrowRecord,
+  message: string,
+  options?: { excludeWhatsapp?: string | null; excludeUserId?: string | null }
+) {
   const [buyer, seller] = await Promise.all([
     escrowStore.getUserById(escrow.buyerUserId),
     escrow.sellerUserId ? escrowStore.getUserById(escrow.sellerUserId) : Promise.resolve(null),
@@ -81,9 +85,13 @@ export async function notifyEscrowParticipants(escrow: EscrowRecord, message: st
   const recipients: Array<{ to: string; telegramUserId?: string }> = [];
   const seen = new Set<string>();
 
-  const add = (to?: string | null, telegramUserId?: string | null) => {
+  const normalizedExclude = options?.excludeWhatsapp ? normalizeWhatsAppRecipient(options.excludeWhatsapp) : null;
+
+  const add = (to?: string | null, telegramUserId?: string | null, userId?: string | null) => {
     // A recipient needs at least one reachable handle.
     if (!to && !telegramUserId) return;
+    if (normalizedExclude && to && normalizeWhatsAppRecipient(to) === normalizedExclude) return;
+    if (options?.excludeUserId && userId && userId === options.excludeUserId) return;
     // Dedupe on whichever handle identifies them. The buyer and seller of the
     // same escrow are different accounts, so a collision here means the same
     // person listed twice (user record plus raw sellerWhatsapp).
@@ -94,9 +102,9 @@ export async function notifyEscrowParticipants(escrow: EscrowRecord, message: st
     recipients.push({ to: to || "", telegramUserId: telegramUserId || undefined });
   };
 
-  add(buyer?.whatsappNumber, buyer?.telegramUserId);
-  add(seller?.whatsappNumber, seller?.telegramUserId);
-  add(escrow.sellerWhatsapp);
+  add(buyer?.whatsappNumber, buyer?.telegramUserId, escrow.buyerUserId);
+  add(seller?.whatsappNumber, seller?.telegramUserId, escrow.sellerUserId);
+  add(escrow.sellerWhatsapp, null, escrow.sellerUserId);
 
   recipients.forEach((recipient) => queueWhatsAppNotification({
     to: recipient.to,
@@ -107,7 +115,10 @@ export async function notifyEscrowParticipants(escrow: EscrowRecord, message: st
   }));
 }
 
-export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
+export async function notifyEscrowFundedParticipants(
+  escrow: EscrowRecord,
+  options?: { excludeWhatsapp?: string | null; excludeUserId?: string | null }
+) {
   const detail = await buildEscrowDetail(escrow.escrowId);
   if (!detail) return;
 
@@ -128,8 +139,15 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
   const buyerTelegramUserId = detail.buyer?.telegramUserId || extractTgId(rawBuyer);
   const sellerTelegramUserId = detail.seller?.telegramUserId || extractTgId(rawSeller);
 
-  const buyerTarget = buyerWhatsapp || (buyerTelegramUserId ? `tg:${buyerTelegramUserId}` : rawBuyer);
-  const sellerTarget = sellerWhatsapp || (sellerTelegramUserId ? `tg:${sellerTelegramUserId}` : rawSeller);
+  const normalizedExclude = options?.excludeWhatsapp ? normalizeWhatsAppRecipient(options.excludeWhatsapp) : null;
+  const buyerExcluded = Boolean(
+    (normalizedExclude && buyerWhatsapp === normalizedExclude) ||
+    (options?.excludeUserId && detail.escrow.buyerUserId === options.excludeUserId)
+  );
+  const sellerExcluded = Boolean(
+    (normalizedExclude && sellerWhatsapp === normalizedExclude) ||
+    (options?.excludeUserId && detail.escrow.sellerUserId === options.excludeUserId)
+  );
 
   const message = participantLifecycleMessage(
     detail.escrow,
@@ -137,34 +155,45 @@ export async function notifyEscrowFundedParticipants(escrow: EscrowRecord) {
     "Reply STATUS or tap View status to see what to do next."
   );
 
-  await Promise.all([
-    (buyerWhatsapp || buyerTelegramUserId) ? buildParticipantDeal(detail, buyerWhatsapp, detail.escrow.buyerUserId).then((dealCard) =>
-      queueWhatsAppNotification({
-        to: buyerWhatsapp || "",
-        telegramUserId: buyerTelegramUserId || undefined,
-        message,
-        reason: "escrow_funded",
-        escrowId: detail.escrow.escrowId,
-        dealCard: dealCard ? {
-          escrow: dealCard.escrow,
-          participant: dealCard.participant,
-        } : undefined,
-      })
-    ) : Promise.resolve(),
-    (sellerWhatsapp || sellerTelegramUserId) ? buildParticipantDeal(detail, sellerWhatsapp, detail.escrow.sellerUserId).then((dealCard) =>
-      queueWhatsAppNotification({
-        to: sellerWhatsapp || "",
-        telegramUserId: sellerTelegramUserId || undefined,
-        message,
-        reason: "escrow_funded",
-        escrowId: detail.escrow.escrowId,
-        dealCard: dealCard ? {
-          escrow: dealCard.escrow,
-          participant: dealCard.participant,
-        } : undefined,
-      })
-    ) : Promise.resolve(),
-  ]);
+  const notifications: Promise<any>[] = [];
+
+  if ((buyerWhatsapp || buyerTelegramUserId) && !buyerExcluded) {
+    notifications.push(
+      buildParticipantDeal(detail, buyerWhatsapp, detail.escrow.buyerUserId).then((dealCard) =>
+        queueWhatsAppNotification({
+          to: buyerWhatsapp || "",
+          telegramUserId: buyerTelegramUserId || undefined,
+          message,
+          reason: "escrow_funded",
+          escrowId: detail.escrow.escrowId,
+          dealCard: dealCard ? {
+            escrow: dealCard.escrow,
+            participant: dealCard.participant,
+          } : undefined,
+        })
+      )
+    );
+  }
+
+  if ((sellerWhatsapp || sellerTelegramUserId) && !sellerExcluded) {
+    notifications.push(
+      buildParticipantDeal(detail, sellerWhatsapp, detail.escrow.sellerUserId).then((dealCard) =>
+        queueWhatsAppNotification({
+          to: sellerWhatsapp || "",
+          telegramUserId: sellerTelegramUserId || undefined,
+          message,
+          reason: "escrow_funded",
+          escrowId: detail.escrow.escrowId,
+          dealCard: dealCard ? {
+            escrow: dealCard.escrow,
+            participant: dealCard.participant,
+          } : undefined,
+        })
+      )
+    );
+  }
+
+  await Promise.all(notifications);
 }
 
 export async function notifyBuyerDeliverySubmitted(
