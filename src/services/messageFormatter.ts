@@ -52,7 +52,5 @@ export function participantLifecycleMessage(escrow: EscrowRecord, statusLine: st
     "",
     statusLine,
     nextLine,
-    "",
-    `Reply STATUS ${escrow.escrowId} to view the agreement.`,
   ].join("\n");
 }
