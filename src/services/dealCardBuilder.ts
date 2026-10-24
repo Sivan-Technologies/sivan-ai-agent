@@ -69,10 +69,13 @@ export async function buildParticipantDealSummary(
     const delivEvent = events.slice().reverse().find((e) => e.eventType === "seller_delivery_proof_recorded");
     if (delivEvent) {
       let meta: any = {};
-      try { meta = JSON.parse(delivEvent.metadata || "{}"); } catch {}
+      try { meta = typeof delivEvent.metadata === "string" ? JSON.parse(delivEvent.metadata || "{}") : (delivEvent.metadata || {}); } catch {}
+      while (typeof meta === "string") {
+        try { meta = JSON.parse(meta); } catch { break; }
+      }
       deliveryProof = {
-        summary: delivEvent.reason || meta.summary || "Work delivered",
-        media: meta.media || [],
+        summary: delivEvent.reason || meta?.summary || "Work delivered",
+        media: meta?.media || [],
         deliveredAt: delivEvent.createdAt,
       };
     }
@@ -171,9 +174,12 @@ export async function buildParticipantDeal(
     if (delivEvent) {
       let meta: any = {};
       try { meta = typeof delivEvent.metadata === "string" ? JSON.parse(delivEvent.metadata || "{}") : (delivEvent.metadata || {}); } catch {}
+      while (typeof meta === "string") {
+        try { meta = JSON.parse(meta); } catch { break; }
+      }
       deliveryProof = {
-        summary: delivEvent.reason || meta.summary || "Work delivered",
-        media: meta.media || [],
+        summary: delivEvent.reason || meta?.summary || "Work delivered",
+        media: meta?.media || [],
         deliveredAt: delivEvent.createdAt,
       };
     }

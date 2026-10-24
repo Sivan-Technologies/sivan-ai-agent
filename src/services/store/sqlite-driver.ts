@@ -853,7 +853,13 @@ export class SqliteDriver implements EscrowStoreDriver {
         reason: "Buyer confirmed release; USDC policy allows autonomous release",
       });
     } else {
-      if (escrow.sellerUserId) {
+      const isInternalBalance =
+        escrow.paymentProvider === "sivan_balance" ||
+        escrow.paymentProvider === "balance" ||
+        String(escrow.paymentReference || "").startsWith("agr_fund_") ||
+        String(escrow.paymentReference || "").startsWith("bal-");
+
+      if (escrow.sellerUserId && !isInternalBalance && !isAutoReleaseEnabled && escrow.amount >= threshold) {
         const payout = await this.getPayoutAccount(escrow.sellerUserId);
         if (!payout || payout.verificationStatus !== "verified") {
           throw new Error("Seller payout account must be verified before Naira release can be requested");
@@ -874,7 +880,7 @@ export class SqliteDriver implements EscrowStoreDriver {
           reason: `Amount meets high-value review threshold for ${escrow.currency}`,
           metadata: { threshold, amount: escrow.amount, autoReleaseEnabled: isAutoReleaseEnabled },
         });
-      } else if (escrow.settlementPolicy === "autonomous_naira_release") {
+      } else if (isAutoReleaseEnabled || isInternalBalance || escrow.settlementPolicy === "autonomous_naira_release" || escrow.currency === "NAIRA") {
         await this.transitionEscrow(escrowId, "RELEASED", {
           actor,
           actorRole: "buyer",
