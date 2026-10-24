@@ -746,18 +746,36 @@ router.post("/api/escrows/:escrowId/cancel", requireCoreApiAuth, async (req, res
         escrowId: updated.escrowId,
       });
     }
+    /**
+     * DO NOT announce the cancellation back to the person who performed it.
+     *
+     * This route rejects a request without actorWhatsapp, and
+     * sendOrQueueWhatsAppNotification only ever sends on WhatsApp, so the
+     * actor here is always a WhatsApp user who tapped Confirm and has
+     * already been answered in-thread with a cancellation deal card. A
+     * second "you have cancelled this" push put two cancellation messages
+     * in the same thread, seconds apart, for one action.
+     *
+     * The seller push above stays: the counterparty is not in the thread
+     * and has no other way to learn the agreement is dead.
+     *
+     * The single thing the bot's card cannot know is whether a balance hold
+     * was unwound, because the cancel response carries the escrow and not
+     * the refund outcome. So speak only when money actually moved back, and
+     * make that message about the refund rather than repeating the
+     * cancellation.
+     */
     const buyerPhone = parsed.data.actorWhatsapp;
-    if (buyerPhone) {
+    if (buyerPhone && heldFundsReturned) {
       const buyerMsg =
-        `🚫 Agreement Cancelled\n\n` +
-        `You have cancelled the service agreement:\n` +
-        `"${titleSnip}"\n\n` +
-        `Ref: ${updated.escrowId}\n\n` +
-        `${buyerFundsLine}`;
+        `💰 Funds Returned\n\n` +
+        `${buyerFundsLine}\n\n` +
+        `Agreement: "${titleSnip}"\n` +
+        `Ref: ${updated.escrowId}`;
       void sendOrQueueWhatsAppNotification({
         to: buyerPhone.startsWith("whatsapp:") ? buyerPhone : `whatsapp:${buyerPhone}`,
         message: buyerMsg,
-        reason: "agreement_cancelled_confirm_buyer",
+        reason: "agreement_cancelled_funds_returned",
         escrowId: updated.escrowId,
       });
     }
