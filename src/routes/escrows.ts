@@ -386,24 +386,17 @@ router.post("/api/escrows/:escrowId/accept", requireCoreApiAuth, async (req, res
         }).catch((err) => warn("Background buyer notification failed", err));
       }
 
-      // 2. Notify the seller confirming their acceptance
-      const sellerWhatsapp = normalizeWhatsAppRecipient(updated.seller?.whatsappNumber || updated.escrow.sellerWhatsapp);
-      const sellerTelegramId = updated.seller?.telegramUserId || undefined;
-      const sellerMsg = `You accepted agreement ${updated.escrow.escrowId}.\nWaiting for buyer payment to lock funds before you begin work.`;
-      const sellerDealCard = await buildParticipantDeal(updated, sellerWhatsapp, updated.escrow.sellerUserId);
-      if (sellerWhatsapp || sellerTelegramId) {
-        void sendOrQueueWhatsAppNotification({
-          to: sellerWhatsapp || "",
-          telegramUserId: sellerTelegramId,
-          message: sellerMsg,
-          reason: "seller_accepted_confirmation",
-          escrowId: updated.escrow.escrowId,
-          dealCard: sellerDealCard ? {
-            escrow: sellerDealCard.escrow,
-            participant: sellerDealCard.participant,
-          } : undefined,
-        }).catch((err) => warn("Background seller acceptance notification failed", err));
-      }
+      /**
+       * DO NOT announce acceptance back to the seller who performed it.
+       *
+       * The seller accepted this agreement from their active conversation or UI
+       * and has already been answered in-thread with the updated agreement deal card.
+       * Sending a background push notification back to the actor puts two
+       * identical agreement cards in their thread seconds apart for one action.
+       *
+       * The buyer notification above stays: the counterparty is not in the
+       * thread and needs the payment instructions to fund the agreement.
+       */
     }
     res.status(200).json({ escrow: updated, payment });
   } catch (err: any) {
