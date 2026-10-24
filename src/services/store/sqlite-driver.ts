@@ -859,7 +859,7 @@ export class SqliteDriver implements EscrowStoreDriver {
         String(escrow.paymentReference || "").startsWith("agr_fund_") ||
         String(escrow.paymentReference || "").startsWith("bal-");
 
-      if (escrow.sellerUserId && !isInternalBalance && !isAutoReleaseEnabled && escrow.amount >= threshold) {
+      if (escrow.sellerUserId && !isInternalBalance) {
         const payout = await this.getPayoutAccount(escrow.sellerUserId);
         if (!payout || payout.verificationStatus !== "verified") {
           throw new Error("Seller payout account must be verified before Naira release can be requested");
@@ -880,7 +880,7 @@ export class SqliteDriver implements EscrowStoreDriver {
           reason: `Amount meets high-value review threshold for ${escrow.currency}`,
           metadata: { threshold, amount: escrow.amount, autoReleaseEnabled: isAutoReleaseEnabled },
         });
-      } else if (isAutoReleaseEnabled || isInternalBalance || escrow.settlementPolicy === "autonomous_naira_release" || escrow.currency === "NAIRA") {
+      } else if (isInternalBalance || escrow.settlementPolicy === "autonomous_naira_release") {
         await this.transitionEscrow(escrowId, "RELEASED", {
           actor,
           actorRole: "buyer",
@@ -1022,8 +1022,8 @@ export class SqliteDriver implements EscrowStoreDriver {
         }
         return (await this.getEscrowById(escrowId))!;
       }
-      if (escrow.currency === "NAIRA" && !["PENDING_RELEASE", "REVIEW_REQUIRED"].includes(escrow.status)) {
-        throw new Error("Naira escrow must be pending release or under review before admin approval");
+      if (escrow.currency === "NAIRA" && !["PENDING_RELEASE", "REVIEW_REQUIRED", "DELIVERED"].includes(escrow.status)) {
+        throw new Error("Naira escrow must be pending release, under review, or delivered before admin approval");
       }
       if (
         escrow.currency === "NAIRA" &&

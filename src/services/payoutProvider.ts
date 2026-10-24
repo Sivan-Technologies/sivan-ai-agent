@@ -11,7 +11,9 @@ export type PayoutProviderId =
   | "flutterwave"
   | "monnify"
   | "nomba"
-  | "paystack";
+  | "paystack"
+  | "sivan_balance"
+  | "balance";
 
 export type PayoutProviderStatus =
   | "succeeded"
@@ -301,10 +303,26 @@ export class PaystackPayoutProvider implements PayoutProvider {
   }
 }
 
+class SivanBalancePayoutProvider implements PayoutProvider {
+  public readonly id = "sivan_balance" as const;
+  constructor(private platformMode?: "test" | "live" | "maintenance") {}
+  public async initiatePayout(input: PayoutInitiationInput): Promise<PayoutInitiationResult> {
+    const ref = input.manualPayoutReference || input.escrow.paymentReference || `siv_rel_${input.escrow.escrowId}`;
+    return {
+      provider: this.id,
+      status: "succeeded",
+      reference: ref,
+      message: "Settled to Sivan spendable balance",
+      rawPayload: { internalBalanceSettlement: true },
+    };
+  }
+}
+
 export function createPayoutProvider(
   provider: PayoutProviderId = configuredActivePayoutProvider(),
   platformMode?: "test" | "live" | "maintenance"
 ): PayoutProvider {
+  if (provider === "sivan_balance" || provider === "balance") return new SivanBalancePayoutProvider(platformMode);
   if (provider === "manual_bank_transfer") return new ManualBankTransferPayoutProvider(platformMode);
   if (provider === "palmpay") return new PalmPayPayoutProvider(platformMode);
   if (provider === "nomba") return new NombaPayoutProvider(platformMode);
@@ -322,6 +340,16 @@ export function getPayoutProviderForEscrow(
   escrow: EscrowRecord,
   platformMode?: "test" | "live" | "maintenance"
 ): PayoutProvider {
+  const isInternal =
+    escrow.paymentProvider === "sivan_balance" ||
+    escrow.paymentProvider === "balance" ||
+    String(escrow.paymentReference || "").startsWith("agr_fund_") ||
+    String(escrow.paymentReference || "").startsWith("bal-");
+
+  if (isInternal) {
+    return createPayoutProvider("sivan_balance", platformMode);
+  }
+
   if (escrow.currency !== "NAIRA") {
     return createPayoutProvider("manual_bank_transfer", platformMode);
   }

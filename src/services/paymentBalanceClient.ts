@@ -45,7 +45,8 @@ export async function releaseAgreementToSivanBalance(
     currency: string;
   },
   sellerNetAmount?: number,
-  platformFeeAmount?: number
+  platformFeeAmount?: number,
+  payoutDestination: "balance" | "bank" = "balance"
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   const buyerId = escrow.buyerUserId || escrow.buyerWhatsapp;
   const sellerId = escrow.sellerUserId || escrow.sellerWhatsapp;
@@ -66,6 +67,7 @@ export async function releaseAgreementToSivanBalance(
     currency: (escrow.currency === "NAIRA" ? "ngn" : escrow.currency).toLowerCase(),
     sellerNetAmount: sellerNetAmount !== undefined ? Number(sellerNetAmount) : Number(escrow.amount),
     feeAmount: platformFeeAmount !== undefined ? Number(platformFeeAmount) : 0,
+    payoutDestination,
   };
 
   try {

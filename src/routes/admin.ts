@@ -223,30 +223,50 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
       });
     }
     const payoutQuote = await calculateEscrowPayoutQuote(escrow.amount, escrow.currency, escrow.feePayer);
-    const payoutProvider = escrow.currency === "NAIRA"
-      ? (parsed.data.manualPayoutReference
-          ? createPayoutProvider("manual_bank_transfer", config.databaseMode)
-          : parsed.data.payoutProvider
-          ? createPayoutProvider(parsed.data.payoutProvider, config.databaseMode)
-          : getPayoutProviderForEscrow(escrow, config.databaseMode))
-      : null;
-    const payoutAccount = escrow.sellerUserId
-      ? payoutProvider?.id === "manual_bank_transfer"
-        ? await escrowStore.getPayoutAccount(escrow.sellerUserId)
-        : await escrowStore.getPayoutAccountForTransfer(escrow.sellerUserId)
-      : null;
-    const payoutResult = payoutProvider
-      ? await payoutProvider.initiatePayout({
-          escrow,
-          payoutAccount,
-          amount: payoutQuote.sellerNetAmount,
-          currency: escrow.currency,
-          requestedBy: adminUser,
-          idempotencyKey: `release-${escrow.escrowId}`,
-          manualPayoutReference: parsed.data.manualPayoutReference,
-          payoutNotes: parsed.data.payoutNotes,
-        })
-      : null;
+    const isInternalBalance =
+      escrow.paymentProvider === "sivan_balance" ||
+      escrow.paymentProvider === "balance" ||
+      String(escrow.paymentReference || "").startsWith("agr_fund_") ||
+      String(escrow.paymentReference || "").startsWith("bal-") ||
+      String(parsed.data.manualPayoutReference || "").startsWith("siv_rel_") ||
+      parsed.data.payoutProvider === "sivan_balance";
+
+    let payoutResult: any = null;
+    if (isInternalBalance) {
+      payoutResult = {
+        provider: "sivan_balance",
+        status: "succeeded",
+        reference: escrow.paymentReference || parsed.data.manualPayoutReference || `siv_rel_${escrow.escrowId}`,
+        message: "Settled directly to Sivan spendable balance",
+        rawPayload: { internalBalanceSettlement: true },
+      };
+    } else {
+      const payoutProvider = escrow.currency === "NAIRA"
+        ? (parsed.data.manualPayoutReference
+            ? createPayoutProvider("manual_bank_transfer", config.databaseMode)
+            : parsed.data.payoutProvider
+            ? createPayoutProvider(parsed.data.payoutProvider, config.databaseMode)
+            : getPayoutProviderForEscrow(escrow, config.databaseMode))
+        : null;
+      const payoutAccount = escrow.sellerUserId
+        ? payoutProvider?.id === "manual_bank_transfer"
+          ? await escrowStore.getPayoutAccount(escrow.sellerUserId)
+          : await escrowStore.getPayoutAccountForTransfer(escrow.sellerUserId)
+        : null;
+      payoutResult = payoutProvider
+        ? await payoutProvider.initiatePayout({
+            escrow,
+            payoutAccount,
+            amount: payoutQuote.sellerNetAmount,
+            currency: escrow.currency,
+            requestedBy: adminUser,
+            idempotencyKey: `release-${escrow.escrowId}`,
+            manualPayoutReference: parsed.data.manualPayoutReference,
+            payoutNotes: parsed.data.payoutNotes,
+          })
+        : null;
+    }
+
     if (payoutResult && payoutResult.status !== "succeeded") {
       await escrowStore.addTransaction({
         escrowId: escrow.escrowId,
@@ -282,11 +302,6 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
         .catch(() => undefined);
       return res.status(202).json({ escrow, payoutQuote, payout: payoutResult });
     }
-    const isInternalBalance =
-      escrow.paymentProvider === "sivan_balance" ||
-      escrow.paymentProvider === "balance" ||
-      String(escrow.paymentReference || "").startsWith("agr_fund_") ||
-      String(escrow.paymentReference || "").startsWith("bal-");
 
     if (escrow.currency === "USDC" && escrow.paymentReference && !isInternalBalance) {
       try {
@@ -312,11 +327,18 @@ router.post("/admin/escrows/:escrowId/approve-release", requireAdminAuth, logAdm
 
     // Finalisation is shared with the payout webhook, so an asynchronous
     // provider ends in exactly the same state as a synchronous one.
+    const resolvedPayoutProvider = isInternalBalance
+      ? "sivan_balance"
+      : (payoutResult?.provider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"));
+    const resolvedPayoutRef = isInternalBalance
+      ? (escrow.paymentReference || parsed.data.manualPayoutReference || `siv_rel_${escrow.escrowId}`)
+      : (payoutResult?.reference || parsed.data.manualPayoutReference || "");
+
     const finalized = await finalizeEscrowRelease({
       escrowId: req.params.escrowId,
       actor: adminUser,
-      payoutProvider: payoutResult?.provider || (escrow.currency === "NAIRA" ? "manual_bank_transfer" : "x402"),
-      payoutReference: payoutResult?.reference || parsed.data.manualPayoutReference || "",
+      payoutProvider: resolvedPayoutProvider,
+      payoutReference: resolvedPayoutRef,
       payoutNotes: parsed.data.payoutNotes,
     });
     const updated = finalized.escrow;

@@ -190,7 +190,7 @@ export const disputeResolutionSchema = z.object({
 export const adminReleaseApprovalSchema = z.object({
   manualPayoutReference: z.string().trim().min(3).max(160).optional(),
   payoutNotes: z.string().trim().min(2).max(1000).optional(),
-  payoutProvider: z.enum(["manual_bank_transfer", "paystack", "palmpay", "nomba", "flutterwave", "monnify"]).optional(),
+  payoutProvider: z.enum(["manual_bank_transfer", "paystack", "palmpay", "nomba", "flutterwave", "monnify", "sivan_balance", "balance"]).optional(),
 }).strict();
 
 export const adminSettingsSchema = z.object({

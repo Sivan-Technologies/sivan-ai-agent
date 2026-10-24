@@ -84,12 +84,23 @@ export async function finalizeEscrowRelease(input: FinalizeReleaseInput): Promis
   // Move the money. A failure here means the agreement reads RELEASED while the
   // seller has not been paid, so it is recorded and queued for a human rather
   // than logged and forgotten.
+  const isDirectBankPayout =
+    input.payoutProvider === "paystack" ||
+    input.payoutProvider === "palmpay" ||
+    input.payoutProvider === "nomba" ||
+    (input.payoutProvider === "manual_bank_transfer" &&
+      !String(input.payoutReference || "").startsWith("siv_rel_") &&
+      !String(input.payoutReference || "").startsWith("bal-"));
+
+  const payoutDestination: "balance" | "bank" = isDirectBankPayout ? "bank" : "balance";
+
   let balanceCredited = true;
   try {
     const balanceResult = await releaseAgreementToSivanBalance(
       updated,
       payoutQuote.sellerNetAmount,
-      payoutQuote.platformFeeAmount
+      payoutQuote.platformFeeAmount,
+      payoutDestination
     );
     if (!balanceResult?.success) {
       balanceCredited = false;
