@@ -34,7 +34,11 @@ function getS3Client(): S3Client {
  * Downloads a file from an external URL and uploads it to Sivan's R2 Bucket.
  * Returns the unique storage key (e.g. "test/proofs/178280_evidence.pdf").
  */
-export async function uploadEvidenceUrlToR2(sourceUrl: string, filename: string): Promise<string> {
+export async function uploadEvidenceUrlToR2(
+  sourceUrl: string,
+  filename: string,
+  customHeaders?: Record<string, string>
+): Promise<string> {
   const hasR2Creds = Boolean(
     config.storage.r2AccessKeyId &&
     config.storage.r2SecretAccessKey &&
@@ -57,11 +61,20 @@ export async function uploadEvidenceUrlToR2(sourceUrl: string, filename: string)
   let contentType = "application/octet-stream";
 
   const isTwilioUrl = sourceUrl.includes("api.twilio.com");
+  const isMetaUrl = sourceUrl.includes("fbsbx.com") || sourceUrl.includes("facebook.com") || sourceUrl.includes("whatsapp.net");
   const hasTwilioCreds = Boolean(config.twilio?.accountSid && config.twilio?.authToken);
+  const metaToken = config.meta?.accessToken || process.env.META_ACCESS_TOKEN;
   const requestHeaders: Record<string, string> = { "User-Agent": "SivanEvidenceDownloader/1.0" };
+
   if (isTwilioUrl && hasTwilioCreds) {
     const auth = Buffer.from(`${config.twilio.accountSid}:${config.twilio.authToken}`).toString("base64");
     requestHeaders["Authorization"] = `Basic ${auth}`;
+  } else if (isMetaUrl && metaToken) {
+    requestHeaders["Authorization"] = `Bearer ${metaToken}`;
+  }
+
+  if (customHeaders) {
+    Object.assign(requestHeaders, customHeaders);
   }
 
   try {

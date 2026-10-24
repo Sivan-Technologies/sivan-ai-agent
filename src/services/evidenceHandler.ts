@@ -71,7 +71,7 @@ export function containsExternalLink(value: string) {
 }
 
 export async function validateDeliveryProofMedia(
-  media: Array<{ url: string; contentType?: string; filename?: string }>
+  media: Array<{ url: string; contentType?: string; filename?: string; headers?: Record<string, string> }>
 ): Promise<void> {
   if (config.databaseMode === "test") {
     return;
@@ -109,9 +109,21 @@ export async function validateDeliveryProofMedia(
 
     // 3. HTTP HEAD/GET range checks to verify size and content-type
     const isTwilioUrl = url.includes("api.twilio.com");
+    const isMetaUrl = url.includes("fbsbx.com") || url.includes("facebook.com") || url.includes("whatsapp.net");
     const hasTwilioCreds = Boolean(config.twilio?.accountSid && config.twilio?.authToken);
+    const metaToken = config.meta?.accessToken || process.env.META_ACCESS_TOKEN;
 
     if (isTwilioUrl && !hasTwilioCreds) {
+      if (item.contentType) {
+        const matchesMimetype = allowedMimeTypes.some((mime) => item.contentType?.toLowerCase().startsWith(mime));
+        if (!matchesMimetype) {
+          throw new Error(`Unsupported evidence file type: ${item.contentType}. Only PDF, JPG, PNG, and MP4 are allowed.`);
+        }
+      }
+      continue;
+    }
+
+    if (isMetaUrl && !metaToken && !item.headers?.Authorization) {
       if (item.contentType) {
         const matchesMimetype = allowedMimeTypes.some((mime) => item.contentType?.toLowerCase().startsWith(mime));
         if (!matchesMimetype) {
@@ -125,6 +137,11 @@ export async function validateDeliveryProofMedia(
     if (isTwilioUrl && hasTwilioCreds) {
       const auth = Buffer.from(`${config.twilio.accountSid}:${config.twilio.authToken}`).toString("base64");
       requestHeaders["Authorization"] = `Basic ${auth}`;
+    } else if (isMetaUrl && metaToken) {
+      requestHeaders["Authorization"] = `Bearer ${metaToken}`;
+    }
+    if (item.headers) {
+      Object.assign(requestHeaders, item.headers);
     }
 
     try {
@@ -178,7 +195,7 @@ export async function recordDeliveryProof(input: {
    */
   actor: string;
   summary: string;
-  media: Array<{ url: string; contentType?: string; filename?: string }>;
+  media: Array<{ url: string; contentType?: string; filename?: string; headers?: Record<string, string> }>;
   notifyBuyer: boolean;
 }) {
   const { escrow, actor, summary, media, notifyBuyer } = input;
@@ -192,7 +209,7 @@ export async function recordDeliveryProof(input: {
   const uploadedMedia = await Promise.all(
     media.map(async (m) => {
       const filename = m.filename || `evidence_${Date.now()}.${m.contentType?.split("/")?.[1] || "pdf"}`;
-      const r2Key = await uploadEvidenceUrlToR2(m.url, filename);
+      const r2Key = await uploadEvidenceUrlToR2(m.url, filename, m.headers);
       return {
         ...m,
         url: `r2://${r2Key}`,

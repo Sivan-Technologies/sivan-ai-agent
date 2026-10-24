@@ -172,6 +172,7 @@ export const deliveryProofSchema = z.object({
     url: z.string().trim().url().max(1000),
     contentType: z.string().trim().min(3).max(120).optional(),
     filename: z.string().trim().min(1).max(240).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
   })).max(5).default([]),
   notifyBuyer: z.coerce.boolean().default(true),
 }).refine((value) => Boolean(value.actorWhatsapp || value.actorUserId), {

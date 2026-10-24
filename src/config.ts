@@ -222,6 +222,9 @@ export const config = {
     accountSid: envValue("TWILIO_ACCOUNT_SID"),
     authToken: envValue("TWILIO_AUTH_TOKEN"),
   },
+  meta: {
+    accessToken: envValue("META_ACCESS_TOKEN"),
+  },
 };
 
 export function validateConfig() {
