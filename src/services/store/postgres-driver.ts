@@ -331,7 +331,7 @@ export class PostgresDriver implements EscrowStoreDriver {
     const status: EscrowStatus = input.sellerUserId ? "PENDING_ACCEPTANCE" : "PENDING_PROFILE";
     const settlementPolicy: SettlementPolicy =
       (input as any).settlementPolicy ||
-      (input.currency === "NAIRA" ? "manual_naira_release" : "autonomous_usdc_release");
+      (input.currency === "NAIRA" ? "autonomous_naira_release" : "autonomous_usdc_release");
     const feePayer = input.feePayer || "buyer";
     const network = input.network || (input.currency === "NAIRA" ? "Sivan Instant" : "solana");
 
@@ -834,7 +834,7 @@ export class PostgresDriver implements EscrowStoreDriver {
     const nairaThreshold = opts.nairaHighValueAmount ?? 500000;
     const usdcThresholdVal = opts.usdcHighValueAmount ?? 2500;
     const threshold = highValueThreshold(escrow.currency, nairaThreshold, usdcThresholdVal);
-    const isAutoReleaseEnabled = opts.autoReleaseEnabled === true;
+    const isAutoReleaseEnabled = opts.autoReleaseEnabled !== false;
 
     if (escrow.currency === "USDC") {
       if (escrow.amount >= threshold) {
@@ -854,7 +854,7 @@ export class PostgresDriver implements EscrowStoreDriver {
         String(escrow.paymentReference || "").startsWith("agr_fund_") ||
         String(escrow.paymentReference || "").startsWith("bal-");
 
-      if (escrow.sellerUserId && !isInternalBalance) {
+      if (escrow.sellerUserId && !isInternalBalance && !isAutoReleaseEnabled) {
         const payout = await this.getPayoutAccount(escrow.sellerUserId);
         if (!payout || payout.verificationStatus !== "verified") {
           throw new Error("Seller payout account must be verified before Naira release can be requested");
@@ -875,7 +875,7 @@ export class PostgresDriver implements EscrowStoreDriver {
           reason: `Amount meets high-value review threshold for ${escrow.currency}`,
           metadata: { threshold, amount: escrow.amount, autoReleaseEnabled: isAutoReleaseEnabled },
         });
-      } else if (isInternalBalance || escrow.settlementPolicy === "autonomous_naira_release") {
+      } else if (isInternalBalance || (isAutoReleaseEnabled && escrow.settlementPolicy === "autonomous_naira_release")) {
         await this.transitionEscrow(escrowId, "RELEASED", {
           actor,
           actorRole: "buyer",

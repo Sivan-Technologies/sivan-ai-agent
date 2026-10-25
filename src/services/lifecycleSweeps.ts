@@ -26,8 +26,9 @@ export async function checkInspectionExpirations() {
       try {
         await escrowStore.completeEscrow(escrow.escrowId, "system-sweep", "system_lifecycle_sweep");
         const updated = await escrowStore.requestRelease(escrow.escrowId, "system-sweep", "system_lifecycle_sweep", {
-          nairaHighValueAmount: settings.nairaHighValueReviewAmount,
+          nairaHighValueAmount: settings.autoReleaseThresholdNgn ?? settings.nairaHighValueReviewAmount,
           usdcHighValueAmount: settings.usdcHighValueReviewAmount,
+          autoReleaseEnabled: settings.autoReleaseEnabled,
         });
         await notifyEscrowParticipants(
           updated,

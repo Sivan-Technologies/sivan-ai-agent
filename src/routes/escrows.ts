@@ -185,6 +185,7 @@ router.post("/api/escrows", requireCoreApiAuth, async (req, res) => {
       createdByChannel: input.channel,
       feePayer: input.feePayer,
       network: input.network || input.cryptoNetwork,
+      settlementPolicy: (input as any).settlementPolicy,
     });
 
     const updated = await escrowStore.getEscrowById(escrow.escrowId);

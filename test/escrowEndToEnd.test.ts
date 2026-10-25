@@ -64,6 +64,7 @@ describe("Escrow End-to-End Lifecycle & Release Paths", () => {
         sellerWhatsapp: seller.whatsappNumber,
         amount: 15000,
         currency: "NAIRA",
+        settlementPolicy: "manual_naira_release",
         purpose: "Copywriting service contract",
         channel: "whatsapp_dm",
       });

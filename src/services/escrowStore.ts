@@ -144,6 +144,7 @@ export class EscrowStore implements EscrowStoreDriver {
     createdByChannel: string;
     feePayer?: "buyer" | "seller" | "split";
     network?: string;
+    settlementPolicy?: SettlementPolicy;
   }): Promise<EscrowRecord> {
     return this.driver.createEscrow(input);
   }

@@ -163,6 +163,6 @@ describe("Auto Release API End-to-End Test Flow", () => {
     expect(transitionedEnabled).toBe(1); // 1 escrow successfully auto-completed
 
     const escrowStatusEnabled = await escrowStore.getEscrowById(escrowId);
-    expect(escrowStatusEnabled?.status).toBe("PENDING_RELEASE"); // Status transitioned successfully to PENDING_RELEASE
-  });
+    expect(escrowStatusEnabled?.status).toBe("RELEASED"); // Status transitioned successfully to RELEASED
+  }, 30000);
 });

@@ -238,6 +238,7 @@ export interface EscrowStoreDriver {
     createdByChannel: string;
     feePayer?: "buyer" | "seller" | "split";
     network?: string;
+    settlementPolicy?: SettlementPolicy;
   }): Promise<EscrowRecord>;
   findEscrowByClientRequestId(clientRequestId: string): Promise<EscrowRecord | null>;
   createOrGetLimitReview(input: {

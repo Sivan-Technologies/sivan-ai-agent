@@ -324,6 +324,7 @@ export class SettingsStore {
       "queue_worker_enabled INTEGER NOT NULL DEFAULT 0",
       "stuck_escrow_alert_minutes INTEGER NOT NULL DEFAULT 1440",
       "auto_release_enabled INTEGER NOT NULL DEFAULT 1",
+      "auto_release_threshold_ngn REAL NOT NULL DEFAULT 500000",
       "delivery_inspection_window_days INTEGER NOT NULL DEFAULT 3",
       "outage_status_page_url TEXT NOT NULL DEFAULT ''",
       "outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai'",
@@ -482,6 +483,7 @@ export class SettingsStore {
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS queue_worker_enabled INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS stuck_escrow_alert_minutes INTEGER NOT NULL DEFAULT 1440;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS auto_release_enabled INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS auto_release_threshold_ngn DOUBLE PRECISION NOT NULL DEFAULT 500000;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS delivery_inspection_window_days INTEGER NOT NULL DEFAULT 3;
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_status_page_url TEXT NOT NULL DEFAULT '';
       ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS outage_contacts TEXT NOT NULL DEFAULT 'Telegram @Sivan_Ai';
@@ -505,11 +507,11 @@ export class SettingsStore {
           naira_high_value_review_amount, usdc_high_value_review_amount,
           payment_lifecycle_worker_enabled, payment_lifecycle_worker_interval_ms,
           reconciliation_worker_enabled, queue_worker_enabled, stuck_escrow_alert_minutes,
-          auto_release_enabled, delivery_inspection_window_days,
+          auto_release_enabled, auto_release_threshold_ngn, delivery_inspection_window_days,
           outage_status_page_url, outage_contacts,
           version, updated_at, updated_by
         )
-         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 1, 3, $22, $23, 1, $24, 'system')`,
+         VALUES ('default', 2.5, 50, 1.5, 0.5, $1, $2, $3, $4, $5, $6, 'bank_transfer', 'simple', '[{"max":10000,"fee":500},{"max":20000,"fee":900},{"max":25000,"fee":1000},{"max":50000,"rate":3.75},{"max":100000,"rate":3.5},{"max":null,"rate":3.5}]', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 1, 500000, 3, $22, $23, 1, $24, 'system')`,
         [
           process.env.ACTIVE_PAYMENT_PROVIDER || "paystack",
           process.env.BACKUP_PAYMENT_PROVIDER || "palmpay",
@@ -785,6 +787,7 @@ export class SettingsStore {
             queue_worker_enabled = @queueWorkerEnabled,
             stuck_escrow_alert_minutes = @stuckEscrowAlertMinutes,
             auto_release_enabled = @autoReleaseEnabled,
+            auto_release_threshold_ngn = @autoReleaseThresholdNgn,
             delivery_inspection_window_days = @deliveryInspectionWindowDays,
             outage_status_page_url = @outageStatusPageUrl,
             outage_contacts = @outageContacts,
@@ -851,16 +854,17 @@ export class SettingsStore {
              queue_worker_enabled = $39,
              stuck_escrow_alert_minutes = $40,
              auto_release_enabled = $41,
-             delivery_inspection_window_days = $42,
-             outage_status_page_url = $43,
-             outage_contacts = $44,
-             crypto_network = $45,
-             network_mode = $46,
-             usdt_enabled = $47,
-             version = $48,
-             updated_at = $49,
-             updated_by = $50
-         WHERE id = 'default' AND version = $51`,
+             auto_release_threshold_ngn = $42,
+             delivery_inspection_window_days = $43,
+             outage_status_page_url = $44,
+             outage_contacts = $45,
+             crypto_network = $46,
+             network_mode = $47,
+             usdt_enabled = $48,
+             version = $49,
+             updated_at = $50,
+             updated_by = $51
+         WHERE id = 'default' AND version = $52`,
         [
           resolved.nairaFeePercent,
           resolved.nairaFeeFixed,
@@ -903,6 +907,7 @@ export class SettingsStore {
           resolved.queueWorkerEnabled ? 1 : 0,
           resolved.stuckEscrowAlertMinutes,
           resolved.autoReleaseEnabled ? 1 : 0,
+          resolved.autoReleaseThresholdNgn,
           resolved.deliveryInspectionWindowDays,
           resolved.outageStatusPageUrl,
           resolved.outageContacts,

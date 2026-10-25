@@ -66,6 +66,7 @@ export const escrowCreateSchema = z.object({
   feePayer: z.enum(["buyer", "seller", "split"]).default("buyer"),
   network: z.string().trim().min(1).max(60).optional(),
   cryptoNetwork: z.string().trim().min(1).max(60).optional(),
+  settlementPolicy: z.enum(["manual_naira_release", "autonomous_naira_release", "autonomous_usdc_release"]).optional(),
 });
 
 export const userProfileSchema = z.object({

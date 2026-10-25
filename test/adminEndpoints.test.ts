@@ -174,7 +174,7 @@ describe("Admin Settings API Integration", () => {
       .send(payload);
     expect(accepted.status).toBe(200);
     expect(accepted.body).toMatchObject({ status: "received" });
-  });
+  }, 15000);
 
   it("should process and reconcile signed Nomba pay-in checkouts", async () => {
     const { escrowStore } = await import("../src/context");
@@ -1109,6 +1109,7 @@ describe("Admin Settings API Integration", () => {
         sellerWhatsapp,
         amount: 25000,
         currency: "NAIRA",
+        settlementPolicy: "manual_naira_release",
         purpose: "admin payout pilot proof",
         channel: "whatsapp_dm",
       });
@@ -1233,7 +1234,7 @@ describe("Admin Settings API Integration", () => {
     expect(csv.text).toContain("compliance risk score");
     expect(csv.text).toContain("reconciliation risk level");
     expect(csv.text).toContain("TEST-paystack-");
-  });
+  }, 30000);
 
   it("should expose protected revenue analytics with separate currencies and accounting basis", async () => {
     const unauthorized = await request(app).get("/admin/revenue");

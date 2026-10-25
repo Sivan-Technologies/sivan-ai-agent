@@ -7,7 +7,7 @@ export function getPaymentApiUrl(pathAndQuery: string): string {
     process.env.PAYMENT_API_BASE_URL ||
     process.env.CORE_PAYMENT_URL ||
     process.env.SIVAN_PAYMENT_URL ||
-    "https://api.sivantech.online";
+    (process.env.DATABASE_MODE === "test" ? "https://api-staging.sivantech.online" : "https://api.sivantech.online");
   const normalizedBase = base.replace(/\/+$/, "");
   let upstreamPath = pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`;
 

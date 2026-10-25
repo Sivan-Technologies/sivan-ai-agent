@@ -114,7 +114,7 @@ export function payoutAccountToken(accountNumber: string) {
 }
 
 export function highValueThreshold(currency: EscrowCurrency, nairaThreshold: number, usdcThreshold: number) {
-  return currency === "NAIRA" ? nairaThreshold : usdcThreshold;
+  return (currency === "NAIRA" || (currency as string) === "NGN") ? nairaThreshold : usdcThreshold;
 }
 
 export function payoutNameMatchAcceptable(payout: PayoutAccountRecord) {
