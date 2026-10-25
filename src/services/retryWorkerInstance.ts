@@ -15,7 +15,9 @@ export const retryWorker = new RetryWorker(opsStore, {
       String(payload.to),
       String(payload.message),
       payload.dealCard,
-      Array.isArray(payload.media) ? (payload.media as string[]) : undefined
+      Array.isArray(payload.media) ? (payload.media as string[]) : undefined,
+      payload.reason ? String(payload.reason) : undefined,
+      payload.escrowId ? String(payload.escrowId) : undefined
     );
   },
   payment_recheck: async (payload) => {

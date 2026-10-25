@@ -94,7 +94,14 @@ export async function sendOrQueueWhatsAppNotification(params: {
   if (!whatsappAddress) return;
 
   try {
-    await notifyWhatsAppBotStrict(whatsappAddress, params.message, params.dealCard, params.media);
+    await notifyWhatsAppBotStrict(
+      whatsappAddress,
+      params.message,
+      params.dealCard,
+      params.media,
+      params.reason,
+      params.escrowId
+    );
   } catch (err) {
 
     const context = {

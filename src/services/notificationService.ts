@@ -124,7 +124,14 @@ export async function notifyTelegramBot(to: string, message: string, dealCard?: 
   }
 }
 
-export async function notifyWhatsAppBotStrict(to: string, message: string, dealCard?: any, media?: string[]) {
+export async function notifyWhatsAppBotStrict(
+  to: string,
+  message: string,
+  dealCard?: any,
+  media?: string[],
+  reason?: string,
+  escrowId?: string
+) {
   const notifyBase = getWhatsAppBaseUrl();
   const secret = config.app.notificationSecret;
 
@@ -152,6 +159,8 @@ export async function notifyWhatsAppBotStrict(to: string, message: string, dealC
         body: JSON.stringify({
           to,
           message: config.databaseMode === "test" ? `[TEST] ${message}` : message,
+          ...(reason ? { reason } : {}),
+          ...(escrowId ? { escrowId } : {}),
           ...(dealCard ? { dealCard } : {}),
           ...(media && media.length ? { media } : {}),
         }),
