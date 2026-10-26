@@ -580,7 +580,10 @@ router.post("/api/escrows/:escrowId/release-request", requireCoreApiAuth, async 
           ? "Sivan will notify both parties when the service agreement is closed."
           : "Sivan support will review this before the agreement is closed."
       ),
-      { excludeWhatsapp: parsed.data.actorWhatsapp }
+      {
+        excludeWhatsapp: parsed.data.actorWhatsapp,
+        reason: updated.status === "RELEASED" ? "deal_settled" : "deal_under_review",
+      }
     );
     res.status(200).json(updated);
   } catch (err: any) {

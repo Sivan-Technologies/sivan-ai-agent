@@ -75,7 +75,7 @@ export async function notifyEscrowCreatedParticipants(escrow: EscrowRecord, opti
 export async function notifyEscrowParticipants(
   escrow: EscrowRecord,
   message: string,
-  options?: { excludeWhatsapp?: string | null; excludeUserId?: string | null }
+  options?: { excludeWhatsapp?: string | null; excludeUserId?: string | null; reason?: string }
 ) {
   const [buyer, seller] = await Promise.all([
     escrowStore.getUserById(escrow.buyerUserId),
@@ -110,7 +110,7 @@ export async function notifyEscrowParticipants(
     to: recipient.to,
     telegramUserId: recipient.telegramUserId,
     message,
-    reason: "escrow_participant_update",
+    reason: options?.reason || "escrow_participant_update",
     escrowId: escrow.escrowId,
   }));
 }

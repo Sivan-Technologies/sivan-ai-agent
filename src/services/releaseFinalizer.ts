@@ -146,8 +146,9 @@ export async function finalizeEscrowRelease(input: FinalizeReleaseInput): Promis
     participantLifecycleMessage(
       updated,
       `Service completed. Payout was confirmed for ${updated.currency === "NAIRA" ? "NGN" : updated.currency} ${new Intl.NumberFormat("en-NG").format(payoutQuote.sellerNetAmount)}.`,
-      `Payout provider: ${input.payoutProvider}\nProvider reference: ${updated.manualPayoutReference || input.payoutReference}`
-    )
+      `Payout provider: ${input.payoutProvider}\nProvider reference: ${updated.manualPayoutReference || input.payoutReference}\nFunds are now available in the seller's Sivan account balance.`
+    ),
+    { reason: "deal_settled" }
   ).catch((notifyErr: any) => {
     warn("Release notification failed", {
       escrowId: updated.escrowId,
